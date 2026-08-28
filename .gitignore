@@ -89,3 +89,9 @@ outputs/
 .jax_cache/
 .pytest_cache/
 .mypy_cache/
+
+# ============================================================
+# Personal / working analysis notebooks
+# ============================================================
+
+analysis/
