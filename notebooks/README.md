@@ -11,6 +11,30 @@ src/        = reusable analysis implementation
 scripts/    = automated workflows
 notebooks/  = interactive exploration and examples
 ```
+## Working Notebooks
+
+The notebooks in this directory are intended to remain clean, reusable examples.
+
+Do not use these template notebooks directly for long-term mouse-specific analyses.
+
+Instead, create a local:
+
+```text
+analysis/
+```
+
+directory at the repository root and copy the desired template there.
+
+For example:
+
+```text
+notebooks/02_event_aligned_photometry.ipynb
+                |
+                v
+analysis/DK21_230704_002_events.ipynb
+```
+
+The `analysis/` directory is excluded from Git by `.gitignore`, allowing session-specific notebooks and outputs to remain local while the notebooks committed to GitHub remain clean and reproducible.
 
 ## `01_explore_session.ipynb`
 
