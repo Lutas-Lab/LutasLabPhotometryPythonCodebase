@@ -181,6 +181,78 @@ See `notebooks/README.md` for additional information.
 
 ---
 
+# Working Analysis Notebooks
+
+The notebooks committed under:
+
+```text
+notebooks/
+```
+
+are intended to serve as clean, reusable templates and examples.
+
+For actual mouse- or session-specific analyses, create a local directory called:
+
+```text
+analysis/
+```
+
+at the repository root.
+
+For example:
+
+```text
+photometry-analysis/
+│
+├── README.md
+├── src/
+├── scripts/
+├── notebooks/
+│   ├── 01_explore_session.ipynb
+│   └── 02_event_aligned_photometry.ipynb
+│
+└── analysis/
+    ├── DK21_230704_002.ipynb
+    ├── DK21_230704_002_events.ipynb
+    └── DK40_231005_001.ipynb
+```
+
+The `analysis/` directory is intentionally excluded from Git using `.gitignore`.
+
+This allows the notebooks in `notebooks/` to remain clean templates while local working notebooks can contain:
+
+- mouse-specific paths and settings
+- exploratory analyses
+- generated figures
+- notebook outputs
+- temporary code
+- analysis notes
+- session-specific results
+
+A typical workflow is to copy a template notebook:
+
+```text
+notebooks/01_explore_session.ipynb
+```
+
+into:
+
+```text
+analysis/DK21_230704_002.ipynb
+```
+
+and perform the session-specific analysis in the copied notebook.
+
+The repository `.gitignore` should contain:
+
+```gitignore
+analysis/
+```
+
+so these working notebooks are not committed to GitHub.
+
+Reusable improvements discovered while working in `analysis/` should be moved into the appropriate `src/` module or incorporated into the clean template notebook under `notebooks/`.
+
 # Photometry Processing
 
 The preprocessing pipeline separates the interleaved 465 nm and 405 nm photometry measurements using their LED TTL signals.
