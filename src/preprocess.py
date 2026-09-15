@@ -1,5 +1,30 @@
 import numpy as np
 
+
+def _as_1d_finite(values, name):
+    """Return a finite one-dimensional float array."""
+    array = np.atleast_1d(np.asarray(values, dtype=float).squeeze())
+    if array.ndim != 1:
+        raise ValueError(f"{name} must be one-dimensional.")
+    if not np.all(np.isfinite(array)):
+        raise ValueError(f"{name} contains NaN or infinite values.")
+    return array
+
+
+def _validate_matching_lengths(**arrays):
+    lengths = {name: len(value) for name, value in arrays.items()}
+    if len(set(lengths.values())) != 1:
+        detail = ", ".join(f"{name}={length}" for name, length in lengths.items())
+        raise ValueError(f"Signals must have matching lengths ({detail}).")
+
+
+def _irls_qc(experimental, reference, fitted):
+    """Return compact scalar QC metrics suitable for saved provenance."""
+    correlation = float(np.corrcoef(experimental, reference)[0, 1])
+    residual_rmse = float(np.sqrt(np.mean((experimental - fitted) ** 2)))
+    return correlation, residual_rmse
+
+
 def find_ttl_pulses(ttl,threshold=1.5,min_width=None, max_width=None):
     """
     find complete TTL-high pulses.
@@ -11,6 +36,14 @@ def find_ttl_pulses(ttl,threshold=1.5,min_width=None, max_width=None):
         Sample indices of valid falling edges
     """
     
+    ttl = _as_1d_finite(ttl, "ttl")
+    if min_width is not None and min_width < 1:
+        raise ValueError("min_width must be at least one sample.")
+    if max_width is not None and max_width < 1:
+        raise ValueError("max_width must be at least one sample.")
+    if min_width is not None and max_width is not None and min_width > max_width:
+        raise ValueError("min_width cannot exceed max_width.")
+
     ttl_high = ttl>threshold
     rising = np.where(np.diff(ttl_high.astype(int))==1)[0]+1
     falling = np.where(np.diff(ttl_high.astype(int))==-1)[0]+1
@@ -25,8 +58,8 @@ def find_ttl_pulses(ttl,threshold=1.5,min_width=None, max_width=None):
             pairs.append((r,f))
             j+=1
 
-    rising_valid=np.array([p[0] for p in pairs])
-    falling_valid=np.array([p[1] for p in pairs])
+    rising_valid=np.array([p[0] for p in pairs], dtype=int)
+    falling_valid=np.array([p[1] for p in pairs], dtype=int)
 
     widths = falling_valid-rising_valid
     good = np.ones(len(widths),dtype=bool)
@@ -82,6 +115,22 @@ def preprocess_photometry(
         Extracted 405 nm photometry values.
     """
 
+    raw_photo = _as_1d_finite(raw_photo, "raw_photo")
+    ttl_465 = _as_1d_finite(ttl_465, "ttl_465")
+    ttl_405 = _as_1d_finite(ttl_405, "ttl_405")
+    timestamps = _as_1d_finite(timestamps, "timestamps")
+    _validate_matching_lengths(
+        raw_photo=raw_photo,
+        ttl_465=ttl_465,
+        ttl_405=ttl_405,
+        timestamps=timestamps,
+    )
+    if len(timestamps) < 2 or np.any(np.diff(timestamps) <= 0):
+        raise ValueError("timestamps must be strictly increasing.")
+    if edge < 0 or int(edge) != edge:
+        raise ValueError("edge must be a nonnegative integer.")
+    edge = int(edge)
+
     rising_465, falling_465 = find_ttl_pulses(ttl_465)
     rising_405, falling_405 = find_ttl_pulses(ttl_405)
 
@@ -97,6 +146,11 @@ def preprocess_photometry(
         start = r + edge
         stop = f - edge
 
+        if stop <= start:
+            raise ValueError(
+                f"465 pulse at sample {r} is too short for edge={edge}."
+            )
+
         photo_465.append(
             np.median(raw_photo[start:stop])
         )
@@ -110,6 +164,11 @@ def preprocess_photometry(
 
         start = r + edge
         stop = f - edge
+
+        if stop <= start:
+            raise ValueError(
+                f"405 pulse at sample {r} is too short for edge={edge}."
+            )
 
         photo_405.append(
             np.median(raw_photo[start:stop])
@@ -139,6 +198,32 @@ def align_reference_to_experimental(
     reference_time = np.asarray(reference_time)
     reference_signal = np.asarray(reference_signal)
     experimental_time = np.asarray(experimental_time)
+
+    if reference_time.ndim != 1 or reference_signal.ndim != 1 or experimental_time.ndim != 1:
+        raise ValueError("Photometry times and signals must be one-dimensional.")
+    if len(reference_time) != len(reference_signal):
+        raise ValueError("reference_time and reference_signal must have the same length.")
+    if len(reference_time) < 2:
+        raise ValueError("At least two reference samples are required for alignment.")
+    if not (
+        np.all(np.isfinite(reference_time))
+        and np.all(np.isfinite(reference_signal))
+        and np.all(np.isfinite(experimental_time))
+    ):
+        raise ValueError("Photometry times and signals must be finite.")
+    if np.any(np.diff(reference_time) <= 0) or np.any(np.diff(experimental_time) <= 0):
+        raise ValueError("Photometry timestamps must be strictly increasing.")
+    reference_dt = float(np.median(np.diff(reference_time)))
+    left_extension = max(0.0, reference_time[0] - experimental_time[0])
+    right_extension = max(0.0, experimental_time[-1] - reference_time[-1])
+    # Interleaved channels normally differ by less than one sample at
+    # their endpoints. Permit that expected edge condition, but reject
+    # missing reference spans that np.interp would silently flatten.
+    if left_extension > 1.5 * reference_dt or right_extension > 1.5 * reference_dt:
+        raise ValueError(
+            "Experimental timestamps extend beyond the reference time range; "
+            "refusing endpoint extrapolation."
+        )
 
     aligned_reference = np.interp(
         experimental_time,
@@ -217,6 +302,9 @@ def irls_dff(
         raise ValueError(
             "irls_constant must be greater than zero."
         )
+
+    if len(exp_signal) < 3:
+        raise ValueError("At least three photometry samples are required.")
 
     # Design matrix:
     #
@@ -338,6 +426,12 @@ def irls_dff(
     fitted_iso_signal = X @ beta
 
     # dF/F
+    denominator_tolerance = np.finfo(float).eps * max(
+        1.0, float(np.nanmax(np.abs(fitted_iso_signal)))
+    )
+    if np.any(np.abs(fitted_iso_signal) <= denominator_tolerance):
+        raise ValueError("IRLS fitted reference contains zero or near-zero values.")
+
     dff = (
         exp_signal - fitted_iso_signal
     ) / fitted_iso_signal
@@ -389,6 +483,8 @@ def preprocess_locomotion(
         Processed locomotion signal.
     """
 
+    timestamps = _as_1d_finite(timestamps, "timestamps")
+    locomotion = _as_1d_finite(locomotion, "locomotion")
     rising, falling = find_ttl_pulses(
         ttl,
         threshold=threshold,
@@ -399,10 +495,6 @@ def preprocess_locomotion(
     # Get time of each locomotion sample from TTL rising edges
     loco_time = timestamps[rising]
 
-    locomotion = np.asarray(
-        locomotion
-    ).squeeze()
-
     n_loco = len(locomotion)
     n_ttl = len(loco_time)
 
@@ -410,7 +502,22 @@ def preprocess_locomotion(
 
     # Correct small mismatch between locomotion samples
     # and TTL pulses
+    if n_ttl == 0:
+        if n_loco == 0:
+            return np.array([], dtype=float), np.array([], dtype=float)
+        raise ValueError("No valid locomotion TTL pulses were detected.")
+
+    if n_loco == 0:
+        raise ValueError("Locomotion data are empty but TTL pulses were detected.")
+
     if difference != 0:
+
+        mismatch_fraction = abs(difference) / max(n_loco, n_ttl)
+        if mismatch_fraction > 0.01:
+            raise ValueError(
+                "Locomotion/TTL mismatch exceeds 1%: "
+                f"{n_loco} samples versus {n_ttl} pulses."
+            )
 
         print(
             f"Locomotion/TTL mismatch: "
@@ -636,7 +743,7 @@ def find_lick_bouts(
         Number of licks in each bout.
     """
 
-    lick_times = np.asarray(lick_times).squeeze()
+    lick_times = np.atleast_1d(np.asarray(lick_times, dtype=float).squeeze())
 
     if len(lick_times) == 0:
         return (
@@ -737,9 +844,9 @@ def classify_cue_licking(
         No licking during either period.
     """
 
-    cue_onset = np.asarray(cue_onset)
-    cue_offset = np.asarray(cue_offset)
-    lick_times = np.asarray(lick_times)
+    cue_onset = np.atleast_1d(np.asarray(cue_onset, dtype=float).squeeze())
+    cue_offset = np.atleast_1d(np.asarray(cue_offset, dtype=float).squeeze())
+    lick_times = np.atleast_1d(np.asarray(lick_times, dtype=float).squeeze())
 
     if len(cue_onset) != len(cue_offset):
         raise ValueError(
@@ -811,11 +918,33 @@ def classify_cue_licking(
         cue_miss
     )
     
-def preprocess_session(session):
+def preprocess_session(
+    session,
+    *,
+    photometry_edge=3,
+    irls_constant=1.4,
+    ttl_threshold=1.5,
+    cue_max_pulse_gap=0.5,
+    locomotion_min_width=4,
+    locomotion_max_width=6,
+    locomotion_invert=True,
+    lick_bout_interval=1.0,
+    minimum_bout_licks=3,
+    post_cue_window=2.0,
+):
     """
     Run all preprocessing steps and add processed data
     to the session dictionary.
     """
+
+    if lick_bout_interval <= 0:
+        raise ValueError("lick_bout_interval must be positive.")
+    if minimum_bout_licks < 1:
+        raise ValueError("minimum_bout_licks must be at least one.")
+    if post_cue_window < 0:
+        raise ValueError("post_cue_window must be nonnegative.")
+    if cue_max_pulse_gap < 0:
+        raise ValueError("cue_max_pulse_gap must be nonnegative.")
 
     # -------------------------
     # Photometry channel 1
@@ -830,7 +959,8 @@ def preprocess_session(session):
         session["raw_photometry_ch1"],
         session["ttl_465"],
         session["ttl_405"],
-        session["timestamps"]
+        session["timestamps"],
+        edge=photometry_edge,
     )
 
     session["photo_time_465_ch1"] = photo_time_465_ch1
@@ -853,11 +983,17 @@ def preprocess_session(session):
     dff_ch1, photometry_405_fitted_ch1 = irls_dff(
         photometry_465_ch1,
         photometry_405_aligned_ch1,
-        irls_constant=1.4
+        irls_constant=irls_constant
     )
     
     session["photometry_405_fitted_ch1"] = photometry_405_fitted_ch1
     session["dff_ch1"] = dff_ch1
+    (
+        session["irls_reference_correlation_ch1"],
+        session["irls_residual_rmse_ch1"],
+    ) = _irls_qc(
+        photometry_465_ch1, photometry_405_aligned_ch1, photometry_405_fitted_ch1
+    )
 
     # -------------------------
     # Photometry channel 2
@@ -872,7 +1008,8 @@ def preprocess_session(session):
         session["raw_photometry_ch2"],
         session["ttl_465"],
         session["ttl_405"],
-        session["timestamps"]
+        session["timestamps"],
+        edge=photometry_edge,
     )
 
     session["photo_time_465_ch2"] = photo_time_465_ch2
@@ -895,11 +1032,17 @@ def preprocess_session(session):
     dff_ch2, photometry_405_fitted_ch2 = irls_dff(
         photometry_465_ch2,
         photometry_405_aligned_ch2,
-        irls_constant=1.4
+        irls_constant=irls_constant
     )
     
     session["photometry_405_fitted_ch2"] = photometry_405_fitted_ch2
     session["dff_ch2"] = dff_ch2
+    (
+        session["irls_reference_correlation_ch2"],
+        session["irls_residual_rmse_ch2"],
+    ) = _irls_qc(
+        photometry_465_ch2, photometry_405_aligned_ch2, photometry_405_fitted_ch2
+    )
 
     # -------------------------
     # Locomotion
@@ -908,7 +1051,11 @@ def preprocess_session(session):
     loco_time, locomotion = preprocess_locomotion(
         session["locomotion"],
         session["locomotion_ttlpulses"],
-        session["timestamps"]
+        session["timestamps"],
+        threshold=ttl_threshold,
+        min_width=locomotion_min_width,
+        max_width=locomotion_max_width,
+        invert=locomotion_invert,
     )
 
     session["locomotion_time"] = loco_time
@@ -920,7 +1067,9 @@ def preprocess_session(session):
     # -------------------------
 
     cue_onset, cue_offset, cue_duration = preprocess_visual_cue(
-        session
+        session,
+        threshold=ttl_threshold,
+        max_pulse_gap=cue_max_pulse_gap,
     )
 
     session["cue_onset"] = cue_onset
@@ -937,7 +1086,8 @@ def preprocess_session(session):
         solenoid_offset,
         solenoid_duration
     ) = preprocess_solenoid_opening(
-        session
+        session,
+        threshold=ttl_threshold,
     )
 
     session["solenoid_onset"] = solenoid_onset
@@ -950,7 +1100,8 @@ def preprocess_session(session):
     # -------------------------
 
     lick_times = preprocess_licking(
-        session
+        session,
+        threshold=ttl_threshold,
     )
 
     session["lick_times"] = lick_times
@@ -967,8 +1118,8 @@ def preprocess_session(session):
         lick_bout_lick_count
     ) = find_lick_bouts(
         lick_times,
-        max_interlick_interval=1.0,
-        min_licks=3
+        max_interlick_interval=lick_bout_interval,
+        min_licks=minimum_bout_licks
     )
 
     session["lick_bout_onset"] = lick_bout_onset
@@ -991,7 +1142,7 @@ def preprocess_session(session):
         cue_onset,
         cue_offset,
         lick_times,
-        post_cue_window=2.0
+        post_cue_window=post_cue_window
     )
 
     session["cue_lick"] = cue_lick
@@ -1001,5 +1152,23 @@ def preprocess_session(session):
     session["post_only"] = post_only
     session["cue_and_post"] = cue_and_post
     session["cue_miss"] = cue_miss
+
+    session["processed_schema_version"] = "1.0"
+    session["photometry_edge"] = int(photometry_edge)
+    session["irls_constant"] = float(irls_constant)
+    session["ttl_threshold"] = float(ttl_threshold)
+    session["cue_max_pulse_gap"] = float(cue_max_pulse_gap)
+    session["locomotion_min_width"] = int(locomotion_min_width)
+    session["locomotion_max_width"] = int(locomotion_max_width)
+    session["locomotion_invert"] = bool(locomotion_invert)
+    session["lick_bout_interval"] = float(lick_bout_interval)
+    session["minimum_bout_licks"] = int(minimum_bout_licks)
+    session["post_cue_window"] = float(post_cue_window)
+    session["n_465_pulses"] = int(len(photo_time_465_ch1))
+    session["n_405_pulses"] = int(len(photo_time_405_ch1))
+    session["n_locomotion_samples"] = int(len(loco_time))
+    session["n_licks"] = int(len(lick_times))
+    session["n_cues"] = int(len(cue_onset))
+    session["n_solenoid_events"] = int(len(solenoid_onset))
     
     return session
