@@ -369,6 +369,11 @@ residual
 
 The slow component is **not assumed to be pure photobleaching**.
 
+The values above are useful for visualization. During cross-validated modeling,
+the slow component is re-fitted using each training partition only and then
+applied to its held-out partition. This prevents held-out fluorescence from
+contributing to its own detrending.
+
 ---
 
 # Behavioral Predictors
@@ -651,6 +656,9 @@ TRAIN -------- GAP | TEST TEST TEST | GAP -------- TRAIN
 
 The gap should be at least as large as the largest temporal lag represented in the model.
 
+Gaps are calculated from the original timestamps, so missing samples or
+discontinuous recording segments are not mistakenly treated as adjacent.
+
 ---
 
 # Regularization
@@ -670,6 +678,11 @@ may occur at similar times.
 An unregularized GLM can therefore produce unstable coefficients and poor held-out predictions.
 
 Ridge (L2) regularization can be used to stabilize the model.
+
+Predictor columns are standardized using training-fold statistics before ridge
+strength selection and model fitting. Reported native coefficients are converted
+back to the original predictor units; the standardized coefficients and scaling
+statistics are also retained in each fold result.
 
 Conceptually:
 

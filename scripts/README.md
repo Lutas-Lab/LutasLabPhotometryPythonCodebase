@@ -18,10 +18,12 @@ Runs the complete preprocessing pipeline for one photometry session.
 Example:
 
 ```bash
-python scripts/run_preprocess.py --mouse DK21 --date 230704 --run 2
+python scripts/run_preprocess.py --mouse DK21 --date 230704 --run 2 --data-root "Z:\Photometry"
 ```
 
-The script:
+Use `--output-dir` to save processed data outside the raw session directory.
+Run `python scripts/run_preprocess.py --help` for configurable detection and
+classification parameters. The script:
 
 ```text
 mouse/date/run
@@ -94,7 +96,7 @@ Run scripts from the repository root.
 For example:
 
 ```bash
-python scripts/run_preprocess.py --mouse DK21 --date 230704 --run 2
+python scripts/run_preprocess.py --mouse DK21 --date 230704 --run 2 --data-root "Z:\Photometry"
 ```
 
 Scripts import the reusable analysis functions from `src`.

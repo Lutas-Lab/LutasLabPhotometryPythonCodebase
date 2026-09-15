@@ -48,6 +48,7 @@ desktop.ini
 
 *.tmp
 *.temp
+tmp*/
 *.bak
 *.swp
 *~

@@ -31,6 +31,24 @@ The current pipeline supports:
 
 ---
 
+# Installation
+
+Python 3.12 is recommended for compatibility with the current NeMoS release.
+
+```bash
+python -m venv .venv
+python -m pip install -e .
+```
+
+Install modeling and development dependencies when needed:
+
+```bash
+python -m pip install -e ".[modeling,dev]"
+python -m pytest
+```
+
+---
+
 # Repository Structure
 
 ```text
@@ -107,7 +125,7 @@ Routine preprocessing is performed using the command-line wrapper in `scripts/`.
 For example:
 
 ```bash
-python scripts/run_preprocess.py --mouse DK21 --date 230704 --run 2
+python scripts/run_preprocess.py --mouse DK21 --date 230704 --run 2 --data-root "Z:\Photometry"
 ```
 
 The script:
@@ -437,6 +455,30 @@ Temporal exclusion gaps can also be placed around held-out test blocks to reduce
 Multi-predictor models may contain strongly correlated variables, so ridge regularization can be used to stabilize model fitting.
 
 Regularization and cross-validation procedures are currently being evaluated for computational efficiency and robustness across sessions.
+
+All learned preprocessing used by the behavioral GLM is fold-local. The broad
+fluorescence component and predictor scaling are fitted on training samples and
+then applied to held-out samples. Temporal exclusion gaps are measured from the
+original timestamps rather than from compressed array positions.
+
+Temporal lag convention:
+
+```text
+negative lag = predictor before the response
+zero lag     = simultaneous predictor and response
+positive lag = predictor after the response
+```
+
+Only non-positive lag windows should be interpreted as causal or predictive.
+
+---
+
+# Processed-Session Provenance
+
+New processed files use schema version `1.0` and record the preprocessing
+parameters, package versions, code commit, processing timestamp, event counts,
+and IRLS quality-control summaries. Legacy files can still be loaded, but emit a
+warning because their exact processing configuration may be unavailable.
 
 ---
 
