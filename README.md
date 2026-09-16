@@ -240,6 +240,28 @@ For licking, each trial is a histogram of lick timestamps expressed as licks
 per second. Trials are averaged within sessions, sessions within mice, and mice
 within groups. A moderate bin width such as 0.1 seconds is recommended.
 
+To test whether Astrocyte photometry follows Ensure delivery timing rather than
+licking itself, generate lick-bout-aligned PSTHs and delivery-sorted heatmaps:
+
+```bash
+python scripts/run_lickbout_delivery_analysis.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry" \
+    --output-dir analysis/astrocyte_lickbout_delivery_20s \
+    --group Astrocyte \
+    --window -5 20 \
+    --baseline -5 0 \
+    --normalization zscore
+```
+
+Each behavioral trial extends from one cue onset to the next. The analysis
+pairs the first lick bout and first solenoid onset in that interval, then uses
+those same paired trials for both the PSTH and heatmap. Heatmap rows are sorted
+by `solenoid_onset - lick_bout_onset`; negative values indicate that delivery
+preceded licking. A white overlay marks the solenoid/Ensure delivery time on
+each row. The sorted trial matrix and matching metadata are also exported as
+NPZ and CSV files.
+
 The averaging hierarchy is deliberately:
 
 ```text
