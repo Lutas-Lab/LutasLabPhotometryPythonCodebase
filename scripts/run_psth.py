@@ -27,7 +27,7 @@ from src.session_manifest import load_session_manifest
 def parse_arguments():
     parser = argparse.ArgumentParser(
         description=(
-            "Generate mouse-level and group-level peri-event photometry figures "
+            "Generate mouse-level and group-level peri-event response figures "
             "from a session manifest."
         )
     )
@@ -35,6 +35,12 @@ def parse_arguments():
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--event-key", default="cue_onset")
+    parser.add_argument(
+        "--signal",
+        choices=("photometry", "licking"),
+        default="photometry",
+        help="Plot photometry or binned lick rate around the alignment events.",
+    )
     parser.add_argument(
         "--channel",
         choices=("manifest", "1", "2"),
@@ -96,6 +102,7 @@ def _save_numeric_results(results, output_dir):
         group_sem=results["group_sem"],
         event_key=results["event_key"],
         signal_key=results["signal_key"],
+        signal_type=results.get("signal_type", "photometry"),
         normalization=results["normalization"],
         null_method=results["null_method"],
         n_shuffles=results["n_shuffles"],
@@ -151,6 +158,7 @@ def main():
     sessions = load_session_manifest(args.manifest)
     analysis_options = dict(
         event_key=args.event_key,
+        signal_type=args.signal,
         channel=args.channel,
         window=args.window,
         dt=args.dt,

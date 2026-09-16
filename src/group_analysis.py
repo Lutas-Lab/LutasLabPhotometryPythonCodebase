@@ -50,6 +50,43 @@ def extract_perievent_trials(signal_time, signal, event_times, window=(-5, 10), 
     return peri_time, trials, valid
 
 
+def extract_perievent_event_rate(
+    event_times,
+    alignment_times,
+    recording_bounds,
+    window=(-5, 10),
+    dt=0.1,
+):
+    """Bin discrete events as rates around alignments with complete windows."""
+    event_times = np.asarray(event_times, dtype=float)
+    alignment_times = np.asarray(alignment_times, dtype=float)
+    if event_times.ndim != 1 or alignment_times.ndim != 1:
+        raise ValueError("event_times and alignment_times must be one-dimensional.")
+    if len(recording_bounds) != 2 or recording_bounds[0] >= recording_bounds[1]:
+        raise ValueError("recording_bounds must contain increasing start and end values.")
+
+    start, end = _validate_window(window)
+    if not np.isfinite(dt) or dt <= 0:
+        raise ValueError("dt must be finite and positive.")
+    n_bins = int(np.floor((end - start) / dt + 0.5))
+    if n_bins < 1 or not np.isclose(n_bins * dt, end - start):
+        raise ValueError("The event-rate window duration must be divisible by dt.")
+    edges = start + np.arange(n_bins + 1, dtype=float) * dt
+    peri_time = edges[:-1] + dt / 2
+    recording_start, recording_end = map(float, recording_bounds)
+    valid = np.flatnonzero(
+        np.isfinite(alignment_times)
+        & (alignment_times + start >= recording_start)
+        & (alignment_times + end <= recording_end)
+    )
+    finite_events = event_times[np.isfinite(event_times)]
+    trials = np.empty((len(valid), n_bins), dtype=float)
+    for row, alignment_index in enumerate(valid):
+        relative_events = finite_events - alignment_times[alignment_index]
+        trials[row] = np.histogram(relative_events, bins=edges)[0] / dt
+    return peri_time, trials, valid
+
+
 def normalize_trials(peri_time, trials, normalization="zscore", baseline=(-5, 0)):
     """Apply trial-local baseline subtraction or z-scoring."""
     peri_time = np.asarray(peri_time, dtype=float)
@@ -195,7 +232,14 @@ def _mean_and_sem(rows):
     return mean, sem
 
 
-def _psth_ylabel(normalization):
+def _psth_ylabel(normalization, signal_type="photometry"):
+    if signal_type == "licking":
+        return {
+            "none": "Lick rate (Hz)",
+            None: "Lick rate (Hz)",
+            "subtract": "Baseline-subtracted lick rate (Hz)",
+            "zscore": "Trial z-score of lick rate",
+        }.get(normalization, str(normalization))
     return {
         "none": "dF/F",
         None: "dF/F",
@@ -213,11 +257,19 @@ def _psth_context(results):
     return " / ".join(values)
 
 
+def _psth_description(results):
+    event_label = str(results["event_key"]).replace("_", " ")
+    if results.get("signal_type", "photometry") == "licking":
+        return f"licking aligned to {event_label}"
+    return f"{event_label}-aligned photometry"
+
+
 def compute_manifest_psth(
     sessions,
     data_root,
     *,
     event_key="cue_onset",
+    signal_type="photometry",
     channel="manifest",
     window=(-5, 10),
     dt=0.02,
@@ -229,6 +281,10 @@ def compute_manifest_psth(
     null_exclusion=0.0,
 ):
     """Compute session, mouse, and group PSTHs with mice as the group unit."""
+    if signal_type not in ("photometry", "licking"):
+        raise ValueError("signal_type must be 'photometry' or 'licking'.")
+    if signal_type == "licking" and null_method != "none":
+        raise ValueError("Null alignment is not yet supported for the licking response.")
     if null_method not in ("none", "random_onsets", "circular_shift"):
         raise ValueError(
             "null_method must be 'none', 'random_onsets', or 'circular_shift'."
@@ -250,17 +306,29 @@ def compute_manifest_psth(
         time_key = f"photo_time_465_ch{selected_channel}"
         path = processed_session_path(data_root, info)
         session = load_session(path)
-        missing = {event_key, signal_key, time_key}.difference(session)
+        required = {event_key, time_key}
+        required.add(signal_key if signal_type == "photometry" else "lick_times")
+        missing = required.difference(session)
         if missing:
             raise ValueError(f"{path} is missing analysis keys: {sorted(missing)}")
 
-        peri_time, trials, valid_indices = extract_perievent_trials(
-            session[time_key],
-            session[signal_key],
-            session[event_key],
-            window=window,
-            dt=dt,
-        )
+        if signal_type == "photometry":
+            peri_time, trials, valid_indices = extract_perievent_trials(
+                session[time_key],
+                session[signal_key],
+                session[event_key],
+                window=window,
+                dt=dt,
+            )
+        else:
+            recording_time = np.asarray(session[time_key], dtype=float)
+            peri_time, trials, valid_indices = extract_perievent_event_rate(
+                session["lick_times"],
+                session[event_key],
+                (recording_time[0], recording_time[-1]),
+                window=window,
+                dt=dt,
+            )
         if len(trials) == 0:
             warnings.warn(
                 f"Skipping {info['mouse']} {info['date']} run {info['run']}: "
@@ -285,7 +353,7 @@ def compute_manifest_psth(
             **info,
             "path": path,
             "channel": selected_channel,
-            "signal_key": signal_key,
+            "signal_key": signal_key if signal_type == "photometry" else "lick_times",
             "n_events": len(valid_indices),
             "mean": session_mean,
         }
@@ -370,6 +438,7 @@ def compute_manifest_psth(
         "group_sem": group_sem,
         "n_mice": len(mouse_names),
         "event_key": event_key,
+        "signal_type": signal_type,
         "signal_key": (
             session_results[0]["signal_key"]
             if len({result["signal_key"] for result in session_results}) == 1
@@ -470,8 +539,13 @@ def save_condition_comparison_figures(
                 )
         top.axvline(0, color="black", linestyle="--", linewidth=0.8)
         top.axhline(0, color="black", linestyle=":", linewidth=0.8)
-        signal_ylabel = _psth_ylabel(reference["normalization"])
-        top.set(title=f"{group}: condition PSTHs", ylabel=signal_ylabel)
+        signal_ylabel = _psth_ylabel(
+            reference["normalization"], reference.get("signal_type", "photometry")
+        )
+        top.set(
+            title=f"{group}: {_psth_description(reference)} by condition",
+            ylabel=signal_ylabel,
+        )
         top.legend(title="Condition")
         top.spines["top"].set_visible(False)
         top.spines["right"].set_visible(False)
@@ -522,12 +596,17 @@ def save_condition_comparison_figures(
 
         fig.tight_layout()
         condition_label = "_vs_".join(safe_label(value) for value in conditions)
+        response_suffix = (
+            "_licking"
+            if reference.get("signal_type", "photometry") == "licking"
+            else ""
+        )
         paths = save_figure_formats(
             fig,
             output_dir
             / (
                 f"{safe_label(group)}_{condition_label}_"
-                f"{safe_label(reference['event_key'])}_psth"
+                f"{safe_label(reference['event_key'])}{response_suffix}_psth"
             ),
             formats=formats,
             dpi=dpi,
@@ -557,8 +636,14 @@ def save_psth_figures(
     output_dir.mkdir(parents=True, exist_ok=True)
     configure_publication_style(font_family=font_family)
     time = results["time"]
-    ylabel = _psth_ylabel(results["normalization"])
+    ylabel = _psth_ylabel(
+        results["normalization"], results.get("signal_type", "photometry")
+    )
     context = _psth_context(results)
+    description = _psth_description(results)
+    response_suffix = (
+        "_licking" if results.get("signal_type", "photometry") == "licking" else ""
+    )
     saved = []
 
     if figure_level in ("individual", "both"):
@@ -600,7 +685,7 @@ def save_psth_figures(
                 title=(
                     f"{mouse}: "
                     f"{context + ' / ' if context else ''}"
-                    f"{results['event_key']} PSTH "
+                    f"{description} PSTH "
                     f"({mouse_result['n_sessions']} sessions)"
                 ),
             )
@@ -608,7 +693,7 @@ def save_psth_figures(
             fig.tight_layout()
             paths = save_figure_formats(
                 fig,
-                output_dir / f"{mouse}_{results['event_key']}_psth",
+                output_dir / f"{mouse}_{results['event_key']}{response_suffix}_psth",
                 formats=formats,
                 dpi=dpi,
             )
@@ -653,14 +738,14 @@ def save_psth_figures(
             ylabel=ylabel,
             title=(
                 f"{context + ': ' if context else 'Group '}"
-                f"{results['event_key']} PSTH ({results['n_mice']} mice)"
+                f"{description} PSTH ({results['n_mice']} mice)"
             ),
         )
         ax.legend()
         fig.tight_layout()
         paths = save_figure_formats(
             fig,
-            output_dir / f"group_{results['event_key']}_psth",
+            output_dir / f"group_{results['event_key']}{response_suffix}_psth",
             formats=formats,
             dpi=dpi,
         )

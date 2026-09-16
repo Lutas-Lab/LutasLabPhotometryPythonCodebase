@@ -221,6 +221,25 @@ Other timestamp arrays in a processed session can be selected with
 Use `--normalization none` to plot processed dF/F without trial-local baseline
 normalization.
 
+Generate cue-aligned licking-rate PSTHs using the same group and condition
+comparisons:
+
+```bash
+python scripts/run_psth.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry" \
+    --output-dir "analysis/licking_psth_20s" \
+    --event-key cue_onset \
+    --signal licking \
+    --window -5 20 \
+    --dt 0.1 \
+    --normalization none
+```
+
+For licking, each trial is a histogram of lick timestamps expressed as licks
+per second. Trials are averaged within sessions, sessions within mice, and mice
+within groups. A moderate bin width such as 0.1 seconds is recommended.
+
 The averaging hierarchy is deliberately:
 
 ```text

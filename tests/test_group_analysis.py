@@ -7,6 +7,7 @@ import numpy as np
 from src.group_analysis import (
     compute_manifest_psth,
     compute_manifest_psth_strata,
+    extract_perievent_event_rate,
     extract_perievent_trials,
     generate_null_onsets,
     normalize_trials,
@@ -33,10 +34,24 @@ def _write_processed_session(data_root, info, value):
         locomotion_time=time,
         processed_locomotion=np.zeros_like(time),
         cue_onset=np.array([10.0]),
+        lick_times=np.array([9.25, 10.25, 10.75]),
     )
 
 
 class GroupAnalysisTests(unittest.TestCase):
+    def test_extracts_cue_aligned_lick_rate(self):
+        peri_time, trials, valid = extract_perievent_event_rate(
+            [9.25, 10.25, 10.75, 19.0],
+            [0.5, 10.0, 19.5],
+            (0.0, 20.0),
+            window=(-1.0, 1.0),
+            dt=0.5,
+        )
+
+        np.testing.assert_allclose(peri_time, [-0.75, -0.25, 0.25, 0.75])
+        np.testing.assert_array_equal(valid, [1])
+        np.testing.assert_allclose(trials[0], [2.0, 0.0, 2.0, 2.0])
+
     def test_null_onsets_are_reproducible_and_session_bounded(self):
         events = np.array([4.0, 8.0])
         first = generate_null_onsets(
@@ -139,6 +154,27 @@ class GroupAnalysisTests(unittest.TestCase):
         np.testing.assert_allclose(results["mouse_results"]["M1"]["mean"], 1.0)
         np.testing.assert_allclose(results["mouse_results"]["M2"]["mean"], 20.0)
         self.assertEqual([row["channel"] for row in results["session_results"]], [1, 2])
+
+    def test_manifest_can_compute_cue_aligned_licking(self):
+        sessions = [{"mouse": "M1", "date": "260101", "run": 1, "channel": "1"}]
+        data_root = Path("tests/_group_analysis_data")
+        try:
+            _write_processed_session(data_root, sessions[0], 1.0)
+            results = compute_manifest_psth(
+                sessions,
+                data_root,
+                event_key="cue_onset",
+                signal_type="licking",
+                window=(-1.0, 1.0),
+                dt=0.5,
+                normalization="none",
+            )
+        finally:
+            shutil.rmtree(data_root, ignore_errors=True)
+
+        np.testing.assert_allclose(results["group_mean"], [2.0, 0.0, 2.0, 2.0])
+        self.assertEqual(results["signal_key"], "lick_times")
+        self.assertEqual(results["signal_type"], "licking")
 
     def test_manifest_strata_keep_conditions_separate(self):
         sessions = [
