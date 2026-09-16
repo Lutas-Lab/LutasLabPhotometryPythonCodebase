@@ -97,6 +97,12 @@ When the manifest includes a `channel` column, each session automatically uses
 its listed photoreceiver channel. The default `--channel manifest` supports
 mixed-channel cohorts; `--channel 1` or `--channel 2` overrides all rows.
 
+Manifest `group` and `condition` columns are also honored automatically. Each
+stratum receives its own numeric results and individual/group figures. A
+comparison figure for each experimental group overlays condition PSTHs and
+shows paired within-mouse difference traces in a second panel. Use
+`--no-stratify` to intentionally combine conditions.
+
 Optional null comparisons are available with `--null-method random_onsets` or
 `--null-method circular_shift`. Both operate independently within every session,
 match the real event count, and are reproducible with `--seed`. The output plots

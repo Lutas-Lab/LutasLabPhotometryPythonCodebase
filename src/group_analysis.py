@@ -195,6 +195,15 @@ def _mean_and_sem(rows):
     return mean, sem
 
 
+def _psth_ylabel(normalization):
+    return {
+        "none": "dF/F",
+        None: "dF/F",
+        "subtract": "Baseline-subtracted dF/F",
+        "zscore": "Trial z-score",
+    }.get(normalization, str(normalization))
+
+
 def compute_manifest_psth(
     sessions,
     data_root,
@@ -366,6 +375,159 @@ def compute_manifest_psth(
     }
 
 
+def compute_manifest_psth_strata(sessions, data_root, **kwargs):
+    """Compute independent PSTHs for every manifest group and condition."""
+    strata = defaultdict(list)
+    for session in sessions:
+        group = str(session.get("group", "all") or "all")
+        condition = str(session.get("condition", "all") or "all")
+        strata[(group, condition)].append(session)
+
+    results = {}
+    for (group, condition), stratum_sessions in sorted(strata.items()):
+        result = compute_manifest_psth(stratum_sessions, data_root, **kwargs)
+        result["group"] = group
+        result["condition"] = condition
+        results[(group, condition)] = result
+    return results
+
+
+def save_condition_comparison_figures(
+    stratum_results,
+    output_dir,
+    *,
+    formats=("svg", "png"),
+    dpi=300,
+    font_family="Arial",
+):
+    """Save condition PSTHs and paired within-mouse differences for each group."""
+    import matplotlib.pyplot as plt
+
+    from .publication_figures import configure_publication_style, save_figure_formats
+
+    configure_publication_style(font_family=font_family)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    grouped = defaultdict(dict)
+    for (group, condition), result in stratum_results.items():
+        grouped[group][condition] = result
+
+    saved = []
+    colors = plt.get_cmap("tab10")
+
+    def safe_label(value):
+        return "".join(
+            character if character.isalnum() or character in "-_." else "_"
+            for character in str(value)
+        )
+
+    for group, condition_results in sorted(grouped.items()):
+        conditions = sorted(condition_results)
+        if len(conditions) < 2:
+            continue
+        reference = condition_results[conditions[0]]
+        time = np.asarray(reference["time"], dtype=float)
+        if any(
+            not np.allclose(time, condition_results[condition]["time"])
+            for condition in conditions[1:]
+        ):
+            raise ValueError(f"PSTH time vectors differ across conditions for {group}.")
+
+        paired_names = set(condition_results[conditions[0]]["mouse_names"])
+        for condition in conditions[1:]:
+            paired_names.intersection_update(condition_results[condition]["mouse_names"])
+        paired_names = sorted(paired_names)
+        use_difference_panel = len(conditions) == 2 and len(paired_names) > 0
+        n_rows = 2 if use_difference_panel else 1
+        fig, axes = plt.subplots(
+            n_rows,
+            1,
+            figsize=(4.2, 5.0 if use_difference_panel else 3.1),
+            sharex=True,
+        )
+        axes = np.atleast_1d(axes)
+        top = axes[0]
+        for index, condition in enumerate(conditions):
+            result = condition_results[condition]
+            color = colors(index % 10)
+            top.plot(time, result["group_mean"], color=color, label=condition)
+            if result["n_mice"] > 1:
+                top.fill_between(
+                    time,
+                    result["group_mean"] - result["group_sem"],
+                    result["group_mean"] + result["group_sem"],
+                    color=color,
+                    alpha=0.2,
+                )
+        top.axvline(0, color="black", linestyle="--", linewidth=0.8)
+        top.axhline(0, color="black", linestyle=":", linewidth=0.8)
+        signal_ylabel = _psth_ylabel(reference["normalization"])
+        top.set(title=f"{group}: condition PSTHs", ylabel=signal_ylabel)
+        top.legend(title="Condition")
+        top.spines["top"].set_visible(False)
+        top.spines["right"].set_visible(False)
+
+        if use_difference_panel:
+            first, second = conditions
+            first_lookup = {
+                mouse: trace
+                for mouse, trace in zip(
+                    condition_results[first]["mouse_names"],
+                    condition_results[first]["mouse_matrix"],
+                )
+            }
+            second_lookup = {
+                mouse: trace
+                for mouse, trace in zip(
+                    condition_results[second]["mouse_names"],
+                    condition_results[second]["mouse_matrix"],
+                )
+            }
+            differences = np.vstack(
+                [second_lookup[mouse] - first_lookup[mouse] for mouse in paired_names]
+            )
+            difference_mean, difference_sem = _mean_and_sem(differences)
+            bottom = axes[1]
+            for mouse, trace in zip(paired_names, differences):
+                bottom.plot(time, trace, color="0.75", linewidth=0.7, alpha=0.8)
+            bottom.plot(time, difference_mean, color="black", linewidth=2)
+            if len(paired_names) > 1:
+                bottom.fill_between(
+                    time,
+                    difference_mean - difference_sem,
+                    difference_mean + difference_sem,
+                    color="black",
+                    alpha=0.2,
+                )
+            bottom.axvline(0, color="black", linestyle="--", linewidth=0.8)
+            bottom.axhline(0, color="black", linestyle=":", linewidth=0.8)
+            bottom.set(
+                xlabel=f"Time from {reference['event_key']} (s)",
+                ylabel=f"{second} − {first}\n{signal_ylabel}",
+                title=f"Paired difference ({len(paired_names)} mice)",
+            )
+            bottom.spines["top"].set_visible(False)
+            bottom.spines["right"].set_visible(False)
+        else:
+            top.set_xlabel(f"Time from {reference['event_key']} (s)")
+
+        fig.tight_layout()
+        condition_label = "_vs_".join(safe_label(value) for value in conditions)
+        paths = save_figure_formats(
+            fig,
+            output_dir
+            / (
+                f"{safe_label(group)}_{condition_label}_"
+                f"{safe_label(reference['event_key'])}_psth"
+            ),
+            formats=formats,
+            dpi=dpi,
+        )
+        plt.close(fig)
+        saved.extend(paths)
+    return saved
+
+
 def save_psth_figures(
     results,
     output_dir,
@@ -386,7 +548,7 @@ def save_psth_figures(
     output_dir.mkdir(parents=True, exist_ok=True)
     configure_publication_style(font_family=font_family)
     time = results["time"]
-    ylabel = "dF/F" if results["normalization"] == "none" else results["normalization"]
+    ylabel = _psth_ylabel(results["normalization"])
     saved = []
 
     if figure_level in ("individual", "both"):

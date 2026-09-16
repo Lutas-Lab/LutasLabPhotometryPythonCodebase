@@ -297,6 +297,9 @@ observed measurements with random-onset or circular-shift null distributions.
 Manifest-driven analyses select photoreceiver channel 1 or 2 independently for
 each session, with an optional explicit all-session override.
 
+The group-analysis workflow can stratify one manifest by experimental group and
+condition, retaining paired mouse identities for condition-difference PSTHs.
+
 ---
 
 # `publication_figures.py`

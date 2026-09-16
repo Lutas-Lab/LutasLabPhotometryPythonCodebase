@@ -233,6 +233,14 @@ group mean, and group SEM to `psth_results.npz`, plus counts to
 `psth_summary.csv`. When randomization is enabled, the shuffle matrices, null
 mean, percentile bounds, method, seed, and shuffle count are also saved.
 
+When `group` and `condition` are present, `run_psth.py` separates them by
+default rather than averaging conditions together. For example, outputs are
+written under `Astrocyte/Naive`, `Astrocyte/Trained`, `D1/Naive`, and
+`D1/Trained`. The `comparisons` folder contains one figure per group with the
+condition PSTHs and a second panel showing each mouse's paired Trained-minus-
+Naive trace plus the group mean and SEM. Pass `--no-stratify` only when a
+deliberately condition-combined PSTH is desired.
+
 ### PSTH response statistics
 
 Extract predefined response metrics and run statistics with mice, rather than

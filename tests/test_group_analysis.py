@@ -6,6 +6,7 @@ import numpy as np
 
 from src.group_analysis import (
     compute_manifest_psth,
+    compute_manifest_psth_strata,
     extract_perievent_trials,
     generate_null_onsets,
     normalize_trials,
@@ -138,3 +139,39 @@ class GroupAnalysisTests(unittest.TestCase):
         np.testing.assert_allclose(results["mouse_results"]["M1"]["mean"], 1.0)
         np.testing.assert_allclose(results["mouse_results"]["M2"]["mean"], 20.0)
         self.assertEqual([row["channel"] for row in results["session_results"]], [1, 2])
+
+    def test_manifest_strata_keep_conditions_separate(self):
+        sessions = [
+            {
+                "mouse": mouse,
+                "date": "260101",
+                "run": run,
+                "group": "G",
+                "condition": condition,
+                "channel": "1",
+            }
+            for mouse, run, condition in (
+                ("M1", 1, "Naive"),
+                ("M1", 2, "Trained"),
+                ("M2", 1, "Naive"),
+                ("M2", 2, "Trained"),
+            )
+        ]
+        data_root = Path("tests/_group_analysis_data")
+        try:
+            for info, value in zip(sessions, (1.0, 2.0, 3.0, 4.0)):
+                _write_processed_session(data_root, info, value)
+            results = compute_manifest_psth_strata(
+                sessions,
+                data_root,
+                window=(-1.0, 1.0),
+                dt=0.1,
+                normalization="none",
+            )
+        finally:
+            shutil.rmtree(data_root, ignore_errors=True)
+
+        self.assertEqual(set(results), {("G", "Naive"), ("G", "Trained")})
+        np.testing.assert_allclose(results[("G", "Naive")]["group_mean"], 2.0)
+        np.testing.assert_allclose(results[("G", "Trained")]["group_mean"], 3.0)
+        self.assertEqual(results[("G", "Naive")]["mouse_names"], ["M1", "M2"])

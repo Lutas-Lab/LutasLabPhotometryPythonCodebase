@@ -15,7 +15,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.group_analysis import compute_manifest_psth, save_psth_figures
+from src.group_analysis import (
+    compute_manifest_psth,
+    compute_manifest_psth_strata,
+    save_condition_comparison_figures,
+    save_psth_figures,
+)
 from src.session_manifest import load_session_manifest
 
 
@@ -48,6 +53,12 @@ def parse_arguments():
         "--figures",
         choices=("individual", "group", "both"),
         default="both",
+    )
+    parser.add_argument(
+        "--stratify",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Separate PSTHs by manifest group and condition when available.",
     )
     parser.add_argument(
         "--null-method",
@@ -126,12 +137,19 @@ def _save_numeric_results(results, output_dir):
     return result_path, summary_path
 
 
+def _safe_path_component(value):
+    value = str(value)
+    safe = "".join(
+        character if character.isalnum() or character in "-_." else "_"
+        for character in value
+    )
+    return safe or "all"
+
+
 def main():
     args = parse_arguments()
     sessions = load_session_manifest(args.manifest)
-    results = compute_manifest_psth(
-        sessions,
-        args.data_root,
+    analysis_options = dict(
         event_key=args.event_key,
         channel=args.channel,
         window=args.window,
@@ -143,6 +161,51 @@ def main():
         random_seed=args.seed,
         null_exclusion=args.null_exclusion,
     )
+    has_strata = any(
+        session.get("group") or session.get("condition") for session in sessions
+    )
+    if args.stratify and has_strata:
+        stratum_results = compute_manifest_psth_strata(
+            sessions,
+            args.data_root,
+            **analysis_options,
+        )
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        saved_figures = []
+        for (group, condition), results in stratum_results.items():
+            stratum_dir = (
+                args.output_dir
+                / _safe_path_component(group)
+                / _safe_path_component(condition)
+            )
+            figure_paths = save_psth_figures(
+                results,
+                stratum_dir,
+                figure_level=args.figures,
+                formats=args.formats,
+                dpi=args.dpi,
+                font_family=args.font_family,
+            )
+            result_path, summary_path = _save_numeric_results(results, stratum_dir)
+            saved_figures.extend(figure_paths)
+            print(
+                f"{group} / {condition}: {len(results['session_results'])} sessions, "
+                f"{results['n_mice']} mice."
+            )
+            print(f"Saved numeric results: {result_path}")
+            print(f"Saved summary: {summary_path}")
+        comparison_paths = save_condition_comparison_figures(
+            stratum_results,
+            args.output_dir / "comparisons",
+            formats=args.formats,
+            dpi=args.dpi,
+            font_family=args.font_family,
+        )
+        for path in saved_figures + comparison_paths:
+            print(f"Saved figure: {path}")
+        return
+
+    results = compute_manifest_psth(sessions, args.data_root, **analysis_options)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     figure_paths = save_psth_figures(
         results,
