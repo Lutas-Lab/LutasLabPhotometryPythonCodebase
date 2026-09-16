@@ -287,6 +287,16 @@ The residual is used to investigate faster behavior-related fluorescence fluctua
 
 ---
 
+# `psth_statistics.py`
+
+Functions for extracting mean, AUC, peak/trough, and latency measurements from
+peri-event traces. The module preserves the trial-within-session-within-mouse
+hierarchy, creates Prism-ready mouse tables, runs paired or independent
+mouse-level tests, applies Holm multiple-comparison correction, and can compare
+observed measurements with random-onset or circular-shift null distributions.
+
+---
+
 # `forecasting.py`
 
 Functions for testing whether past photometry and behavioral signals predict

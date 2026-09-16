@@ -57,7 +57,13 @@ def load_session_manifest(path):
                     f"{mouse} {date} run {run}."
                 )
             seen.add(identifier)
-            sessions.append({"mouse": mouse, "date": date, "run": run})
+            session = {
+                key: (value or "").strip()
+                for key, value in row.items()
+                if key not in REQUIRED_COLUMNS and (value or "").strip()
+            }
+            session.update({"mouse": mouse, "date": date, "run": run})
+            sessions.append(session)
 
     if not sessions:
         raise ValueError("Session manifest contains no sessions.")

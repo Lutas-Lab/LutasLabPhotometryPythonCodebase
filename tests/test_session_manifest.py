@@ -36,6 +36,20 @@ class SessionManifestTests(unittest.TestCase):
         finally:
             path.unlink(missing_ok=True)
 
+    def test_manifest_preserves_optional_analysis_columns(self):
+        path = Path("tests/_manifest_sessions.csv")
+        try:
+            path.write_text(
+                "mouse,date,run,group,condition\nM1,260101,1,control,rewarded\n",
+                encoding="utf-8",
+            )
+            sessions = load_session_manifest(path)
+        finally:
+            path.unlink(missing_ok=True)
+
+        self.assertEqual(sessions[0]["group"], "control")
+        self.assertEqual(sessions[0]["condition"], "rewarded")
+
     def test_processed_path_uses_session_directory_convention(self):
         path = processed_session_path(
             Path("data"), {"mouse": "M1", "date": "260101", "run": 2}

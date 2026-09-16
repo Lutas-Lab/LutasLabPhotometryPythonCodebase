@@ -159,11 +159,14 @@ mouse/group PSTH figures. Start by copying `config/sessions.example.csv` to a
 local file under the Git-ignored `analysis/` directory:
 
 ```csv
-mouse,date,run
-DK21,230704,1
-DK21,230704,2
-DK40,231005,1
+mouse,date,run,group,condition
+DK21,230704,1,control,rewarded
+DK21,230704,2,control,unrewarded
+DK40,231005,1,experimental,rewarded
 ```
+
+`group` and `condition` are optional for preprocessing and plotting, but enable
+mouse-level statistical comparisons and Prism-ready exports.
 
 Batch preprocessing saves each processed file beside its original raw files:
 
@@ -225,6 +228,40 @@ group-level result. The figure workflow also saves the numeric mouse matrix,
 group mean, and group SEM to `psth_results.npz`, plus counts to
 `psth_summary.csv`. When randomization is enabled, the shuffle matrices, null
 mean, percentile bounds, method, seed, and shuffle count are also saved.
+
+### PSTH response statistics
+
+Extract predefined response metrics and run statistics with mice, rather than
+trials, as the independent biological units:
+
+```bash
+python scripts/run_psth_statistics.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry" \
+    --output-dir analysis/statistics/cue \
+    --event-key cue_onset \
+    --baseline -5 0 \
+    --response-window 0 2 \
+    --metrics mean auc peak peak_latency \
+    --test auto
+```
+
+The workflow calculates metrics for every trial, summarizes session PSTHs,
+averages sessions within each mouse, and only then performs group comparisons.
+Mean, signed/positive/negative AUC, peak, trough, and peak/trough latency are
+available. Peak and trough measurements use configurable light smoothing;
+mean and AUC use the unsmoothed response.
+
+With `--test auto`, conditions measured in the same mice use paired t-tests and
+disjoint groups use Welch tests. Wilcoxon and Mann-Whitney alternatives can be
+requested explicitly. Results include effect sizes, 95% confidence intervals,
+raw p-values, and Holm-adjusted p-values. Add `--null-method random_onsets` or
+`circular_shift` for two-sided empirical tests against shuffled alignments.
+
+Outputs include long-format trial, session, mouse, and group tables; statistical
+and shuffle-test tables; and `psth_prism_wide.csv`, which has one row per mouse
+and one column per group/condition/metric. The baseline and response windows and
+primary metric should be selected before comparing experimental conditions.
 
 The actual preprocessing implementation is contained in:
 
@@ -706,11 +743,9 @@ Current areas of development include:
 - photometry quality-control procedures
 - alternative handling of poor 405 reference signals
 - slow fluorescence decomposition
-- event-aligned analysis
-- group-level analysis across mice
 - temporal behavioral GLMs
 - causal versus two-sided models
-- photometry-to-behavior prediction
+- real-data validation of photometry-to-behavior forecasts
 - regularization
 - blocked cross-validation
 - temporal exclusion gaps

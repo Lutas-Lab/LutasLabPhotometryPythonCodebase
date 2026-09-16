@@ -102,6 +102,30 @@ overlay the observed PSTH with the shuffled mean and 95% null envelope. Use
 Run either script with `--help` to see all preprocessing, event, channel,
 normalization, time-window, and figure options.
 
+## `run_psth_statistics.py`
+
+Calculates predefined mean, AUC, peak/trough, and latency measurements from
+event-aligned responses. It saves trial-, session-, mouse-, and group-level CSV
+tables, performs mouse-level paired or independent tests, and writes a
+Prism-ready wide table. Optional random-onset or circular-shift controls produce
+empirical shuffle tests.
+
+```bash
+python scripts/run_psth_statistics.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry" \
+    --output-dir analysis/statistics/cue \
+    --event-key cue_onset \
+    --response-window 0 2 \
+    --metrics mean auc peak peak_latency \
+    --null-method random_onsets \
+    --n-shuffles 1000
+```
+
+Optional `group` and `condition` columns in the manifest determine the
+comparisons. Mice are the independent units; trials and sessions are retained
+in the exported tables but are not counted as separate animals.
+
 ## `run_forecasting.py`
 
 Uses the session manifest to forecast future photometry, locomotion, lick
