@@ -58,7 +58,14 @@ def parse_arguments():
         default=0.0,
         help="Minimum distance in seconds between null and real onsets.",
     )
-    parser.add_argument("--dpi", type=int, default=150)
+    parser.add_argument("--dpi", type=int, default=300)
+    parser.add_argument(
+        "--formats",
+        nargs="+",
+        choices=("svg", "png", "pdf"),
+        default=("svg", "png"),
+    )
+    parser.add_argument("--font-family", default="Arial")
     return parser.parse_args()
 
 
@@ -130,7 +137,9 @@ def main():
         results,
         args.output_dir,
         figure_level=args.figures,
+        formats=args.formats,
         dpi=args.dpi,
+        font_family=args.font_family,
     )
     result_path, summary_path = _save_numeric_results(results, args.output_dir)
 

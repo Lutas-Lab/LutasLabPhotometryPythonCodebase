@@ -24,6 +24,7 @@ from src.forecasting import (
     primary_metric,
     summarize_forecasts,
 )
+from src.publication_figures import configure_publication_style, save_figure_formats
 from src.session_manifest import load_session_manifest
 
 
@@ -48,7 +49,14 @@ def parse_arguments():
     parser.add_argument("--initial-train-fraction", type=float, default=0.5)
     parser.add_argument("--gap-seconds", type=float, default=None)
     parser.add_argument("--alpha", type=float, default=1.0)
-    parser.add_argument("--dpi", type=int, default=150)
+    parser.add_argument(
+        "--formats",
+        nargs="+",
+        choices=("svg", "png", "pdf"),
+        default=("svg", "png"),
+    )
+    parser.add_argument("--font-family", default="Arial")
+    parser.add_argument("--dpi", type=int, default=300)
     return parser.parse_args()
 
 
@@ -89,7 +97,7 @@ def _write_rows(path, rows):
         writer.writerows(rows)
 
 
-def _plot_group_performance(group_rows, target, metric, path, dpi):
+def _plot_group_performance(group_rows, target, metric, output_base, formats, dpi):
     fig, ax = plt.subplots(figsize=(8, 5))
     for model in MODEL_ORDER:
         selected = sorted(
@@ -111,8 +119,9 @@ def _plot_group_performance(group_rows, target, metric, path, dpi):
     )
     ax.legend()
     fig.tight_layout()
-    fig.savefig(path, dpi=dpi)
+    paths = save_figure_formats(fig, output_base, formats=formats, dpi=dpi)
     plt.close(fig)
+    return paths
 
 
 def main():
@@ -136,17 +145,25 @@ def main():
     )
     metric = primary_metric(args.target)
     mouse_rows, group_rows = summarize_forecasts(rows, metric)
+    configure_publication_style(font_family=args.font_family)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     session_path = args.output_dir / "forecast_session_metrics.csv"
     mouse_path = args.output_dir / "forecast_mouse_metrics.csv"
     group_path = args.output_dir / "forecast_group_metrics.csv"
-    figure_path = args.output_dir / "forecast_performance.png"
+    figure_base = args.output_dir / "forecast_performance"
     metadata_path = args.output_dir / "forecast_metadata.json"
     _write_rows(session_path, rows)
     _write_rows(mouse_path, mouse_rows)
     _write_rows(group_path, group_rows)
-    _plot_group_performance(group_rows, args.target, metric, figure_path, args.dpi)
+    figure_paths = _plot_group_performance(
+        group_rows,
+        args.target,
+        metric,
+        figure_base,
+        args.formats,
+        args.dpi,
+    )
 
     metadata = {
         "manifest": str(args.manifest),
@@ -165,6 +182,8 @@ def main():
         "alpha": args.alpha,
         "primary_metric": metric,
         "models": MODEL_ORDER,
+        "figure_formats": args.formats,
+        "font_family": args.font_family,
     }
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
@@ -173,7 +192,8 @@ def main():
     print(f"Saved session metrics: {session_path}")
     print(f"Saved mouse metrics: {mouse_path}")
     print(f"Saved group metrics: {group_path}")
-    print(f"Saved figure: {figure_path}")
+    for figure_path in figure_paths:
+        print(f"Saved figure: {figure_path}")
     print(f"Saved metadata: {metadata_path}")
 
 

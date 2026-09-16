@@ -4,6 +4,11 @@ import json
 import sys
 from pathlib import Path
 
+import matplotlib
+
+
+matplotlib.use("Agg")
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -15,6 +20,7 @@ from src.psth_statistics import (
     prism_wide_rows,
     run_pairwise_tests,
 )
+from src.publication_figures import save_metric_figures
 from src.session_manifest import load_session_manifest
 
 
@@ -56,6 +62,17 @@ def parse_arguments():
     parser.add_argument("--n-shuffles", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--null-exclusion", type=float, default=0.0)
+    parser.add_argument(
+        "--formats",
+        nargs="+",
+        choices=("svg", "png", "pdf"),
+        default=("svg", "png"),
+    )
+    parser.add_argument("--font-family", default="Arial")
+    parser.add_argument("--dpi", type=int, default=300)
+    parser.add_argument("--no-mouse-points", action="store_true")
+    parser.add_argument("--no-pairs", action="store_true")
+    parser.add_argument("--no-statistics", action="store_true")
     return parser.parse_args()
 
 
@@ -154,6 +171,19 @@ def main():
         if _write_rows(path, results[key]):
             saved.append(path)
 
+    figure_paths = save_metric_figures(
+        results["mouse_rows"],
+        results["test_rows"],
+        args.output_dir,
+        formats=args.formats,
+        dpi=args.dpi,
+        font_family=args.font_family,
+        show_mice=not args.no_mouse_points,
+        show_pairs=not args.no_pairs,
+        show_statistics=not args.no_statistics,
+    )
+    saved.extend(figure_paths)
+
     metadata = {
         "manifest": str(args.manifest),
         "data_root": str(args.data_root),
@@ -172,6 +202,11 @@ def main():
         "seed": args.seed,
         "null_exclusion": args.null_exclusion,
         "hierarchy": "trials within sessions; sessions within mice; mice are N",
+        "figure_formats": args.formats,
+        "font_family": args.font_family,
+        "show_mouse_points": not args.no_mouse_points,
+        "show_pairs": not args.no_pairs,
+        "show_statistics": not args.no_statistics,
     }
     metadata_path = args.output_dir / "psth_statistics_metadata.json"
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")

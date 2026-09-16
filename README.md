@@ -263,6 +263,21 @@ and shuffle-test tables; and `psth_prism_wide.csv`, which has one row per mouse
 and one column per group/condition/metric. The baseline and response windows and
 primary metric should be selected before comparing experimental conditions.
 
+### Publication figures and Adobe Illustrator
+
+PSTH, response-metric, and forecasting commands save both editable SVG figures
+and 300-DPI PNG previews by default. SVG text remains text rather than being
+converted to paths, which makes labels and fonts editable in Adobe Illustrator.
+Use `--formats svg png pdf` to request all supported outputs and
+`--font-family Arial` to select an installed font.
+
+Response-metric figures show individual mice, connect repeated measurements,
+overlay the group mean with a 95% confidence interval, and display
+Holm-adjusted statistical comparisons. Use `--no-mouse-points`, `--no-pairs`,
+or `--no-statistics` when preparing a different presentation. Python determines
+the data and statistics; Illustrator can then be used for final panel layout and
+cosmetic editing without changing the underlying analysis.
+
 The actual preprocessing implementation is contained in:
 
 ```text

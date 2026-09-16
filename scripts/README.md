@@ -124,7 +124,9 @@ python scripts/run_psth_statistics.py \
 
 Optional `group` and `condition` columns in the manifest determine the
 comparisons. Mice are the independent units; trials and sessions are retained
-in the exported tables but are not counted as separate animals.
+in the exported tables but are not counted as separate animals. One figure per
+metric is saved as editable SVG and PNG by default, including mouse points,
+paired lines, 95% confidence intervals, and adjusted statistical annotations.
 
 ## `run_forecasting.py`
 
@@ -144,7 +146,11 @@ python scripts/run_forecasting.py \
 
 Forecasting uses expanding-window evaluation with train-only standardization and
 a temporal exclusion gap. The default estimator backend is scikit-learn and
-does not require NeMoS/JAX.
+does not require NeMoS/JAX. Its performance figure is saved as editable SVG and
+PNG by default.
+
+All figure-producing commands accept `--formats svg png pdf`, `--font-family`,
+and `--dpi`. SVG output retains editable text for Adobe Illustrator.
 
 ## Future Scripts
 

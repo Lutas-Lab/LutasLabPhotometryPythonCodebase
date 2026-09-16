@@ -358,14 +358,25 @@ def compute_manifest_psth(
     }
 
 
-def save_psth_figures(results, output_dir, *, figure_level="both", dpi=150):
+def save_psth_figures(
+    results,
+    output_dir,
+    *,
+    figure_level="both",
+    formats=("svg", "png"),
+    dpi=300,
+    font_family="Arial",
+):
     """Save one figure per mouse and/or a mouse-level group mean ± SEM."""
     import matplotlib.pyplot as plt
+
+    from .publication_figures import configure_publication_style, save_figure_formats
 
     if figure_level not in ("individual", "group", "both"):
         raise ValueError("figure_level must be 'individual', 'group', or 'both'.")
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    configure_publication_style(font_family=font_family)
     time = results["time"]
     ylabel = "dF/F" if results["normalization"] == "none" else results["normalization"]
     saved = []
@@ -413,10 +424,14 @@ def save_psth_figures(results, output_dir, *, figure_level="both", dpi=150):
             )
             ax.legend()
             fig.tight_layout()
-            path = output_dir / f"{mouse}_{results['event_key']}_psth.png"
-            fig.savefig(path, dpi=dpi)
+            paths = save_figure_formats(
+                fig,
+                output_dir / f"{mouse}_{results['event_key']}_psth",
+                formats=formats,
+                dpi=dpi,
+            )
             plt.close(fig)
-            saved.append(path)
+            saved.extend(paths)
 
     if figure_level in ("group", "both"):
         fig, ax = plt.subplots(figsize=(9, 6))
@@ -458,9 +473,13 @@ def save_psth_figures(results, output_dir, *, figure_level="both", dpi=150):
         )
         ax.legend()
         fig.tight_layout()
-        path = output_dir / f"group_{results['event_key']}_psth.png"
-        fig.savefig(path, dpi=dpi)
+        paths = save_figure_formats(
+            fig,
+            output_dir / f"group_{results['event_key']}_psth",
+            formats=formats,
+            dpi=dpi,
+        )
         plt.close(fig)
-        saved.append(path)
+        saved.extend(paths)
 
     return saved

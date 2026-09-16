@@ -297,6 +297,15 @@ observed measurements with random-onset or circular-shift null distributions.
 
 ---
 
+# `publication_figures.py`
+
+Shared publication styling and multi-format figure export. SVG text is retained
+as editable text for Adobe Illustrator, with PNG previews and optional PDF
+output. Statistical figures show mouse-level observations, paired measurements,
+95% confidence intervals, and Holm-adjusted comparisons.
+
+---
+
 # `forecasting.py`
 
 Functions for testing whether past photometry and behavioral signals predict
