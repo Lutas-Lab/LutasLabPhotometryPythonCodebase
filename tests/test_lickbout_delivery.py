@@ -31,6 +31,7 @@ class LickBoutDeliveryTests(unittest.TestCase):
             "group": "Astrocyte",
             "condition": "Trained",
             "n_mice": 2,
+            "minimum_delivery_latency": 0.0,
         }
         try:
             paths = save_delivery_sorted_heatmap(
@@ -58,11 +59,9 @@ class LickBoutDeliveryTests(unittest.TestCase):
             recording_end=70.0,
         )
 
-        self.assertEqual(len(matches), 2)
-        self.assertEqual(matches[0]["lick_bout_onset"], 12.0)
-        self.assertEqual(matches[0]["delivery_latency"], -1.0)
-        self.assertEqual(matches[1]["lick_bout_onset"], 34.0)
-        self.assertEqual(matches[1]["delivery_latency"], 2.0)
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["lick_bout_onset"], 34.0)
+        self.assertEqual(matches[0]["delivery_latency"], 2.0)
 
     def test_computes_psth_from_the_same_paired_trials_as_heatmap(self):
         info = {
@@ -104,11 +103,11 @@ class LickBoutDeliveryTests(unittest.TestCase):
         finally:
             shutil.rmtree(data_root, ignore_errors=True)
 
-        self.assertEqual(results["trial_matrix"].shape[0], 2)
-        self.assertEqual(results["session_results"][0]["n_events"], 2)
+        self.assertEqual(results["trial_matrix"].shape[0], 1)
+        self.assertEqual(results["session_results"][0]["n_events"], 1)
         self.assertEqual(
             [row["delivery_latency"] for row in results["trial_rows"]],
-            [-1.0, 2.0],
+            [2.0],
         )
         np.testing.assert_allclose(
             results["session_results"][0]["mean"],

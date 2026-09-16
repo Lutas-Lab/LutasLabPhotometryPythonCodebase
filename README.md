@@ -251,16 +251,17 @@ python scripts/run_lickbout_delivery_analysis.py \
     --group Astrocyte \
     --window -5 20 \
     --baseline -5 0 \
+    --minimum-delivery-latency 0 \
     --normalization zscore
 ```
 
 Each behavioral trial extends from one cue onset to the next. The analysis
-pairs the first lick bout and first solenoid onset in that interval, then uses
-those same paired trials for both the PSTH and heatmap. Heatmap rows are sorted
-by `solenoid_onset - lick_bout_onset`; negative values indicate that delivery
-preceded licking. A white overlay marks the solenoid/Ensure delivery time on
-each row. The sorted trial matrix and matching metadata are also exported as
-NPZ and CSV files.
+pairs the first lick bout and first solenoid onset in that interval, excludes
+trials in which delivery preceded lick-bout onset, then uses the remaining
+paired trials for both the PSTH and heatmap. Heatmap rows are sorted by
+`solenoid_onset - lick_bout_onset`. A white overlay marks the solenoid/Ensure
+delivery time on each row. The sorted trial matrix and matching metadata are
+also exported as NPZ and CSV files.
 
 The averaging hierarchy is deliberately:
 

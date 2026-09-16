@@ -20,6 +20,7 @@ def match_cue_lickbout_delivery_trials(
     lick_bout_onsets,
     delivery_onsets,
     recording_end,
+    minimum_delivery_latency=0.0,
 ):
     """Pair the first lick bout and delivery within each cue-to-cue trial."""
     cues = np.sort(np.asarray(cue_onsets, dtype=float))
@@ -30,6 +31,8 @@ def match_cue_lickbout_delivery_trials(
     deliveries = deliveries[np.isfinite(deliveries)]
     if not np.isfinite(recording_end):
         raise ValueError("recording_end must be finite.")
+    if not np.isfinite(minimum_delivery_latency):
+        raise ValueError("minimum_delivery_latency must be finite.")
 
     matches = []
     for cue_index, cue_onset in enumerate(cues):
@@ -42,13 +45,16 @@ def match_cue_lickbout_delivery_trials(
             continue
         lick_bout_onset = float(trial_bouts[0])
         delivery_onset = float(trial_deliveries[0])
+        delivery_latency = delivery_onset - lick_bout_onset
+        if delivery_latency < minimum_delivery_latency:
+            continue
         matches.append(
             {
                 "cue_index": cue_index,
                 "cue_onset": float(cue_onset),
                 "lick_bout_onset": lick_bout_onset,
                 "delivery_onset": delivery_onset,
-                "delivery_latency": delivery_onset - lick_bout_onset,
+                "delivery_latency": delivery_latency,
             }
         )
     return matches
@@ -63,6 +69,7 @@ def compute_lickbout_delivery_psth(
     normalization="zscore",
     baseline=(-5, 0),
     channel="manifest",
+    minimum_delivery_latency=0.0,
 ):
     """Compute lick-bout-aligned photometry for cue trials with delivery."""
     session_results = []
@@ -93,6 +100,7 @@ def compute_lickbout_delivery_psth(
             session["lick_bout_onset"],
             session["solenoid_onset"],
             signal_time[-1],
+            minimum_delivery_latency=minimum_delivery_latency,
         )
         if not matches:
             warnings.warn(
@@ -206,6 +214,7 @@ def compute_lickbout_delivery_psth(
         "n_shuffles": 0,
         "random_seed": 0,
         "null_exclusion": 0.0,
+        "minimum_delivery_latency": float(minimum_delivery_latency),
         "trial_matrix": np.vstack(trial_traces),
         "trial_rows": trial_rows,
     }
@@ -293,6 +302,7 @@ def save_delivery_sorted_heatmap(
         title=(
             f"{results.get('group', 'all')} / {results.get('condition', 'all')}: "
             f"lick-bout-aligned photometry\n"
+            f"delivery latency ≥ {results['minimum_delivery_latency']:g} s; "
             f"{len(order)} paired trials, {results['n_mice']} mice"
         ),
     )
@@ -333,6 +343,7 @@ def save_delivery_trial_data(results, output_dir):
         group=str(results.get("group", "all")),
         condition=str(results.get("condition", "all")),
         normalization=str(results["normalization"]),
+        minimum_delivery_latency=results["minimum_delivery_latency"],
         mouse=np.asarray(
             [results["trial_rows"][index]["mouse"] for index in order], dtype=str
         ),

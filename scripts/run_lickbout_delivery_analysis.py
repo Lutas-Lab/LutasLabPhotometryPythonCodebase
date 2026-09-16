@@ -48,6 +48,15 @@ def parse_arguments():
         default="zscore",
     )
     parser.add_argument("--baseline", type=float, nargs=2, default=(-5.0, 0.0))
+    parser.add_argument(
+        "--minimum-delivery-latency",
+        type=float,
+        default=0.0,
+        help=(
+            "Exclude trials whose solenoid onset minus lick-bout onset is below "
+            "this value (default: 0 seconds)."
+        ),
+    )
     parser.add_argument("--dpi", type=int, default=300)
     parser.add_argument(
         "--formats",
@@ -86,6 +95,7 @@ def main():
         normalization=args.normalization,
         baseline=args.baseline,
         channel=args.channel,
+        minimum_delivery_latency=args.minimum_delivery_latency,
     )
     saved = []
     for (group, condition), results in results_by_stratum.items():
