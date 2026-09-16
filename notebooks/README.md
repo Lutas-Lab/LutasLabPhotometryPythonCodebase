@@ -141,17 +141,10 @@ If a mouse contributes multiple sessions, those sessions are first summarized wi
 
 ### Session List
 
-Sessions are specified near the top of the notebook using a simple list:
-
-```python
-SESSIONS = [
-    {"mouse": "DK21", "date": "230704", "run": 1},
-    {"mouse": "DK21", "date": "230704", "run": 2},
-    {"mouse": "DK40", "date": "231005", "run": 1},
-]
-```
-
-The corresponding processed-session paths are constructed automatically.
+Sessions are loaded from the same `mouse,date,run` CSV manifest accepted by
+`scripts/run_preprocess_batch.py` and `scripts/run_psth.py`. Copy
+`config/sessions.example.csv` to `analysis/sessions.csv` and edit that local
+copy. The corresponding processed-session paths are constructed automatically.
 
 ### Current Group Analyses
 

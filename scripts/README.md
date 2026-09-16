@@ -61,28 +61,48 @@ A processed session is saved using a standardized filename such as:
 DK21-230704-002-processed.npz
 ```
 
+## `run_preprocess_batch.py`
+
+Uses a CSV session manifest with `mouse,date,run` columns to preprocess many
+sessions. By default, every processed `.npz` is saved in the same directory as
+its source `.mat` files and existing processed files are skipped. Pass
+`--overwrite` to replace existing processed files, or `--continue-on-error` to
+continue after a failed session and print a complete summary.
+
+```bash
+python scripts/run_preprocess_batch.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry"
+```
+
+## `run_psth.py`
+
+Uses the same manifest to load processed sessions and generate event-aligned
+photometry figures. It saves one figure per mouse, a group mean with SEM across
+mice, a numeric `.npz`, and a CSV containing the session/event counts per mouse.
+
+```bash
+python scripts/run_psth.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry" \
+    --output-dir analysis/figures/cue \
+    --event-key cue_onset
+```
+
+The group error band uses mice, not trials, as independent biological units.
+Within each mouse, event trials are averaged within a session and session means
+are then averaged across that mouse's sessions.
+
+Run either script with `--help` to see all preprocessing, event, channel,
+normalization, time-window, and figure options.
+
 ## Future Scripts
 
 Additional command-line workflows may be added here, for example:
 
 ```text
-run_preprocess_batch.py
 run_nemos.py
-run_group_analysis.py
-```
-
-### Batch preprocessing
-
-A future batch preprocessing script can run the same preprocessing pipeline across many mouse/date/run combinations.
-
-For example:
-
-```text
-mouse,date,run
-DK21,230704,1
-DK21,230704,2
-DK21,230704,3
-DK40,231005,1
+run_nemos_batch.py
 ```
 
 ### NeMoS analysis

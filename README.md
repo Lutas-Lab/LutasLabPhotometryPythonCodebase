@@ -152,6 +152,60 @@ A processed session is saved using a standardized filename such as:
 DK21-230704-002-processed.npz
 ```
 
+## Batch Processing and Group PSTHs
+
+The same CSV session manifest can drive raw-data preprocessing and subsequent
+mouse/group PSTH figures. Start by copying `config/sessions.example.csv` to a
+local file under the Git-ignored `analysis/` directory:
+
+```csv
+mouse,date,run
+DK21,230704,1
+DK21,230704,2
+DK40,231005,1
+```
+
+Batch preprocessing saves each processed file beside its original raw files:
+
+```bash
+python scripts/run_preprocess_batch.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry"
+```
+
+Existing processed files are skipped by default so that an old analysis is not
+silently overwritten. Use `--overwrite` only after backing up results that must
+be retained. Use `--continue-on-error` to attempt later sessions and report all
+failures in one run.
+
+Generate cue-aligned per-mouse figures and a group mean with SEM across mice:
+
+```bash
+python scripts/run_psth.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry" \
+    --output-dir "analysis/figures/cue" \
+    --event-key cue_onset \
+    --normalization zscore \
+    --baseline -5 0
+```
+
+Other timestamp arrays in a processed session can be selected with
+`--event-key`, including `solenoid_onset`, `lick_bout_onset`, and `lick_times`.
+Use `--normalization none` to plot processed dF/F without trial-local baseline
+normalization.
+
+The averaging hierarchy is deliberately:
+
+```text
+events -> session mean -> mouse mean -> group mean +/- SEM across mice
+```
+
+Thus, a mouse with more sessions or trials does not receive more weight in the
+group-level result. The figure workflow also saves the numeric mouse matrix,
+group mean, and group SEM to `psth_results.npz`, plus counts to
+`psth_summary.csv`.
+
 The actual preprocessing implementation is contained in:
 
 ```text
