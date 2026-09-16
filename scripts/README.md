@@ -102,6 +102,26 @@ overlay the observed PSTH with the shuffled mean and 95% null envelope. Use
 Run either script with `--help` to see all preprocessing, event, channel,
 normalization, time-window, and figure options.
 
+## `run_forecasting.py`
+
+Uses the session manifest to forecast future photometry, locomotion, lick
+occurrence, or lick counts from past-only photometry and behavioral features.
+It compares target-history, cross-modal, and combined models over one or more
+forecast horizons.
+
+```bash
+python scripts/run_forecasting.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry" \
+    --output-dir analysis/forecasts/photometry \
+    --target photometry \
+    --horizons 0.5 1 2 5
+```
+
+Forecasting uses expanding-window evaluation with train-only standardization and
+a temporal exclusion gap. The default estimator backend is scikit-learn and
+does not require NeMoS/JAX.
+
 ## Future Scripts
 
 Additional command-line workflows may be added here, for example:

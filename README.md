@@ -408,6 +408,56 @@ Actual cue onset and offset timestamps are used so that analyses can accommodate
 
 ---
 
+# Forecasting Future Photometry and Behavior
+
+Forecasting is available without NeMoS or JAX through the optional
+`forecasting` dependency:
+
+```bash
+python -m pip install -e ".[forecasting]"
+```
+
+The manifest-driven forecasting script supports future `photometry`,
+`locomotion`, `lick_binary`, and `lick_count` targets. For example:
+
+```bash
+python scripts/run_forecasting.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry" \
+    --output-dir analysis/forecasts/licks \
+    --target lick_binary \
+    --horizons 0.5 1 2 5 \
+    --history 5 \
+    --target-window 1
+```
+
+Every target and feature row has an explicit prediction time. Only signals at
+or before that time enter the design matrix. Evaluation uses expanding-window
+cross-validation: training data always precede testing data, and a temporal gap
+separates them. Unless explicitly overridden, that gap covers predictor history,
+forecast horizon, and the future lick-counting window.
+
+Each forecast compares:
+
+```text
+history_only  target's own past
+cross_modal   photometry/behavior signals other than the target's own past
+combined      target history plus cross-modal signals
+```
+
+Continuous targets use ridge regression, future lick occurrence uses logistic
+regression, and future lick counts use Poisson regression. Raw 465 is the
+default photometry representation so forecasting does not depend on a
+whole-session 405 fit; `--photometry-source dff` is available as a secondary
+comparison.
+
+Outputs include session-level metrics, mouse-level means, group mean and SEM
+across mice, a performance-versus-horizon figure, and a JSON record of all
+forecasting settings. Forecasting indicates predictive information and should
+not automatically be interpreted as biological causality.
+
+---
+
 # NeMoS Modeling
 
 Behavior-photometry relationships can be modeled using NeMoS.

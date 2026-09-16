@@ -287,6 +287,21 @@ The residual is used to investigate faster behavior-related fluorescence fluctua
 
 ---
 
+# `forecasting.py`
+
+Functions for testing whether past photometry and behavioral signals predict
+future photometry, locomotion, or licking.
+
+The forecasting workflow builds past-only lagged features on a common timebase,
+uses expanding-window validation with a temporal gap, and compares a target-history
+baseline against cross-modal and combined models. Continuous targets use ridge
+regression, lick occurrence uses logistic regression, and lick counts use Poisson
+regression. All feature scaling is fitted on training data only.
+
+This module uses scikit-learn and does not require NeMoS or JAX.
+
+---
+
 # `nemos_analysis.py`
 
 Functions for modeling relationships between photometry and behavior using NeMoS.
