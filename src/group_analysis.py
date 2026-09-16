@@ -204,6 +204,15 @@ def _psth_ylabel(normalization):
     }.get(normalization, str(normalization))
 
 
+def _psth_context(results):
+    values = [
+        str(results[key])
+        for key in ("group", "condition")
+        if results.get(key) not in (None, "", "all")
+    ]
+    return " / ".join(values)
+
+
 def compute_manifest_psth(
     sessions,
     data_root,
@@ -549,6 +558,7 @@ def save_psth_figures(
     configure_publication_style(font_family=font_family)
     time = results["time"]
     ylabel = _psth_ylabel(results["normalization"])
+    context = _psth_context(results)
     saved = []
 
     if figure_level in ("individual", "both"):
@@ -588,7 +598,9 @@ def save_psth_figures(
                 xlabel=f"Time from {results['event_key']} (s)",
                 ylabel=ylabel,
                 title=(
-                    f"{mouse}: {results['event_key']} PSTH "
+                    f"{mouse}: "
+                    f"{context + ' / ' if context else ''}"
+                    f"{results['event_key']} PSTH "
                     f"({mouse_result['n_sessions']} sessions)"
                 ),
             )
@@ -639,7 +651,10 @@ def save_psth_figures(
         ax.set(
             xlabel=f"Time from {results['event_key']} (s)",
             ylabel=ylabel,
-            title=f"Group {results['event_key']} PSTH ({results['n_mice']} mice)",
+            title=(
+                f"{context + ': ' if context else 'Group '}"
+                f"{results['event_key']} PSTH ({results['n_mice']} mice)"
+            ),
         )
         ax.legend()
         fig.tight_layout()
