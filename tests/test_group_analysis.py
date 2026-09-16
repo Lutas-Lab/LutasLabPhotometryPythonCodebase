@@ -7,6 +7,7 @@ import numpy as np
 from src.group_analysis import (
     compute_manifest_psth,
     extract_perievent_trials,
+    generate_null_onsets,
     normalize_trials,
 )
 from src.session_manifest import processed_session_path
@@ -32,6 +33,39 @@ def _write_processed_session(data_root, info, value):
 
 
 class GroupAnalysisTests(unittest.TestCase):
+    def test_null_onsets_are_reproducible_and_session_bounded(self):
+        events = np.array([4.0, 8.0])
+        first = generate_null_onsets(
+            events,
+            (1.0, 11.0),
+            n_shuffles=20,
+            method="random_onsets",
+            exclusion=0.5,
+            rng=np.random.default_rng(12),
+        )
+        second = generate_null_onsets(
+            events,
+            (1.0, 11.0),
+            n_shuffles=20,
+            method="random_onsets",
+            exclusion=0.5,
+            rng=np.random.default_rng(12),
+        )
+        np.testing.assert_allclose(first, second)
+        self.assertTrue(np.all((first >= 1.0) & (first <= 11.0)))
+        self.assertTrue(
+            np.all(np.abs(first[:, :, None] - events[None, None, :]) >= 0.5)
+        )
+
+        shifted = generate_null_onsets(
+            events,
+            (1.0, 11.0),
+            n_shuffles=20,
+            method="circular_shift",
+            rng=np.random.default_rng(12),
+        )
+        np.testing.assert_allclose(np.mod(shifted[:, 1] - shifted[:, 0], 10.0), 4.0)
+
     def test_extract_and_normalize_trials(self):
         time = np.arange(0.0, 10.1, 0.1)
         signal = time.copy()
@@ -63,6 +97,9 @@ class GroupAnalysisTests(unittest.TestCase):
                 window=(-1.0, 1.0),
                 dt=0.1,
                 normalization="none",
+                null_method="random_onsets",
+                n_shuffles=12,
+                random_seed=7,
             )
         finally:
             shutil.rmtree(data_root, ignore_errors=True)
@@ -71,4 +108,6 @@ class GroupAnalysisTests(unittest.TestCase):
         np.testing.assert_allclose(results["mouse_results"]["M2"]["mean"], 5.0)
         np.testing.assert_allclose(results["group_mean"], 3.5)
         np.testing.assert_allclose(results["group_sem"], 1.5)
+        np.testing.assert_allclose(results["group_null_mean"], 3.5)
+        self.assertEqual(results["group_null_matrix"].shape[0], 12)
         self.assertEqual(results["n_mice"], 2)

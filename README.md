@@ -190,6 +190,25 @@ python scripts/run_psth.py \
     --baseline -5 0
 ```
 
+Add a reproducible random-alignment control with:
+
+```bash
+python scripts/run_psth.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry" \
+    --output-dir "analysis/figures/cue_random" \
+    --event-key cue_onset \
+    --null-method random_onsets \
+    --n-shuffles 500 \
+    --seed 123
+```
+
+`random_onsets` samples the same number of valid onsets within each recording.
+`circular_shift` moves each session's event train as a block and therefore
+preserves its relative event spacing. Set `--null-exclusion` to require null
+onsets to remain a chosen number of seconds away from real events. Figures show
+the observed PSTH together with the shuffled mean and 95% null envelope.
+
 Other timestamp arrays in a processed session can be selected with
 `--event-key`, including `solenoid_onset`, `lick_bout_onset`, and `lick_times`.
 Use `--normalization none` to plot processed dF/F without trial-local baseline
@@ -204,7 +223,8 @@ events -> session mean -> mouse mean -> group mean +/- SEM across mice
 Thus, a mouse with more sessions or trials does not receive more weight in the
 group-level result. The figure workflow also saves the numeric mouse matrix,
 group mean, and group SEM to `psth_results.npz`, plus counts to
-`psth_summary.csv`.
+`psth_summary.csv`. When randomization is enabled, the shuffle matrices, null
+mean, percentile bounds, method, seed, and shuffle count are also saved.
 
 The actual preprocessing implementation is contained in:
 

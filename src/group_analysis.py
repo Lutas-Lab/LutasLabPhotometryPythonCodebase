@@ -1,4 +1,5 @@
 from collections import defaultdict
+import hashlib
 from pathlib import Path
 import warnings
 
@@ -73,6 +74,112 @@ def normalize_trials(peri_time, trials, normalization="zscore", baseline=(-5, 0)
     return output
 
 
+def generate_null_onsets(
+    event_times,
+    onset_bounds,
+    *,
+    n_shuffles=500,
+    method="random_onsets",
+    exclusion=0.0,
+    rng=None,
+):
+    """Generate session-local random or circularly shifted event onsets."""
+    event_times = np.asarray(event_times, dtype=float)
+    event_times = event_times[np.isfinite(event_times)]
+    if event_times.ndim != 1 or len(event_times) == 0:
+        raise ValueError("event_times must contain at least one finite event.")
+    if len(onset_bounds) != 2 or onset_bounds[0] >= onset_bounds[1]:
+        raise ValueError("onset_bounds must contain increasing start and end values.")
+    if not isinstance(n_shuffles, int) or isinstance(n_shuffles, bool) or n_shuffles < 1:
+        raise ValueError("n_shuffles must be a positive integer.")
+    if method not in ("random_onsets", "circular_shift"):
+        raise ValueError("method must be 'random_onsets' or 'circular_shift'.")
+    if not np.isfinite(exclusion) or exclusion < 0:
+        raise ValueError("exclusion must be finite and nonnegative.")
+
+    low, high = map(float, onset_bounds)
+    rng = np.random.default_rng() if rng is None else rng
+    output = np.empty((n_shuffles, len(event_times)), dtype=float)
+
+    def sufficiently_far(candidates):
+        if exclusion == 0:
+            return np.ones(len(candidates), dtype=bool)
+        distances = np.abs(candidates[:, None] - event_times[None, :])
+        return np.all(distances >= exclusion, axis=1)
+
+    if method == "random_onsets":
+        for shuffle_index in range(n_shuffles):
+            selected = []
+            for _ in range(1000):
+                candidates = rng.uniform(low, high, size=max(64, 2 * len(event_times)))
+                selected.extend(candidates[sufficiently_far(candidates)].tolist())
+                if len(selected) >= len(event_times):
+                    break
+            if len(selected) < len(event_times):
+                raise ValueError(
+                    "Could not sample enough random onsets. Reduce null exclusion."
+                )
+            output[shuffle_index] = selected[: len(event_times)]
+        return output
+
+    span = high - low
+    wrapped_events = low + np.mod(event_times - low, span)
+    for shuffle_index in range(n_shuffles):
+        for _ in range(10000):
+            shift = rng.uniform(0.0, span)
+            candidates = low + np.mod(wrapped_events - low + shift, span)
+            if np.all(sufficiently_far(candidates)):
+                output[shuffle_index] = candidates
+                break
+        else:
+            raise ValueError(
+                "Could not find an eligible circular shift. Reduce null exclusion."
+            )
+    return output
+
+
+def _session_rng(seed, info):
+    identifier = f"{seed}|{info['mouse']}|{info['date']}|{int(info['run'])}"
+    digest = hashlib.sha256(identifier.encode("utf-8")).digest()
+    return np.random.default_rng(int.from_bytes(digest[:8], "little"))
+
+
+def _null_session_means(
+    signal_time,
+    signal,
+    real_event_times,
+    *,
+    window,
+    dt,
+    normalization,
+    baseline,
+    n_shuffles,
+    null_method,
+    null_exclusion,
+    rng,
+):
+    start, end = _validate_window(window)
+    onset_bounds = (float(signal_time[0]) - start, float(signal_time[-1]) - end)
+    shuffled_onsets = generate_null_onsets(
+        real_event_times,
+        onset_bounds,
+        n_shuffles=n_shuffles,
+        method=null_method,
+        exclusion=null_exclusion,
+        rng=rng,
+    )
+    means = []
+    for onsets in shuffled_onsets:
+        peri_time, trials, _ = extract_perievent_trials(
+            signal_time, signal, onsets, window=window, dt=dt
+        )
+        normalized = normalize_trials(
+            peri_time, trials, normalization=normalization, baseline=baseline
+        )
+        means.append(np.nanmean(normalized, axis=0))
+    return np.asarray(means, dtype=float)
+
+
 def _mean_and_sem(rows):
     rows = np.asarray(rows, dtype=float)
     if rows.ndim != 2 or rows.shape[0] == 0:
@@ -98,8 +205,25 @@ def compute_manifest_psth(
     dt=0.02,
     normalization="zscore",
     baseline=(-5, 0),
+    null_method="none",
+    n_shuffles=500,
+    random_seed=0,
+    null_exclusion=0.0,
 ):
     """Compute session, mouse, and group PSTHs with mice as the group unit."""
+    if null_method not in ("none", "random_onsets", "circular_shift"):
+        raise ValueError(
+            "null_method must be 'none', 'random_onsets', or 'circular_shift'."
+        )
+    if not isinstance(random_seed, int) or isinstance(random_seed, bool):
+        raise ValueError("random_seed must be an integer.")
+    if null_method != "none" and (
+        not isinstance(n_shuffles, int)
+        or isinstance(n_shuffles, bool)
+        or n_shuffles < 1
+    ):
+        raise ValueError("n_shuffles must be a positive integer.")
+
     signal_key = f"dff_ch{int(channel)}"
     time_key = f"photo_time_465_ch{int(channel)}"
     session_results = []
@@ -138,14 +262,28 @@ def compute_manifest_psth(
                 stacklevel=2,
             )
             continue
-        session_results.append(
-            {
-                **info,
-                "path": path,
-                "n_events": len(valid_indices),
-                "mean": session_mean,
-            }
-        )
+        result = {
+            **info,
+            "path": path,
+            "n_events": len(valid_indices),
+            "mean": session_mean,
+        }
+        if null_method != "none":
+            valid_event_times = np.asarray(session[event_key], dtype=float)[valid_indices]
+            result["null_means"] = _null_session_means(
+                np.asarray(session[time_key], dtype=float),
+                np.asarray(session[signal_key], dtype=float),
+                valid_event_times,
+                window=window,
+                dt=dt,
+                normalization=normalization,
+                baseline=baseline,
+                n_shuffles=n_shuffles,
+                null_method=null_method,
+                null_exclusion=null_exclusion,
+                rng=_session_rng(random_seed, info),
+            )
+        session_results.append(result)
 
     if not session_results:
         raise ValueError("No sessions contained usable peri-event trials.")
@@ -158,17 +296,47 @@ def compute_manifest_psth(
     for mouse, results in grouped.items():
         session_matrix = np.vstack([result["mean"] for result in results])
         mean, sem = _mean_and_sem(session_matrix)
-        mouse_results[mouse] = {
+        mouse_result = {
             "mean": mean,
             "sem": sem,
             "session_matrix": session_matrix,
             "n_sessions": len(results),
             "n_events": sum(result["n_events"] for result in results),
         }
+        if null_method != "none":
+            null_session_stack = np.stack(
+                [result["null_means"] for result in results], axis=0
+            )
+            null_matrix = np.nanmean(null_session_stack, axis=0)
+            mouse_result.update(
+                {
+                    "null_matrix": null_matrix,
+                    "null_mean": np.nanmean(null_matrix, axis=0),
+                    "null_lower": np.nanpercentile(null_matrix, 2.5, axis=0),
+                    "null_upper": np.nanpercentile(null_matrix, 97.5, axis=0),
+                }
+            )
+        mouse_results[mouse] = mouse_result
 
     mouse_names = sorted(mouse_results)
     mouse_matrix = np.vstack([mouse_results[mouse]["mean"] for mouse in mouse_names])
     group_mean, group_sem = _mean_and_sem(mouse_matrix)
+
+    null_results = {}
+    if null_method != "none":
+        mouse_null_stack = np.stack(
+            [mouse_results[mouse]["null_matrix"] for mouse in mouse_names], axis=0
+        )
+        group_null_matrix = np.nanmean(mouse_null_stack, axis=0)
+        null_results = {
+            "mouse_null_mean_matrix": np.vstack(
+                [mouse_results[mouse]["null_mean"] for mouse in mouse_names]
+            ),
+            "group_null_matrix": group_null_matrix,
+            "group_null_mean": np.nanmean(group_null_matrix, axis=0),
+            "group_null_lower": np.nanpercentile(group_null_matrix, 2.5, axis=0),
+            "group_null_upper": np.nanpercentile(group_null_matrix, 97.5, axis=0),
+        }
 
     return {
         "time": peri_time,
@@ -182,6 +350,11 @@ def compute_manifest_psth(
         "event_key": event_key,
         "signal_key": signal_key,
         "normalization": "none" if normalization is None else normalization,
+        "null_method": null_method,
+        "n_shuffles": n_shuffles if null_method != "none" else 0,
+        "random_seed": random_seed,
+        "null_exclusion": null_exclusion,
+        **null_results,
     }
 
 
@@ -203,6 +376,22 @@ def save_psth_figures(results, output_dir, *, figure_level="both", dpi=150):
             fig, ax = plt.subplots(figsize=(8, 5))
             for trace in mouse_result["session_matrix"]:
                 ax.plot(time, trace, color="0.7", linewidth=1)
+            if results["null_method"] != "none":
+                ax.fill_between(
+                    time,
+                    mouse_result["null_lower"],
+                    mouse_result["null_upper"],
+                    color="0.6",
+                    alpha=0.25,
+                    label="95% shuffled envelope",
+                )
+                ax.plot(
+                    time,
+                    mouse_result["null_mean"],
+                    color="0.35",
+                    linestyle="--",
+                    label="Shuffled mean",
+                )
             ax.plot(time, mouse_result["mean"], linewidth=2, label=f"{mouse} mean")
             if mouse_result["n_sessions"] > 1:
                 ax.fill_between(
@@ -233,6 +422,23 @@ def save_psth_figures(results, output_dir, *, figure_level="both", dpi=150):
         fig, ax = plt.subplots(figsize=(9, 6))
         for mouse, trace in zip(results["mouse_names"], results["mouse_matrix"]):
             ax.plot(time, trace, alpha=0.35, linewidth=1, label=mouse)
+        if results["null_method"] != "none":
+            ax.fill_between(
+                time,
+                results["group_null_lower"],
+                results["group_null_upper"],
+                color="0.6",
+                alpha=0.3,
+                label="95% shuffled envelope",
+            )
+            ax.plot(
+                time,
+                results["group_null_mean"],
+                color="0.35",
+                linestyle="--",
+                linewidth=2,
+                label="Shuffled mean",
+            )
         ax.plot(time, results["group_mean"], color="black", linewidth=3, label="Group mean")
         if results["n_mice"] > 1:
             ax.fill_between(

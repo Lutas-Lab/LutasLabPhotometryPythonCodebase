@@ -44,6 +44,20 @@ def parse_arguments():
         choices=("individual", "group", "both"),
         default="both",
     )
+    parser.add_argument(
+        "--null-method",
+        choices=("none", "random_onsets", "circular_shift"),
+        default="none",
+        help="Optional session-local null model to compare with real event alignment.",
+    )
+    parser.add_argument("--n-shuffles", type=int, default=500)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--null-exclusion",
+        type=float,
+        default=0.0,
+        help="Minimum distance in seconds between null and real onsets.",
+    )
     parser.add_argument("--dpi", type=int, default=150)
     return parser.parse_args()
 
@@ -60,6 +74,19 @@ def _save_numeric_results(results, output_dir):
         event_key=results["event_key"],
         signal_key=results["signal_key"],
         normalization=results["normalization"],
+        null_method=results["null_method"],
+        n_shuffles=results["n_shuffles"],
+        random_seed=results["random_seed"],
+        null_exclusion=results["null_exclusion"],
+        mouse_null_mean_matrix=results.get(
+            "mouse_null_mean_matrix", np.empty((0, len(results["time"])))
+        ),
+        group_null_matrix=results.get(
+            "group_null_matrix", np.empty((0, len(results["time"])))
+        ),
+        group_null_mean=results.get("group_null_mean", np.empty(0)),
+        group_null_lower=results.get("group_null_lower", np.empty(0)),
+        group_null_upper=results.get("group_null_upper", np.empty(0)),
     )
 
     summary_path = output_dir / "psth_summary.csv"
@@ -93,6 +120,10 @@ def main():
         dt=args.dt,
         normalization=args.normalization,
         baseline=args.baseline,
+        null_method=args.null_method,
+        n_shuffles=args.n_shuffles,
+        random_seed=args.seed,
+        null_exclusion=args.null_exclusion,
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     figure_paths = save_psth_figures(
@@ -105,6 +136,11 @@ def main():
 
     print(f"Analyzed {len(results['session_results'])} sessions.")
     print(f"Biological units in group SEM: {results['n_mice']} mice.")
+    if results["null_method"] != "none":
+        print(
+            f"Null comparison: {results['null_method']}, "
+            f"{results['n_shuffles']} shuffles, seed {results['random_seed']}."
+        )
     for path in figure_paths:
         print(f"Saved figure: {path}")
     print(f"Saved numeric results: {result_path}")

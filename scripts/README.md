@@ -93,6 +93,12 @@ The group error band uses mice, not trials, as independent biological units.
 Within each mouse, event trials are averaged within a session and session means
 are then averaged across that mouse's sessions.
 
+Optional null comparisons are available with `--null-method random_onsets` or
+`--null-method circular_shift`. Both operate independently within every session,
+match the real event count, and are reproducible with `--seed`. The output plots
+overlay the observed PSTH with the shuffled mean and 95% null envelope. Use
+`--null-exclusion` when null onsets should remain away from real events.
+
 Run either script with `--help` to see all preprocessing, event, channel,
 normalization, time-window, and figure options.
 
