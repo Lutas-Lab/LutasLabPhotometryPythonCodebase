@@ -10,7 +10,7 @@ from .group_analysis import (
     normalize_trials,
 )
 from .save_sessiondata import load_session
-from .session_manifest import processed_session_path
+from .session_manifest import processed_session_path, resolve_session_channel
 
 
 AVAILABLE_METRICS = (
@@ -173,7 +173,7 @@ def analyze_manifest_metrics(
     data_root,
     *,
     event_key="cue_onset",
-    channel=1,
+    channel="manifest",
     window=(-5.0, 10.0),
     dt=0.02,
     normalization="zscore",
@@ -198,13 +198,14 @@ def analyze_manifest_metrics(
             "Each mouse must belong to one group; conflicting assignments for "
             f"{sorted(inconsistent)}."
         )
-    signal_key = f"dff_ch{int(channel)}"
-    time_key = f"photo_time_465_ch{int(channel)}"
     trial_rows = []
     session_rows = []
     null_sessions = []
 
     for info in sessions:
+        selected_channel = resolve_session_channel(info, channel)
+        signal_key = f"dff_ch{selected_channel}"
+        time_key = f"photo_time_465_ch{selected_channel}"
         path = processed_session_path(data_root, info)
         session = load_session(path)
         missing = {event_key, signal_key, time_key}.difference(session)
@@ -238,6 +239,7 @@ def analyze_manifest_metrics(
             "run": info["run"],
             "group": group,
             "condition": condition,
+            "channel": selected_channel,
             "event_key": event_key,
         }
         valid_event_times = event_times[valid_indices]

@@ -30,7 +30,12 @@ def parse_arguments():
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--event-key", default="cue_onset")
-    parser.add_argument("--channel", type=int, choices=(1, 2), default=1)
+    parser.add_argument(
+        "--channel",
+        choices=("manifest", "1", "2"),
+        default="manifest",
+        help="Use each manifest row's channel, or override every session.",
+    )
     parser.add_argument("--window", type=float, nargs=2, default=(-5.0, 10.0))
     parser.add_argument("--dt", type=float, default=0.02)
     parser.add_argument(
@@ -94,13 +99,16 @@ def _save_numeric_results(results, output_dir):
         group_null_mean=results.get("group_null_mean", np.empty(0)),
         group_null_lower=results.get("group_null_lower", np.empty(0)),
         group_null_upper=results.get("group_null_upper", np.empty(0)),
+        session_channels=np.asarray(
+            [result["channel"] for result in results["session_results"]], dtype=int
+        ),
     )
 
     summary_path = output_dir / "psth_summary.csv"
     with summary_path.open("w", encoding="utf-8", newline="") as stream:
         writer = csv.DictWriter(
             stream,
-            fieldnames=("mouse", "n_sessions", "n_events"),
+            fieldnames=("mouse", "channels", "n_sessions", "n_events"),
         )
         writer.writeheader()
         for mouse in results["mouse_names"]:
@@ -108,6 +116,9 @@ def _save_numeric_results(results, output_dir):
             writer.writerow(
                 {
                     "mouse": mouse,
+                    "channels": ";".join(
+                        str(channel) for channel in mouse_result["channels"]
+                    ),
                     "n_sessions": mouse_result["n_sessions"],
                     "n_events": mouse_result["n_events"],
                 }

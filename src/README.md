@@ -294,6 +294,8 @@ peri-event traces. The module preserves the trial-within-session-within-mouse
 hierarchy, creates Prism-ready mouse tables, runs paired or independent
 mouse-level tests, applies Holm multiple-comparison correction, and can compare
 observed measurements with random-onset or circular-shift null distributions.
+Manifest-driven analyses select photoreceiver channel 1 or 2 independently for
+each session, with an optional explicit all-session override.
 
 ---
 

@@ -159,14 +159,18 @@ mouse/group PSTH figures. Start by copying `config/sessions.example.csv` to a
 local file under the Git-ignored `analysis/` directory:
 
 ```csv
-mouse,date,run,group,condition
-DK21,230704,1,control,rewarded
-DK21,230704,2,control,unrewarded
-DK40,231005,1,experimental,rewarded
+mouse,date,run,group,condition,channel
+DK21,230704,1,control,rewarded,1
+DK21,230704,2,control,unrewarded,1
+DK40,231005,1,experimental,rewarded,2
 ```
 
 `group` and `condition` are optional for preprocessing and plotting, but enable
-mouse-level statistical comparisons and Prism-ready exports.
+mouse-level statistical comparisons and Prism-ready exports. `channel` selects
+photoreceiver 1 or 2 independently for each session during PSTH, statistics,
+and forecasting analyses. Older manifests without this column default to
+channel 1. Passing `--channel 1` or `--channel 2` explicitly overrides the
+manifest for every session.
 
 Batch preprocessing saves each processed file beside its original raw files:
 

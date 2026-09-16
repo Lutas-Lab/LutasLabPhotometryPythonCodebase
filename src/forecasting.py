@@ -3,7 +3,7 @@ from collections import defaultdict
 import numpy as np
 
 from .save_sessiondata import load_session
-from .session_manifest import processed_session_path
+from .session_manifest import processed_session_path, resolve_session_channel
 
 
 CONTINUOUS_TARGETS = {"photometry", "locomotion"}
@@ -362,7 +362,7 @@ def forecast_manifest(
     history=5.0,
     lag_step=0.5,
     target_window=1.0,
-    channel=1,
+    channel="manifest",
     photometry_source="raw465",
     n_folds=5,
     alpha=1.0,
@@ -372,12 +372,13 @@ def forecast_manifest(
     """Run leakage-safe within-session forecasts for every manifest session."""
     rows = []
     for info in sessions:
+        selected_channel = resolve_session_channel(info, channel)
         path = processed_session_path(data_root, info)
         session = load_session(path)
         signals = prepare_forecast_signals(
             session,
             dt=dt,
-            channel=channel,
+            channel=selected_channel,
             photometry_source=photometry_source,
         )
         for horizon in horizons:
@@ -402,6 +403,7 @@ def forecast_manifest(
                         **info,
                         "path": str(path),
                         "target": target,
+                        "channel": selected_channel,
                         "horizon": float(horizon),
                         "model": model_name,
                         "n_samples": len(dataset["y"]),

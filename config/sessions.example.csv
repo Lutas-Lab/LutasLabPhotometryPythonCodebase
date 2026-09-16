@@ -1,4 +1,4 @@
-mouse,date,run,group,condition
-DK21,230704,1,control,rewarded
-DK21,230704,2,control,unrewarded
-DK40,231005,1,experimental,rewarded
+mouse,date,run,group,condition,channel
+DK21,230704,1,control,rewarded,1
+DK21,230704,2,control,unrewarded,1
+DK40,231005,1,experimental,rewarded,2

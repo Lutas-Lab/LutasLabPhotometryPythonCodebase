@@ -26,6 +26,9 @@ def _write_processed_session(data_root, info, value):
         photo_time_465_ch1=time,
         photometry_465_ch1=np.full_like(time, value),
         dff_ch1=np.full_like(time, value),
+        photo_time_465_ch2=time,
+        photometry_465_ch2=np.full_like(time, value * 10),
+        dff_ch2=np.full_like(time, value * 10),
         locomotion_time=time,
         processed_locomotion=np.zeros_like(time),
         cue_onset=np.array([10.0]),
@@ -111,3 +114,27 @@ class GroupAnalysisTests(unittest.TestCase):
         np.testing.assert_allclose(results["group_null_mean"], 3.5)
         self.assertEqual(results["group_null_matrix"].shape[0], 12)
         self.assertEqual(results["n_mice"], 2)
+
+    def test_manifest_selects_photoreceiver_channel_per_session(self):
+        sessions = [
+            {"mouse": "M1", "date": "260101", "run": 1, "channel": "1"},
+            {"mouse": "M2", "date": "260101", "run": 1, "channel": "2"},
+        ]
+        data_root = Path("tests/_group_analysis_data")
+        try:
+            for info, value in zip(sessions, (1.0, 2.0)):
+                _write_processed_session(data_root, info, value)
+            results = compute_manifest_psth(
+                sessions,
+                data_root,
+                channel="manifest",
+                window=(-1.0, 1.0),
+                dt=0.1,
+                normalization="none",
+            )
+        finally:
+            shutil.rmtree(data_root, ignore_errors=True)
+
+        np.testing.assert_allclose(results["mouse_results"]["M1"]["mean"], 1.0)
+        np.testing.assert_allclose(results["mouse_results"]["M2"]["mean"], 20.0)
+        self.assertEqual([row["channel"] for row in results["session_results"]], [1, 2])

@@ -32,7 +32,12 @@ def parse_arguments():
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--event-key", default="cue_onset")
-    parser.add_argument("--channel", type=int, choices=(1, 2), default=1)
+    parser.add_argument(
+        "--channel",
+        choices=("manifest", "1", "2"),
+        default="manifest",
+        help="Use each manifest row's channel, or override every session.",
+    )
     parser.add_argument("--window", type=float, nargs=2, default=(-5.0, 10.0))
     parser.add_argument("--dt", type=float, default=0.02)
     parser.add_argument(
@@ -85,6 +90,7 @@ def _write_rows(path, rows):
         "run",
         "group",
         "condition",
+        "channel",
         "event_key",
         "trial",
         "event_index",

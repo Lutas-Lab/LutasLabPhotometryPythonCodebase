@@ -1,7 +1,11 @@
 from pathlib import Path
 import unittest
 
-from src.session_manifest import load_session_manifest, processed_session_path
+from src.session_manifest import (
+    load_session_manifest,
+    processed_session_path,
+    resolve_session_channel,
+)
 
 
 class SessionManifestTests(unittest.TestCase):
@@ -58,3 +62,13 @@ class SessionManifestTests(unittest.TestCase):
             path,
             Path("data/M1/M1_260101/M1-260101-002-processed.npz"),
         )
+
+    def test_channel_uses_manifest_value_with_channel_one_fallback(self):
+        self.assertEqual(resolve_session_channel({"mouse": "M1", "channel": "2"}), 2)
+        self.assertEqual(resolve_session_channel({"mouse": "M1"}), 1)
+        self.assertEqual(
+            resolve_session_channel({"mouse": "M1", "channel": "2"}, "1"),
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "must be 1 or 2"):
+            resolve_session_channel({"mouse": "M1", "channel": "3"})

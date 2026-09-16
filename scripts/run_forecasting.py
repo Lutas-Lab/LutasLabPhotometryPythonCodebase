@@ -41,7 +41,12 @@ def parse_arguments():
     parser.add_argument("--lag-step", type=float, default=0.5)
     parser.add_argument("--target-window", type=float, default=1.0)
     parser.add_argument("--dt", type=float, default=0.1)
-    parser.add_argument("--channel", type=int, choices=(1, 2), default=1)
+    parser.add_argument(
+        "--channel",
+        choices=("manifest", "1", "2"),
+        default="manifest",
+        help="Use each manifest row's channel, or override every session.",
+    )
     parser.add_argument(
         "--photometry-source", choices=("raw465", "dff"), default="raw465"
     )
@@ -65,6 +70,7 @@ def _write_rows(path, rows):
         "mouse",
         "date",
         "run",
+        "channel",
         "target",
         "horizon",
         "model",

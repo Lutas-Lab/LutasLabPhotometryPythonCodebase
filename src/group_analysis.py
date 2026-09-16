@@ -6,7 +6,7 @@ import warnings
 import numpy as np
 
 from .save_sessiondata import load_session
-from .session_manifest import processed_session_path
+from .session_manifest import processed_session_path, resolve_session_channel
 
 
 def _validate_window(window):
@@ -200,7 +200,7 @@ def compute_manifest_psth(
     data_root,
     *,
     event_key="cue_onset",
-    channel=1,
+    channel="manifest",
     window=(-5, 10),
     dt=0.02,
     normalization="zscore",
@@ -224,11 +224,12 @@ def compute_manifest_psth(
     ):
         raise ValueError("n_shuffles must be a positive integer.")
 
-    signal_key = f"dff_ch{int(channel)}"
-    time_key = f"photo_time_465_ch{int(channel)}"
     session_results = []
 
     for info in sessions:
+        selected_channel = resolve_session_channel(info, channel)
+        signal_key = f"dff_ch{selected_channel}"
+        time_key = f"photo_time_465_ch{selected_channel}"
         path = processed_session_path(data_root, info)
         session = load_session(path)
         missing = {event_key, signal_key, time_key}.difference(session)
@@ -265,6 +266,8 @@ def compute_manifest_psth(
         result = {
             **info,
             "path": path,
+            "channel": selected_channel,
+            "signal_key": signal_key,
             "n_events": len(valid_indices),
             "mean": session_mean,
         }
@@ -302,6 +305,7 @@ def compute_manifest_psth(
             "session_matrix": session_matrix,
             "n_sessions": len(results),
             "n_events": sum(result["n_events"] for result in results),
+            "channels": tuple(sorted({result["channel"] for result in results})),
         }
         if null_method != "none":
             null_session_stack = np.stack(
@@ -348,7 +352,11 @@ def compute_manifest_psth(
         "group_sem": group_sem,
         "n_mice": len(mouse_names),
         "event_key": event_key,
-        "signal_key": signal_key,
+        "signal_key": (
+            session_results[0]["signal_key"]
+            if len({result["signal_key"] for result in session_results}) == 1
+            else "manifest-selected dff channel"
+        ),
         "normalization": "none" if normalization is None else normalization,
         "null_method": null_method,
         "n_shuffles": n_shuffles if null_method != "none" else 0,
