@@ -37,13 +37,12 @@ Python 3.12 is recommended for compatibility with the current NeMoS release.
 
 ## Quick start: Windows and Anaconda
 
-First download the repository with GitHub Desktop, or clone it and select the
-analysis branch:
+First download the repository with GitHub Desktop, or clone the current
+`main` branch:
 
 ```powershell
 git clone https://github.com/Lutas-Lab/LutasLabPhotometryPythonCodebase.git
 cd LutasLabPhotometryPythonCodebase
-git switch codex/reliability-hardening
 ```
 
 Open **Anaconda Prompt**, then create and install the analysis environment:
@@ -117,6 +116,25 @@ The notebook uses the active Jupyter kernel to run the same maintained scripts
 documented below. It can create the session manifest, batch-preprocess data,
 and generate cue-photometry, cue-licking, statistical, and
 lick-bout/delivery figures without entering shell commands.
+
+## Prototype browser interface
+
+A Streamlit prototype provides a browser-based session editor and launchers
+for batch preprocessing and event-aligned PSTHs. Install the optional GUI
+dependency and start it from the repository root:
+
+```text
+conda activate photometry
+python -m pip install -e ".[gui]"
+python -m streamlit run streamlit_app.py
+```
+
+The interface opens locally in a browser. It uses the same maintained scripts
+as PowerShell and Jupyter rather than reimplementing the analysis. **Preview
+commands only** is enabled by default, so the first click shows the exact
+command without processing data. Disable preview mode only when the manifest,
+data root, and output directory are correct. Existing processed files remain
+protected unless **Overwrite existing processed files** is explicitly enabled.
 
 ## Other environments
 
@@ -799,7 +817,7 @@ warning because their exact processing configuration may be unavailable.
 
 # Group Analysis
 
-Processed `.npz` files provide the foundation for future group-level analyses across mice.
+Processed `.npz` files provide the foundation for group-level analyses across mice.
 
 The intended hierarchy is:
 
@@ -821,14 +839,14 @@ group mean
 
 Group analyses should generally preserve the mouse as the biological unit rather than simply pooling every trial from every mouse.
 
-Future group-level tools will support analyses such as:
+The current group-level tools support:
 
 - mean event-aligned timecourses across mice
 - SEM across mice
 - cue hit versus miss comparisons
 - reward-aligned responses
 - lick-bout-aligned responses
-- group-level model summaries
+- condition comparisons and mouse-level statistical exports
 
 ---
 
@@ -892,17 +910,15 @@ describes interactive and example notebooks.
 
 This repository is under active development.
 
-Current areas of development include:
+Current areas of development and validation include:
 
 - photometry quality-control procedures
 - alternative handling of poor 405 reference signals
 - slow fluorescence decomposition
-- temporal behavioral GLMs
-- causal versus two-sided models
+- expanded real-data validation of temporal behavioral GLMs
+- interpretation of causal versus two-sided models
 - real-data validation of photometry-to-behavior forecasts
-- regularization
-- blocked cross-validation
-- temporal exclusion gaps
+- regularization and cross-validation parameter selection
 - computational efficiency on HPC systems
 
 Analysis parameters should therefore be treated as configurable modeling choices rather than fixed biological assumptions.
