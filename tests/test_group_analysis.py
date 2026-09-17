@@ -34,6 +34,7 @@ def _write_processed_session(data_root, info, value):
         locomotion_time=time,
         processed_locomotion=np.zeros_like(time),
         cue_onset=np.array([10.0]),
+        cue_offset=np.array([10.5]),
         lick_times=np.array([9.25, 10.25, 10.75]),
     )
 
@@ -175,6 +176,37 @@ class GroupAnalysisTests(unittest.TestCase):
         np.testing.assert_allclose(results["group_mean"], [2.0, 0.0, 2.0, 2.0])
         self.assertEqual(results["signal_key"], "lick_times")
         self.assertEqual(results["signal_type"], "licking")
+
+    def test_manifest_reclassifies_cue_trials_for_selected_window(self):
+        sessions = [{"mouse": "M1", "date": "260101", "run": 1}]
+        data_root = Path("tests/_group_analysis_data")
+        try:
+            _write_processed_session(data_root, sessions[0], 1.0)
+            cue_only = compute_manifest_psth(
+                sessions,
+                data_root,
+                trial_class="cue_only",
+                post_cue_window=0.1,
+                window=(-1.0, 1.0),
+                dt=0.1,
+                normalization="none",
+            )
+            cue_and_post = compute_manifest_psth(
+                sessions,
+                data_root,
+                trial_class="cue_and_post",
+                post_cue_window=2.0,
+                window=(-1.0, 1.0),
+                dt=0.1,
+                normalization="none",
+            )
+        finally:
+            shutil.rmtree(data_root, ignore_errors=True)
+
+        self.assertEqual(cue_only["session_results"][0]["n_events"], 1)
+        self.assertEqual(cue_only["trial_class"], "cue_only")
+        self.assertEqual(cue_and_post["session_results"][0]["n_events"], 1)
+        self.assertEqual(cue_and_post["post_cue_window"], 2.0)
 
     def test_manifest_strata_keep_conditions_separate(self):
         sessions = [

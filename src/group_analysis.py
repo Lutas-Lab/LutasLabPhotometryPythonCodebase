@@ -7,6 +7,7 @@ import numpy as np
 
 from .save_sessiondata import load_session
 from .session_manifest import processed_session_path, resolve_session_channel
+from .trial_classification import TRIAL_CLASS_KEYS, cue_trial_mask
 
 
 def _validate_window(window):
@@ -259,9 +260,18 @@ def _psth_context(results):
 
 def _psth_description(results):
     event_label = str(results["event_key"]).replace("_", " ")
+    trial_class = str(results.get("trial_class", "all")).replace("_", " ")
+    trial_suffix = (
+        ""
+        if trial_class == "all"
+        else (
+            f" ({trial_class} trials; "
+            f"post-cue {results.get('post_cue_window', 2.0):g} s)"
+        )
+    )
     if results.get("signal_type", "photometry") == "licking":
-        return f"licking aligned to {event_label}"
-    return f"{event_label}-aligned photometry"
+        return f"licking aligned to {event_label}{trial_suffix}"
+    return f"{event_label}-aligned photometry{trial_suffix}"
 
 
 def compute_manifest_psth(
@@ -279,6 +289,8 @@ def compute_manifest_psth(
     n_shuffles=500,
     random_seed=0,
     null_exclusion=0.0,
+    trial_class="all",
+    post_cue_window=2.0,
 ):
     """Compute session, mouse, and group PSTHs with mice as the group unit."""
     if signal_type not in ("photometry", "licking"):
@@ -297,6 +309,12 @@ def compute_manifest_psth(
         or n_shuffles < 1
     ):
         raise ValueError("n_shuffles must be a positive integer.")
+    if trial_class not in TRIAL_CLASS_KEYS:
+        raise ValueError(f"trial_class must be one of {TRIAL_CLASS_KEYS}.")
+    if not np.isfinite(post_cue_window) or post_cue_window < 0:
+        raise ValueError("post_cue_window must be finite and nonnegative.")
+    if trial_class != "all" and event_key != "cue_onset":
+        raise ValueError("Cue-trial classes can only filter cue_onset analyses.")
 
     session_results = []
 
@@ -311,12 +329,16 @@ def compute_manifest_psth(
         missing = required.difference(session)
         if missing:
             raise ValueError(f"{path} is missing analysis keys: {sorted(missing)}")
+        event_times = np.asarray(session[event_key], dtype=float)
+        if trial_class != "all":
+            mask = cue_trial_mask(session, trial_class, post_cue_window)
+            event_times = event_times[mask]
 
         if signal_type == "photometry":
             peri_time, trials, valid_indices = extract_perievent_trials(
                 session[time_key],
                 session[signal_key],
-                session[event_key],
+                event_times,
                 window=window,
                 dt=dt,
             )
@@ -324,7 +346,7 @@ def compute_manifest_psth(
             recording_time = np.asarray(session[time_key], dtype=float)
             peri_time, trials, valid_indices = extract_perievent_event_rate(
                 session["lick_times"],
-                session[event_key],
+                event_times,
                 (recording_time[0], recording_time[-1]),
                 window=window,
                 dt=dt,
@@ -358,7 +380,7 @@ def compute_manifest_psth(
             "mean": session_mean,
         }
         if null_method != "none":
-            valid_event_times = np.asarray(session[event_key], dtype=float)[valid_indices]
+            valid_event_times = event_times[valid_indices]
             result["null_means"] = _null_session_means(
                 np.asarray(session[time_key], dtype=float),
                 np.asarray(session[signal_key], dtype=float),
@@ -449,6 +471,8 @@ def compute_manifest_psth(
         "n_shuffles": n_shuffles if null_method != "none" else 0,
         "random_seed": random_seed,
         "null_exclusion": null_exclusion,
+        "trial_class": trial_class,
+        "post_cue_window": float(post_cue_window),
         **null_results,
     }
 

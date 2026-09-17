@@ -83,7 +83,7 @@ def test_build_psth_command_includes_gui_choices():
         "sessions.csv",
         "data",
         "output",
-        event_key="lick_bout_onset",
+        event_key="cue_onset",
         signal="licking",
         channel="2",
         window=(-5, 20),
@@ -91,9 +91,13 @@ def test_build_psth_command_includes_gui_choices():
         null_method="random_onsets",
         n_shuffles=25,
         seed=7,
+        trial_class="cue_miss",
+        post_cue_window=4,
     )
-    assert command[command.index("--event-key") + 1] == "lick_bout_onset"
+    assert command[command.index("--event-key") + 1] == "cue_onset"
     assert command[command.index("--signal") + 1] == "licking"
     assert command[command.index("--channel") + 1] == "2"
     assert "--no-stratify" in command
     assert command[command.index("--n-shuffles") + 1] == "25"
+    assert command[command.index("--trial-class") + 1] == "cue_miss"
+    assert command[command.index("--post-cue-window") + 1] == "4.0"

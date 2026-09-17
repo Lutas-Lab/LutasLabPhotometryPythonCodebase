@@ -131,10 +131,12 @@ python -m streamlit run streamlit_app.py
 
 The interface opens locally in a browser. It uses the same maintained scripts
 as PowerShell and Jupyter rather than reimplementing the analysis. **Preview
-commands only** is enabled by default, so the first click shows the exact
-command without processing data. Disable preview mode only when the manifest,
-data root, and output directory are correct. Existing processed files remain
-protected unless **Overwrite existing processed files** is explicitly enabled.
+analysis commands only** is enabled by default, so preprocessing and PSTH
+buttons show the exact command without running it. Manifest validation, saving,
+and CSV downloads still work in preview mode. Disable preview mode only when
+the manifest, data root, and output directory are correct. Existing processed
+files remain protected unless **Overwrite existing processed files** is
+explicitly enabled.
 
 ## Other environments
 
@@ -299,6 +301,26 @@ python scripts/run_psth.py \
     --normalization zscore \
     --baseline -5 0
 ```
+
+Cue trials can be filtered at analysis time without rerunning preprocessing.
+For example, plot only trials with no licking during the cue or the following
+four seconds:
+
+```bash
+python scripts/run_psth.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry" \
+    --output-dir "analysis/figures/cue_miss_4s" \
+    --event-key cue_onset \
+    --trial-class cue_miss \
+    --post-cue-window 4
+```
+
+Available classes are `all`, `cue_lick`, `post_cue_lick`, `cue_only`,
+`post_only`, `cue_and_post`, and `cue_miss`. The selected class and post-cue
+window are recorded in numeric/statistical outputs. These masks are recomputed
+from saved `cue_onset`, `cue_offset`, and `lick_times` arrays; the masks stored
+during preprocessing remain available for provenance and older workflows.
 
 Add a reproducible random-alignment control with:
 
@@ -614,6 +636,10 @@ Cue trials can be classified according to whether licking occurs:
 - during neither period
 
 Actual cue onset and offset timestamps are used so that analyses can accommodate experiments with different cue durations.
+
+For cue-aligned PSTHs and statistics, classification is performed at analysis
+time from the saved cue and lick timestamps. This allows the post-cue response
+window to be changed without reprocessing raw photometry.
 
 ---
 

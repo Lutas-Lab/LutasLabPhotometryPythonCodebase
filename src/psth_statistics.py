@@ -11,6 +11,7 @@ from .group_analysis import (
 )
 from .save_sessiondata import load_session
 from .session_manifest import processed_session_path, resolve_session_channel
+from .trial_classification import TRIAL_CLASS_KEYS, cue_trial_mask
 
 
 AVAILABLE_METRICS = (
@@ -185,10 +186,18 @@ def analyze_manifest_metrics(
     n_shuffles=500,
     random_seed=0,
     null_exclusion=0.0,
+    trial_class="all",
+    post_cue_window=2.0,
 ):
     """Extract hierarchical PSTH metrics and optional shuffled null statistics."""
     if null_method not in ("none", "random_onsets", "circular_shift"):
         raise ValueError("Invalid null_method.")
+    if trial_class not in TRIAL_CLASS_KEYS:
+        raise ValueError(f"trial_class must be one of {TRIAL_CLASS_KEYS}.")
+    if not np.isfinite(post_cue_window) or post_cue_window < 0:
+        raise ValueError("post_cue_window must be finite and nonnegative.")
+    if trial_class != "all" and event_key != "cue_onset":
+        raise ValueError("Cue-trial classes can only filter cue_onset analyses.")
     mouse_groups = defaultdict(set)
     for info in sessions:
         mouse_groups[info["mouse"]].add(str(info.get("group", "all") or "all"))
@@ -212,6 +221,11 @@ def analyze_manifest_metrics(
         if missing:
             raise ValueError(f"{path} is missing analysis keys: {sorted(missing)}")
         event_times = np.asarray(session[event_key], dtype=float)
+        original_event_indices = np.arange(len(event_times))
+        if trial_class != "all":
+            trial_mask = cue_trial_mask(session, trial_class, post_cue_window)
+            original_event_indices = original_event_indices[trial_mask]
+            event_times = event_times[trial_mask]
         peri_time, trials, valid_indices = extract_perievent_trials(
             session[time_key],
             session[signal_key],
@@ -241,6 +255,8 @@ def analyze_manifest_metrics(
             "condition": condition,
             "channel": selected_channel,
             "event_key": event_key,
+            "trial_class": trial_class,
+            "post_cue_window": float(post_cue_window),
         }
         valid_event_times = event_times[valid_indices]
         for row_index, event_index in enumerate(valid_indices):
@@ -249,7 +265,7 @@ def analyze_manifest_metrics(
                     {
                         **base,
                         "trial": int(row_index + 1),
-                        "event_index": int(event_index),
+                        "event_index": int(original_event_indices[event_index]),
                         "event_time": float(valid_event_times[row_index]),
                         "metric": metric,
                         "value": float(values[row_index]),

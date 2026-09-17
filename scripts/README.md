@@ -97,6 +97,12 @@ When the manifest includes a `channel` column, each session automatically uses
 its listed photoreceiver channel. The default `--channel manifest` supports
 mixed-channel cohorts; `--channel 1` or `--channel 2` overrides all rows.
 
+For cue-onset analyses, use `--trial-class cue_miss` (or `cue_lick`,
+`post_cue_lick`, `cue_only`, `post_only`, or `cue_and_post`) to filter trials.
+`--post-cue-window 4` sets the classification period after cue offset. The
+classification is recalculated from timestamps in the processed session, so
+changing this value does not require preprocessing again.
+
 Manifest `group` and `condition` columns are also honored automatically. Each
 stratum receives its own numeric results and individual/group figures. A
 comparison figure for each experimental group overlays condition PSTHs and
@@ -137,6 +143,7 @@ comparisons. Mice are the independent units; trials and sessions are retained
 in the exported tables but are not counted as separate animals. One figure per
 metric is saved as editable SVG and PNG by default, including mouse points,
 paired lines, 95% confidence intervals, and adjusted statistical annotations.
+The same `--trial-class` and `--post-cue-window` options are available here.
 
 ## `run_forecasting.py`
 

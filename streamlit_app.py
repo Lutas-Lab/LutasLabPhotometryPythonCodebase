@@ -22,6 +22,15 @@ from src.gui_workflows import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
+TRIAL_CLASS_LABELS = {
+    "all": "All cue trials",
+    "cue_lick": "Licked during cue",
+    "post_cue_lick": "Licked after cue",
+    "cue_only": "During cue only",
+    "post_only": "After cue only",
+    "cue_and_post": "During and after cue",
+    "cue_miss": "No lick during or after cue",
+}
 DEFAULT_ROWS = [
     {
         "mouse": "DK21",
@@ -72,11 +81,14 @@ with st.sidebar:
         value=str(PROJECT_ROOT / "analysis" / "sessions.csv"),
     )
     preview_only = st.toggle(
-        "Preview commands only",
+        "Preview analysis commands only",
         value=True,
-        help="Leave enabled while testing the interface. Disable it to run analyses.",
+        help="Disable this to run preprocessing or PSTH analysis.",
     )
-    st.caption("Existing processed files are skipped unless overwrite is enabled.")
+    st.caption(
+        "This setting does not affect Validate, Save manifest, or Download CSV. "
+        "Existing processed files are skipped unless overwrite is enabled."
+    )
 
 if "manifest_rows" not in st.session_state:
     st.session_state.manifest_rows = DEFAULT_ROWS
@@ -156,19 +168,12 @@ with preprocess_tab:
     st.write("Creates each processed `.npz` beside its original raw session files.")
     overwrite = st.checkbox("Overwrite existing processed files", value=False)
     continue_on_error = st.checkbox("Continue after a failed session", value=True)
-    post_cue_window = st.number_input(
-        "Post-cue lick-classification window (seconds)",
-        min_value=0.0,
-        value=2.0,
-        step=0.5,
-    )
     preprocess_command = build_preprocess_command(
         PROJECT_ROOT,
         manifest_path_text,
         data_root,
         overwrite=overwrite,
         continue_on_error=continue_on_error,
-        post_cue_window=post_cue_window,
     )
     if st.button("Preview / run preprocessing", type="primary"):
         _show_command(preprocess_command, preview_only)
@@ -191,6 +196,32 @@ with psth_tab:
         normalization = st.selectbox("Normalization", ("zscore", "subtract", "none"))
         baseline_start = st.number_input("Baseline start (s)", value=-5.0)
         baseline_end = st.number_input("Baseline end (s)", value=0.0)
+
+    if event_key == "cue_onset":
+        class_left, class_right = st.columns(2)
+        with class_left:
+            trial_class = st.selectbox(
+                "Cue-trial class",
+                tuple(TRIAL_CLASS_LABELS),
+                format_func=TRIAL_CLASS_LABELS.get,
+                help=(
+                    "Recomputed from the saved cue and lick timestamps each time "
+                    "the analysis runs."
+                ),
+            )
+        with class_right:
+            post_cue_window = st.number_input(
+                "Post-cue response window (seconds)",
+                min_value=0.0,
+                value=2.0,
+                step=0.5,
+                disabled=trial_class == "all",
+                help="Time after cue offset used to classify post-cue licking.",
+            )
+    else:
+        trial_class = "all"
+        post_cue_window = 2.0
+        st.caption("Cue-trial classification is available for cue-onset alignment.")
 
     output_dir = st.text_input(
         "Figure/output directory",
@@ -223,6 +254,8 @@ with psth_tab:
         null_method=null_method,
         n_shuffles=n_shuffles,
         seed=seed,
+        trial_class=trial_class,
+        post_cue_window=post_cue_window,
     )
     if st.button("Preview / run PSTH", type="primary"):
         _show_command(psth_command, preview_only)

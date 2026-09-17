@@ -134,6 +134,8 @@ def build_psth_command(
     null_method="none",
     n_shuffles=500,
     seed=0,
+    trial_class="all",
+    post_cue_window=2.0,
 ):
     """Build the maintained event-aligned analysis command."""
     command = _python_command(project_root, "run_psth.py")
@@ -167,6 +169,10 @@ def build_psth_command(
             str(int(n_shuffles)),
             "--seed",
             str(int(seed)),
+            "--trial-class",
+            str(trial_class),
+            "--post-cue-window",
+            str(float(post_cue_window)),
         ]
     )
     command.append("--stratify" if stratify else "--no-stratify")

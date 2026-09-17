@@ -1,5 +1,7 @@
 import numpy as np
 
+from .trial_classification import classify_cue_licking
+
 
 def _as_1d_finite(values, name):
     """Return a finite one-dimensional float array."""
@@ -792,130 +794,6 @@ def find_lick_bouts(
         bout_offset,
         bout_duration,
         bout_lick_count
-    )
-    
-def classify_cue_licking(
-    cue_onset,
-    cue_offset,
-    lick_times,
-    post_cue_window=2.0
-):
-    """
-    Classify cue trials based on licking during the cue
-    and during the period immediately following cue offset.
-
-    Cue duration may vary across trials. The actual cue onset
-    and offset are used for each trial.
-
-    Parameters
-    ----------
-    cue_onset : array-like
-        Cue onset timestamps.
-
-    cue_offset : array-like
-        Cue offset timestamps.
-
-    lick_times : array-like
-        Individual lick timestamps.
-
-    post_cue_window : float
-        Length of the post-cue response window in seconds.
-        Default = 2 seconds.
-
-    Returns
-    -------
-    cue_lick : np.ndarray of bool
-        At least one lick occurred during the cue.
-
-    post_cue_lick : np.ndarray of bool
-        At least one lick occurred after cue offset and within
-        the post-cue response window.
-
-    cue_only : np.ndarray of bool
-        Licking during cue but not post-cue.
-
-    post_only : np.ndarray of bool
-        Licking post-cue but not during cue.
-
-    cue_and_post : np.ndarray of bool
-        Licking occurred during both periods.
-
-    cue_miss : np.ndarray of bool
-        No licking during either period.
-    """
-
-    cue_onset = np.atleast_1d(np.asarray(cue_onset, dtype=float).squeeze())
-    cue_offset = np.atleast_1d(np.asarray(cue_offset, dtype=float).squeeze())
-    lick_times = np.atleast_1d(np.asarray(lick_times, dtype=float).squeeze())
-
-    if len(cue_onset) != len(cue_offset):
-        raise ValueError(
-            "cue_onset and cue_offset must have the same length."
-        )
-
-    cue_lick = np.zeros(
-        len(cue_onset),
-        dtype=bool
-    )
-
-    post_cue_lick = np.zeros(
-        len(cue_onset),
-        dtype=bool
-    )
-
-    for i, (onset, offset) in enumerate(
-        zip(cue_onset, cue_offset)
-    ):
-
-        # Licking during the actual cue period
-        cue_lick[i] = np.any(
-            (lick_times >= onset)
-            &
-            (lick_times <= offset)
-        )
-
-        # Licking during the 2 s after cue offset
-        post_cue_lick[i] = np.any(
-            (lick_times > offset)
-            &
-            (lick_times <= offset + post_cue_window)
-        )
-
-    # ----------------------------------------
-    # Combined trial classifications
-    # ----------------------------------------
-
-    cue_only = (
-        cue_lick
-        &
-        ~post_cue_lick
-    )
-
-    post_only = (
-        ~cue_lick
-        &
-        post_cue_lick
-    )
-
-    cue_and_post = (
-        cue_lick
-        &
-        post_cue_lick
-    )
-
-    cue_miss = (
-        ~cue_lick
-        &
-        ~post_cue_lick
-    )
-
-    return (
-        cue_lick,
-        post_cue_lick,
-        cue_only,
-        post_only,
-        cue_and_post,
-        cue_miss
     )
     
 def preprocess_session(

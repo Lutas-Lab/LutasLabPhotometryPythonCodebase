@@ -22,6 +22,7 @@ from src.group_analysis import (
     save_psth_figures,
 )
 from src.session_manifest import load_session_manifest
+from src.trial_classification import TRIAL_CLASS_KEYS
 
 
 def parse_arguments():
@@ -35,6 +36,18 @@ def parse_arguments():
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--event-key", default="cue_onset")
+    parser.add_argument(
+        "--trial-class",
+        choices=TRIAL_CLASS_KEYS,
+        default="all",
+        help="For cue_onset analyses, include only the selected lick-response class.",
+    )
+    parser.add_argument(
+        "--post-cue-window",
+        type=float,
+        default=2.0,
+        help="Seconds after cue offset used to classify post-cue licking.",
+    )
     parser.add_argument(
         "--signal",
         choices=("photometry", "licking"),
@@ -108,6 +121,8 @@ def _save_numeric_results(results, output_dir):
         n_shuffles=results["n_shuffles"],
         random_seed=results["random_seed"],
         null_exclusion=results["null_exclusion"],
+        trial_class=results.get("trial_class", "all"),
+        post_cue_window=results.get("post_cue_window", 2.0),
         mouse_null_mean_matrix=results.get(
             "mouse_null_mean_matrix", np.empty((0, len(results["time"])))
         ),
@@ -126,7 +141,14 @@ def _save_numeric_results(results, output_dir):
     with summary_path.open("w", encoding="utf-8", newline="") as stream:
         writer = csv.DictWriter(
             stream,
-            fieldnames=("mouse", "channels", "n_sessions", "n_events"),
+            fieldnames=(
+                "mouse",
+                "channels",
+                "n_sessions",
+                "n_events",
+                "trial_class",
+                "post_cue_window",
+            ),
         )
         writer.writeheader()
         for mouse in results["mouse_names"]:
@@ -139,6 +161,8 @@ def _save_numeric_results(results, output_dir):
                     ),
                     "n_sessions": mouse_result["n_sessions"],
                     "n_events": mouse_result["n_events"],
+                    "trial_class": results.get("trial_class", "all"),
+                    "post_cue_window": results.get("post_cue_window", 2.0),
                 }
             )
     return result_path, summary_path
@@ -168,6 +192,8 @@ def main():
         n_shuffles=args.n_shuffles,
         random_seed=args.seed,
         null_exclusion=args.null_exclusion,
+        trial_class=args.trial_class,
+        post_cue_window=args.post_cue_window,
     )
     has_strata = any(
         session.get("group") or session.get("condition") for session in sessions
