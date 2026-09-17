@@ -120,8 +120,27 @@ lick-bout/delivery figures without entering shell commands.
 ## Prototype browser interface
 
 A Streamlit prototype provides a browser-based session editor and launchers
-for batch preprocessing and event-aligned PSTHs. Install the optional GUI
-dependency and start it from the repository root:
+for batch preprocessing and event-aligned PSTHs.
+
+### Windows setup without Anaconda
+
+1. Install a 64-bit Python 3.12.x release from the
+   [Python Windows downloads page](https://www.python.org/downloads/windows/).
+   Enable **Add python.exe to PATH** in the Python installer.
+2. Download or clone this repository.
+3. Double-click `install_gui.bat` once. It creates an isolated `.venv` inside
+   the repository and installs the application without changing other Python
+   environments.
+4. Double-click `launch_gui.bat` whenever you want to start the interface.
+
+An internet connection is required during the initial installation. Moving or
+renaming the repository after installation may require running
+`install_gui.bat` again. Do not copy the `.venv` folder between computers.
+
+### Existing Anaconda environment
+
+Users who already have the `photometry` environment can instead install the
+optional GUI dependency and start it from the repository root:
 
 ```text
 conda activate photometry
