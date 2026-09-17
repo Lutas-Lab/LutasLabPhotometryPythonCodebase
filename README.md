@@ -35,6 +35,91 @@ The current pipeline supports:
 
 Python 3.12 is recommended for compatibility with the current NeMoS release.
 
+## Quick start: Windows and Anaconda
+
+First download the repository with GitHub Desktop, or clone it and select the
+analysis branch:
+
+```powershell
+git clone https://github.com/Lutas-Lab/LutasLabPhotometryPythonCodebase.git
+cd LutasLabPhotometryPythonCodebase
+git switch codex/reliability-hardening
+```
+
+Open **Anaconda Prompt**, then create and install the analysis environment:
+
+```text
+conda create -n photometry python=3.12 pip jupyterlab ipykernel -y
+conda activate photometry
+python -m pip install -e .
+python -m pytest
+```
+
+The final command is optional but verifies the installation. Core
+preprocessing and plotting do not require JAX or NeMoS. Install those optional
+modeling dependencies only when needed:
+
+```text
+python -m pip install -e ".[modeling]"
+```
+
+### Expected raw-data layout
+
+`--data-root` is the directory containing one folder per mouse. Each session
+must follow this layout and naming convention:
+
+```text
+Z:\Photometry\
+└── DK21\
+    └── DK21_230704\
+        ├── DK21-230704-001-nidaq.mat
+        └── DK21-230704-001-running.mat
+```
+
+The NIDAQ MATLAB file must contain `data`, `timestamps`, and `Fs`. With the
+default channel map, rows 1–8 of `data` are photoreceiver 1, locomotion TTL,
+photoreceiver 2, licking, visual cue, 465-nm TTL, 405-nm TTL, and solenoid TTL.
+The running MATLAB file must contain `speed`.
+
+Copy `config/sessions.example.csv` to `analysis/sessions.csv`, then replace the
+example rows with the sessions to analyze. Dates use six digits (`YYMMDD`),
+`run` is an integer, and `channel` is the photoreceiver containing the signal:
+
+```csv
+mouse,date,run,group,condition,channel
+DK21,230704,1,control,naive,1
+DK21,230705,2,control,trained,1
+```
+
+Run commands from the repository root. For example, in PowerShell:
+
+```powershell
+python scripts/run_preprocess_batch.py --manifest analysis/sessions.csv --data-root "Z:\Photometry" --continue-on-error
+python scripts/run_psth.py --manifest analysis/sessions.csv --data-root "Z:\Photometry" --output-dir analysis/cue_psth_20s --event-key cue_onset --window -5 20 --baseline -5 0 --normalization zscore
+```
+
+## Quick start without PowerShell: JupyterLab
+
+The complete batch workflow can also be launched from
+[`notebooks/05_batch_workflow.ipynb`](notebooks/05_batch_workflow.ipynb). This
+is often the easiest route for Windows users:
+
+1. Download the repository with GitHub Desktop or **Code → Download ZIP** on
+   GitHub.
+2. In Anaconda Navigator, create an environment named `photometry` with Python
+   3.12 and install `pip`, `jupyterlab`, and `ipykernel` in that environment.
+3. Launch JupyterLab using the `photometry` environment.
+4. Navigate to the repository and open `notebooks/05_batch_workflow.ipynb`.
+5. Run the installation cell once, restart the kernel if requested, and then
+   edit the configuration and session-list cells.
+
+The notebook uses the active Jupyter kernel to run the same maintained scripts
+documented below. It can create the session manifest, batch-preprocess data,
+and generate cue-photometry, cue-licking, statistical, and
+lick-bout/delivery figures without entering shell commands.
+
+## Other environments
+
 ```bash
 python -m venv .venv
 python -m pip install -e .
