@@ -7,6 +7,18 @@ import matplotlib.pyplot as plt
 # Peri-event continuous signal extraction
 # ============================================================
 
+def get_valid_event_indices(signal, event_times, window=(-5, 10)):
+    """Return source-event indices with a complete continuous-signal window."""
+    event_times = np.asarray(event_times, dtype=float)
+    if len(window) != 2 or window[0] >= window[1]:
+        raise ValueError("window must contain increasing start and end values.")
+    signal_start = float(signal.t[0])
+    signal_end = float(signal.t[-1])
+    return np.flatnonzero(
+        (event_times + window[0] >= signal_start)
+        & (event_times + window[1] <= signal_end)
+    )
+
 def get_perievent_trials(
     signal,
     event_times,
@@ -31,6 +43,11 @@ def get_perievent_trials(
         Events included in the analysis.
     """
 
+    if dt <= 0:
+        raise ValueError("dt must be positive.")
+    if len(window) != 2 or window[0] >= window[1]:
+        raise ValueError("window must contain increasing start and end values.")
+
     event_times = np.asarray(
         event_times,
         dtype=float
@@ -42,18 +59,8 @@ def get_perievent_trials(
         dt
     )
 
-    signal_start = float(signal.t[0])
-    signal_end = float(signal.t[-1])
-
-    valid_event_mask = (
-        (event_times + window[0] >= signal_start)
-        &
-        (event_times + window[1] <= signal_end)
-    )
-
-    valid_event_times = event_times[
-        valid_event_mask
-    ]
+    valid_event_indices = get_valid_event_indices(signal, event_times, window)
+    valid_event_times = event_times[valid_event_indices]
 
     trials = []
 
@@ -122,6 +129,11 @@ def get_perievent_event_rate(
         Trial x time-bin event rate in Hz.
     """
 
+    if bin_size <= 0:
+        raise ValueError("bin_size must be positive.")
+    if len(window) != 2 or window[0] >= window[1]:
+        raise ValueError("window must contain increasing start and end values.")
+
     event_times = np.asarray(
         event_times,
         dtype=float
@@ -164,10 +176,10 @@ def get_perievent_event_rate(
             rate
         )
 
-    rate_trials = np.asarray(
-        rate_trials,
-        dtype=float
-    )
+    if rate_trials:
+        rate_trials = np.asarray(rate_trials, dtype=float)
+    else:
+        rate_trials = np.empty((0, len(bin_centers)), dtype=float)
 
     return (
         bin_centers,
@@ -210,6 +222,11 @@ def normalize_perievent_trials(
         dtype=float
     )
 
+    if trials.ndim != 2:
+        raise ValueError("trials must be a two-dimensional trial-by-time array.")
+    if trials.shape[1] != len(peri_time):
+        raise ValueError("trials columns must match peri_time.")
+
     if normalization is None:
         return trials
 
@@ -231,7 +248,7 @@ def normalize_perievent_trials(
     baseline_mask = (
         (peri_time >= baseline[0])
         &
-        (peri_time <= baseline[1])
+        (peri_time < baseline[1])
     )
 
     if not np.any(baseline_mask):
@@ -272,6 +289,22 @@ def normalize_perievent_trials(
     return normalized_trials
 
 
+def summarize_perievent_trials(trials):
+    """Return per-timepoint mean and SEM for a trial-by-time array."""
+    trials = np.asarray(trials, dtype=float)
+    if trials.ndim != 2:
+        raise ValueError("trials must be a two-dimensional trial-by-time array.")
+    if trials.shape[0] == 0:
+        empty = np.full(trials.shape[1], np.nan)
+        return empty, empty.copy()
+    mean = np.nanmean(trials, axis=0)
+    if trials.shape[0] == 1:
+        return mean, np.full(trials.shape[1], np.nan)
+    n_valid = np.sum(np.isfinite(trials), axis=0)
+    sem = np.nanstd(trials, axis=0, ddof=1) / np.sqrt(n_valid)
+    return mean, sem
+
+
 # ============================================================
 # Mean +/- SEM peri-event plot
 # ============================================================
@@ -302,24 +335,10 @@ def plot_perievent_mean(
         baseline=baseline
     )
 
-    mean_signal = np.nanmean(
-        trials,
-        axis=0
-    )
+    if trials.shape[0] == 0:
+        raise ValueError("Cannot plot a peri-event mean with no valid trials.")
 
-    n_valid = np.sum(
-        np.isfinite(trials),
-        axis=0
-    )
-
-    sem_signal = (
-        np.nanstd(
-            trials,
-            axis=0,
-            ddof=1
-        )
-        / np.sqrt(n_valid)
-    )
+    mean_signal, sem_signal = summarize_perievent_trials(trials)
 
     if ax is None:
 
@@ -435,6 +454,9 @@ def plot_perievent_heatmap(
         normalization=normalization,
         baseline=baseline
     )
+
+    if trials.shape[0] == 0:
+        raise ValueError("Cannot plot a peri-event heatmap with no valid trials.")
 
     # --------------------------------------------------------
     # Create axis

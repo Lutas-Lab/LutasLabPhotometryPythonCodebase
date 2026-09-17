@@ -18,10 +18,12 @@ Runs the complete preprocessing pipeline for one photometry session.
 Example:
 
 ```bash
-python scripts/run_preprocess.py --mouse DK21 --date 230704 --run 2
+python scripts/run_preprocess.py --mouse DK21 --date 230704 --run 2 --data-root "Z:\Photometry"
 ```
 
-The script:
+Use `--output-dir` to save processed data outside the raw session directory.
+Run `python scripts/run_preprocess.py --help` for configurable detection and
+classification parameters. The script:
 
 ```text
 mouse/date/run
@@ -59,28 +61,114 @@ A processed session is saved using a standardized filename such as:
 DK21-230704-002-processed.npz
 ```
 
+## `run_preprocess_batch.py`
+
+Uses a CSV session manifest with `mouse,date,run` columns to preprocess many
+sessions. By default, every processed `.npz` is saved in the same directory as
+its source `.mat` files and existing processed files are skipped. Pass
+`--overwrite` to replace existing processed files, or `--continue-on-error` to
+continue after a failed session and print a complete summary.
+
+```bash
+python scripts/run_preprocess_batch.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry"
+```
+
+## `run_psth.py`
+
+Uses the same manifest to load processed sessions and generate event-aligned
+photometry figures. It saves one figure per mouse, a group mean with SEM across
+mice, a numeric `.npz`, and a CSV containing the session/event counts per mouse.
+
+```bash
+python scripts/run_psth.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry" \
+    --output-dir analysis/figures/cue \
+    --event-key cue_onset
+```
+
+The group error band uses mice, not trials, as independent biological units.
+Within each mouse, event trials are averaged within a session and session means
+are then averaged across that mouse's sessions.
+
+When the manifest includes a `channel` column, each session automatically uses
+its listed photoreceiver channel. The default `--channel manifest` supports
+mixed-channel cohorts; `--channel 1` or `--channel 2` overrides all rows.
+
+Manifest `group` and `condition` columns are also honored automatically. Each
+stratum receives its own numeric results and individual/group figures. A
+comparison figure for each experimental group overlays condition PSTHs and
+shows paired within-mouse difference traces in a second panel. Use
+`--no-stratify` to intentionally combine conditions.
+
+Optional null comparisons are available with `--null-method random_onsets` or
+`--null-method circular_shift`. Both operate independently within every session,
+match the real event count, and are reproducible with `--seed`. The output plots
+overlay the observed PSTH with the shuffled mean and 95% null envelope. Use
+`--null-exclusion` when null onsets should remain away from real events.
+
+Run either script with `--help` to see all preprocessing, event, channel,
+normalization, time-window, and figure options.
+
+## `run_psth_statistics.py`
+
+Calculates predefined mean, AUC, peak/trough, and latency measurements from
+event-aligned responses. It saves trial-, session-, mouse-, and group-level CSV
+tables, performs mouse-level paired or independent tests, and writes a
+Prism-ready wide table. Optional random-onset or circular-shift controls produce
+empirical shuffle tests.
+
+```bash
+python scripts/run_psth_statistics.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry" \
+    --output-dir analysis/statistics/cue \
+    --event-key cue_onset \
+    --response-window 0 2 \
+    --metrics mean auc peak peak_latency \
+    --null-method random_onsets \
+    --n-shuffles 1000
+```
+
+Optional `group` and `condition` columns in the manifest determine the
+comparisons. Mice are the independent units; trials and sessions are retained
+in the exported tables but are not counted as separate animals. One figure per
+metric is saved as editable SVG and PNG by default, including mouse points,
+paired lines, 95% confidence intervals, and adjusted statistical annotations.
+
+## `run_forecasting.py`
+
+Uses the session manifest to forecast future photometry, locomotion, lick
+occurrence, or lick counts from past-only photometry and behavioral features.
+It compares target-history, cross-modal, and combined models over one or more
+forecast horizons.
+
+```bash
+python scripts/run_forecasting.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry" \
+    --output-dir analysis/forecasts/photometry \
+    --target photometry \
+    --horizons 0.5 1 2 5
+```
+
+Forecasting uses expanding-window evaluation with train-only standardization and
+a temporal exclusion gap. The default estimator backend is scikit-learn and
+does not require NeMoS/JAX. Its performance figure is saved as editable SVG and
+PNG by default.
+
+All figure-producing commands accept `--formats svg png pdf`, `--font-family`,
+and `--dpi`. SVG output retains editable text for Adobe Illustrator.
+
 ## Future Scripts
 
 Additional command-line workflows may be added here, for example:
 
 ```text
-run_preprocess_batch.py
 run_nemos.py
-run_group_analysis.py
-```
-
-### Batch preprocessing
-
-A future batch preprocessing script can run the same preprocessing pipeline across many mouse/date/run combinations.
-
-For example:
-
-```text
-mouse,date,run
-DK21,230704,1
-DK21,230704,2
-DK21,230704,3
-DK40,231005,1
+run_nemos_batch.py
 ```
 
 ### NeMoS analysis
@@ -94,7 +182,7 @@ Run scripts from the repository root.
 For example:
 
 ```bash
-python scripts/run_preprocess.py --mouse DK21 --date 230704 --run 2
+python scripts/run_preprocess.py --mouse DK21 --date 230704 --run 2 --data-root "Z:\Photometry"
 ```
 
 Scripts import the reusable analysis functions from `src`.

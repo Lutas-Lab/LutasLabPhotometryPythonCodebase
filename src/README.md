@@ -287,6 +287,45 @@ The residual is used to investigate faster behavior-related fluorescence fluctua
 
 ---
 
+# `psth_statistics.py`
+
+Functions for extracting mean, AUC, peak/trough, and latency measurements from
+peri-event traces. The module preserves the trial-within-session-within-mouse
+hierarchy, creates Prism-ready mouse tables, runs paired or independent
+mouse-level tests, applies Holm multiple-comparison correction, and can compare
+observed measurements with random-onset or circular-shift null distributions.
+Manifest-driven analyses select photoreceiver channel 1 or 2 independently for
+each session, with an optional explicit all-session override.
+
+The group-analysis workflow can stratify one manifest by experimental group and
+condition, retaining paired mouse identities for condition-difference PSTHs.
+
+---
+
+# `publication_figures.py`
+
+Shared publication styling and multi-format figure export. SVG text is retained
+as editable text for Adobe Illustrator, with PNG previews and optional PDF
+output. Statistical figures show mouse-level observations, paired measurements,
+95% confidence intervals, and Holm-adjusted comparisons.
+
+---
+
+# `forecasting.py`
+
+Functions for testing whether past photometry and behavioral signals predict
+future photometry, locomotion, or licking.
+
+The forecasting workflow builds past-only lagged features on a common timebase,
+uses expanding-window validation with a temporal gap, and compares a target-history
+baseline against cross-modal and combined models. Continuous targets use ridge
+regression, lick occurrence uses logistic regression, and lick counts use Poisson
+regression. All feature scaling is fitted on training data only.
+
+This module uses scikit-learn and does not require NeMoS or JAX.
+
+---
+
 # `nemos_analysis.py`
 
 Functions for modeling relationships between photometry and behavior using NeMoS.
@@ -368,6 +407,11 @@ residual
 ```
 
 The slow component is **not assumed to be pure photobleaching**.
+
+The values above are useful for visualization. During cross-validated modeling,
+the slow component is re-fitted using each training partition only and then
+applied to its held-out partition. This prevents held-out fluorescence from
+contributing to its own detrending.
 
 ---
 
@@ -651,6 +695,9 @@ TRAIN -------- GAP | TEST TEST TEST | GAP -------- TRAIN
 
 The gap should be at least as large as the largest temporal lag represented in the model.
 
+Gaps are calculated from the original timestamps, so missing samples or
+discontinuous recording segments are not mistakenly treated as adjacent.
+
 ---
 
 # Regularization
@@ -670,6 +717,11 @@ may occur at similar times.
 An unregularized GLM can therefore produce unstable coefficients and poor held-out predictions.
 
 Ridge (L2) regularization can be used to stabilize the model.
+
+Predictor columns are standardized using training-fold statistics before ridge
+strength selection and model fitting. Reported native coefficients are converted
+back to the original predictor units; the standardized coefficients and scaling
+statistics are also retained in each fold result.
 
 Conceptually:
 

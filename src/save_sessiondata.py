@@ -1,6 +1,60 @@
 from pathlib import Path
+from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError, version
+import subprocess
+import warnings
 
 import numpy as np
+
+
+SCHEMA_VERSION = "1.0"
+REQUIRED_SESSION_KEYS = {
+    "mouse",
+    "date",
+    "run",
+    "photo_time_465_ch1",
+    "photometry_465_ch1",
+    "dff_ch1",
+    "locomotion_time",
+    "processed_locomotion",
+}
+
+
+def validate_session(session, *, require_current_schema=False):
+    """Validate keys needed by downstream session consumers."""
+    missing = REQUIRED_SESSION_KEYS.difference(session)
+    if missing:
+        raise ValueError(f"Processed session is missing keys: {sorted(missing)}")
+
+    schema = str(session.get("processed_schema_version", "legacy"))
+    if require_current_schema and schema != SCHEMA_VERSION:
+        raise ValueError(
+            f"Processed session schema {schema!r} is not supported; expected {SCHEMA_VERSION!r}."
+        )
+    return schema
+
+
+def _package_version(package):
+    try:
+        return version(package)
+    except PackageNotFoundError:
+        return "unknown"
+
+
+def _git_commit():
+    project_root = Path(__file__).resolve().parents[1]
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=project_root,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return result.stdout.strip() or "unknown"
 
 
 # ============================================================
@@ -33,6 +87,8 @@ def save_session(
     save_path : Path
         Path to the saved processed session.
     """
+
+    schema = validate_session(session)
 
     # --------------------------------------------------------
     # Session identifiers
@@ -97,6 +153,14 @@ def save_session(
         else:
 
             save_dict[key] = value
+
+    save_dict["processed_schema_version"] = schema
+    save_dict["processing_utc"] = datetime.now(timezone.utc).isoformat()
+    save_dict["code_commit"] = _git_commit()
+    save_dict["numpy_version"] = _package_version("numpy")
+    save_dict["scipy_version"] = _package_version("scipy")
+    save_dict["pynapple_version"] = _package_version("pynapple")
+    save_dict["nemos_version"] = _package_version("nemos")
 
     # --------------------------------------------------------
     # Save
@@ -186,6 +250,14 @@ def load_session(
     # which may still contain the original Windows path.
     # --------------------------------------------------------
 
+    schema = validate_session(session)
+    if schema == "legacy":
+        warnings.warn(
+            "Loaded a legacy processed session without a schema version.",
+            UserWarning,
+            stacklevel=2,
+        )
+
     session["processed_session_path"] = str(
         load_path
     )
@@ -232,7 +304,7 @@ def load_session_by_id(
             r"Z:\\Photometry"
 
         Example on Linux/Biowulf:
-            "/data/lutasa2/photometry"
+            "/data/USERNAME/photometry"
 
     Returns
     -------

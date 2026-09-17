@@ -31,6 +31,109 @@ The current pipeline supports:
 
 ---
 
+# Installation
+
+Python 3.12 is recommended for compatibility with the current NeMoS release.
+
+## Quick start: Windows and Anaconda
+
+First download the repository with GitHub Desktop, or clone it and select the
+analysis branch:
+
+```powershell
+git clone https://github.com/Lutas-Lab/LutasLabPhotometryPythonCodebase.git
+cd LutasLabPhotometryPythonCodebase
+git switch codex/reliability-hardening
+```
+
+Open **Anaconda Prompt**, then create and install the analysis environment:
+
+```text
+conda create -n photometry python=3.12 pip jupyterlab ipykernel -y
+conda activate photometry
+python -m pip install -e .
+python -m pytest
+```
+
+The final command is optional but verifies the installation. Core
+preprocessing and plotting do not require JAX or NeMoS. Install those optional
+modeling dependencies only when needed:
+
+```text
+python -m pip install -e ".[modeling]"
+```
+
+### Expected raw-data layout
+
+`--data-root` is the directory containing one folder per mouse. Each session
+must follow this layout and naming convention:
+
+```text
+Z:\Photometry\
+└── DK21\
+    └── DK21_230704\
+        ├── DK21-230704-001-nidaq.mat
+        └── DK21-230704-001-running.mat
+```
+
+The NIDAQ MATLAB file must contain `data`, `timestamps`, and `Fs`. With the
+default channel map, rows 1–8 of `data` are photoreceiver 1, locomotion TTL,
+photoreceiver 2, licking, visual cue, 465-nm TTL, 405-nm TTL, and solenoid TTL.
+The running MATLAB file must contain `speed`.
+
+Copy `config/sessions.example.csv` to `analysis/sessions.csv`, then replace the
+example rows with the sessions to analyze. Dates use six digits (`YYMMDD`),
+`run` is an integer, and `channel` is the photoreceiver containing the signal:
+
+```csv
+mouse,date,run,group,condition,channel
+DK21,230704,1,control,naive,1
+DK21,230705,2,control,trained,1
+```
+
+Run commands from the repository root. For example, in PowerShell:
+
+```powershell
+python scripts/run_preprocess_batch.py --manifest analysis/sessions.csv --data-root "Z:\Photometry" --continue-on-error
+python scripts/run_psth.py --manifest analysis/sessions.csv --data-root "Z:\Photometry" --output-dir analysis/cue_psth_20s --event-key cue_onset --window -5 20 --baseline -5 0 --normalization zscore
+```
+
+## Quick start without PowerShell: JupyterLab
+
+The complete batch workflow can also be launched from
+[`notebooks/05_batch_workflow.ipynb`](notebooks/05_batch_workflow.ipynb). This
+is often the easiest route for Windows users:
+
+1. Download the repository with GitHub Desktop or **Code → Download ZIP** on
+   GitHub.
+2. In Anaconda Navigator, create an environment named `photometry` with Python
+   3.12 and install `pip`, `jupyterlab`, and `ipykernel` in that environment.
+3. Launch JupyterLab using the `photometry` environment.
+4. Navigate to the repository and open `notebooks/05_batch_workflow.ipynb`.
+5. Run the installation cell once, restart the kernel if requested, and then
+   edit the configuration and session-list cells.
+
+The notebook uses the active Jupyter kernel to run the same maintained scripts
+documented below. It can create the session manifest, batch-preprocess data,
+and generate cue-photometry, cue-licking, statistical, and
+lick-bout/delivery figures without entering shell commands.
+
+## Other environments
+
+```bash
+python -m venv .venv
+python -m pip install -e .
+```
+
+Install modeling and development dependencies when needed:
+
+```bash
+python -m pip install -e ".[modeling,dev]"
+python -m pytest
+```
+
+---
+
 # Repository Structure
 
 ```text
@@ -107,7 +210,7 @@ Routine preprocessing is performed using the command-line wrapper in `scripts/`.
 For example:
 
 ```bash
-python scripts/run_preprocess.py --mouse DK21 --date 230704 --run 2
+python scripts/run_preprocess.py --mouse DK21 --date 230704 --run 2 --data-root "Z:\Photometry"
 ```
 
 The script:
@@ -133,6 +236,186 @@ A processed session is saved using a standardized filename such as:
 ```text
 DK21-230704-002-processed.npz
 ```
+
+## Batch Processing and Group PSTHs
+
+The same CSV session manifest can drive raw-data preprocessing and subsequent
+mouse/group PSTH figures. Start by copying `config/sessions.example.csv` to a
+local file under the Git-ignored `analysis/` directory:
+
+```csv
+mouse,date,run,group,condition,channel
+DK21,230704,1,control,rewarded,1
+DK21,230704,2,control,unrewarded,1
+DK40,231005,1,experimental,rewarded,2
+```
+
+`group` and `condition` are optional for preprocessing and plotting, but enable
+mouse-level statistical comparisons and Prism-ready exports. `channel` selects
+photoreceiver 1 or 2 independently for each session during PSTH, statistics,
+and forecasting analyses. Older manifests without this column default to
+channel 1. Passing `--channel 1` or `--channel 2` explicitly overrides the
+manifest for every session.
+
+Batch preprocessing saves each processed file beside its original raw files:
+
+```bash
+python scripts/run_preprocess_batch.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry"
+```
+
+Existing processed files are skipped by default so that an old analysis is not
+silently overwritten. Use `--overwrite` only after backing up results that must
+be retained. Use `--continue-on-error` to attempt later sessions and report all
+failures in one run.
+
+Generate cue-aligned per-mouse figures and a group mean with SEM across mice:
+
+```bash
+python scripts/run_psth.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry" \
+    --output-dir "analysis/figures/cue" \
+    --event-key cue_onset \
+    --normalization zscore \
+    --baseline -5 0
+```
+
+Add a reproducible random-alignment control with:
+
+```bash
+python scripts/run_psth.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry" \
+    --output-dir "analysis/figures/cue_random" \
+    --event-key cue_onset \
+    --null-method random_onsets \
+    --n-shuffles 500 \
+    --seed 123
+```
+
+`random_onsets` samples the same number of valid onsets within each recording.
+`circular_shift` moves each session's event train as a block and therefore
+preserves its relative event spacing. Set `--null-exclusion` to require null
+onsets to remain a chosen number of seconds away from real events. Figures show
+the observed PSTH together with the shuffled mean and 95% null envelope.
+
+Other timestamp arrays in a processed session can be selected with
+`--event-key`, including `solenoid_onset`, `lick_bout_onset`, and `lick_times`.
+Use `--normalization none` to plot processed dF/F without trial-local baseline
+normalization.
+
+Generate cue-aligned licking-rate PSTHs using the same group and condition
+comparisons:
+
+```bash
+python scripts/run_psth.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry" \
+    --output-dir "analysis/licking_psth_20s" \
+    --event-key cue_onset \
+    --signal licking \
+    --window -5 20 \
+    --dt 0.1 \
+    --normalization none
+```
+
+For licking, each trial is a histogram of lick timestamps expressed as licks
+per second. Trials are averaged within sessions, sessions within mice, and mice
+within groups. A moderate bin width such as 0.1 seconds is recommended.
+
+To test whether Astrocyte photometry follows Ensure delivery timing rather than
+licking itself, generate lick-bout-aligned PSTHs and delivery-sorted heatmaps:
+
+```bash
+python scripts/run_lickbout_delivery_analysis.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry" \
+    --output-dir analysis/astrocyte_lickbout_delivery_20s \
+    --group Astrocyte \
+    --window -5 20 \
+    --baseline -5 0 \
+    --minimum-delivery-latency 0 \
+    --normalization zscore
+```
+
+Each behavioral trial extends from one cue onset to the next. The analysis
+pairs the first lick bout and first solenoid onset in that interval, excludes
+trials in which delivery preceded lick-bout onset, then uses the remaining
+paired trials for both the PSTH and heatmap. Heatmap rows are sorted by
+`solenoid_onset - lick_bout_onset`. A white overlay marks the solenoid/Ensure
+delivery time on each row. The sorted trial matrix and matching metadata are
+also exported as NPZ and CSV files.
+
+The averaging hierarchy is deliberately:
+
+```text
+events -> session mean -> mouse mean -> group mean +/- SEM across mice
+```
+
+Thus, a mouse with more sessions or trials does not receive more weight in the
+group-level result. The figure workflow also saves the numeric mouse matrix,
+group mean, and group SEM to `psth_results.npz`, plus counts to
+`psth_summary.csv`. When randomization is enabled, the shuffle matrices, null
+mean, percentile bounds, method, seed, and shuffle count are also saved.
+
+When `group` and `condition` are present, `run_psth.py` separates them by
+default rather than averaging conditions together. For example, outputs are
+written under `Astrocyte/Naive`, `Astrocyte/Trained`, `D1/Naive`, and
+`D1/Trained`. The `comparisons` folder contains one figure per group with the
+condition PSTHs and a second panel showing each mouse's paired Trained-minus-
+Naive trace plus the group mean and SEM. Pass `--no-stratify` only when a
+deliberately condition-combined PSTH is desired.
+
+### PSTH response statistics
+
+Extract predefined response metrics and run statistics with mice, rather than
+trials, as the independent biological units:
+
+```bash
+python scripts/run_psth_statistics.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry" \
+    --output-dir analysis/statistics/cue \
+    --event-key cue_onset \
+    --baseline -5 0 \
+    --response-window 0 2 \
+    --metrics mean auc peak peak_latency \
+    --test auto
+```
+
+The workflow calculates metrics for every trial, summarizes session PSTHs,
+averages sessions within each mouse, and only then performs group comparisons.
+Mean, signed/positive/negative AUC, peak, trough, and peak/trough latency are
+available. Peak and trough measurements use configurable light smoothing;
+mean and AUC use the unsmoothed response.
+
+With `--test auto`, conditions measured in the same mice use paired t-tests and
+disjoint groups use Welch tests. Wilcoxon and Mann-Whitney alternatives can be
+requested explicitly. Results include effect sizes, 95% confidence intervals,
+raw p-values, and Holm-adjusted p-values. Add `--null-method random_onsets` or
+`circular_shift` for two-sided empirical tests against shuffled alignments.
+
+Outputs include long-format trial, session, mouse, and group tables; statistical
+and shuffle-test tables; and `psth_prism_wide.csv`, which has one row per mouse
+and one column per group/condition/metric. The baseline and response windows and
+primary metric should be selected before comparing experimental conditions.
+
+### Publication figures and Adobe Illustrator
+
+PSTH, response-metric, and forecasting commands save both editable SVG figures
+and 300-DPI PNG previews by default. SVG text remains text rather than being
+converted to paths, which makes labels and fonts editable in Adobe Illustrator.
+Use `--formats svg png pdf` to request all supported outputs and
+`--font-family Arial` to select an installed font.
+
+Response-metric figures show individual mice, connect repeated measurements,
+overlay the group mean with a 95% confidence interval, and display
+Holm-adjusted statistical comparisons. Use `--no-mouse-points`, `--no-pairs`,
+or `--no-statistics` when preparing a different presentation. Python determines
+the data and statistics; Illustrator can then be used for final panel layout and
+cosmetic editing without changing the underlying analysis.
 
 The actual preprocessing implementation is contained in:
 
@@ -316,6 +599,56 @@ Actual cue onset and offset timestamps are used so that analyses can accommodate
 
 ---
 
+# Forecasting Future Photometry and Behavior
+
+Forecasting is available without NeMoS or JAX through the optional
+`forecasting` dependency:
+
+```bash
+python -m pip install -e ".[forecasting]"
+```
+
+The manifest-driven forecasting script supports future `photometry`,
+`locomotion`, `lick_binary`, and `lick_count` targets. For example:
+
+```bash
+python scripts/run_forecasting.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry" \
+    --output-dir analysis/forecasts/licks \
+    --target lick_binary \
+    --horizons 0.5 1 2 5 \
+    --history 5 \
+    --target-window 1
+```
+
+Every target and feature row has an explicit prediction time. Only signals at
+or before that time enter the design matrix. Evaluation uses expanding-window
+cross-validation: training data always precede testing data, and a temporal gap
+separates them. Unless explicitly overridden, that gap covers predictor history,
+forecast horizon, and the future lick-counting window.
+
+Each forecast compares:
+
+```text
+history_only  target's own past
+cross_modal   photometry/behavior signals other than the target's own past
+combined      target history plus cross-modal signals
+```
+
+Continuous targets use ridge regression, future lick occurrence uses logistic
+regression, and future lick counts use Poisson regression. Raw 465 is the
+default photometry representation so forecasting does not depend on a
+whole-session 405 fit; `--photometry-source dff` is available as a secondary
+comparison.
+
+Outputs include session-level metrics, mouse-level means, group mean and SEM
+across mice, a performance-versus-horizon figure, and a JSON record of all
+forecasting settings. Forecasting indicates predictive information and should
+not automatically be interpreted as biological causality.
+
+---
+
 # NeMoS Modeling
 
 Behavior-photometry relationships can be modeled using NeMoS.
@@ -438,6 +771,30 @@ Multi-predictor models may contain strongly correlated variables, so ridge regul
 
 Regularization and cross-validation procedures are currently being evaluated for computational efficiency and robustness across sessions.
 
+All learned preprocessing used by the behavioral GLM is fold-local. The broad
+fluorescence component and predictor scaling are fitted on training samples and
+then applied to held-out samples. Temporal exclusion gaps are measured from the
+original timestamps rather than from compressed array positions.
+
+Temporal lag convention:
+
+```text
+negative lag = predictor before the response
+zero lag     = simultaneous predictor and response
+positive lag = predictor after the response
+```
+
+Only non-positive lag windows should be interpreted as causal or predictive.
+
+---
+
+# Processed-Session Provenance
+
+New processed files use schema version `1.0` and record the preprocessing
+parameters, package versions, code commit, processing timestamp, event counts,
+and IRLS quality-control summaries. Legacy files can still be loaded, but emit a
+warning because their exact processing configuration may be unavailable.
+
 ---
 
 # Group Analysis
@@ -540,11 +897,9 @@ Current areas of development include:
 - photometry quality-control procedures
 - alternative handling of poor 405 reference signals
 - slow fluorescence decomposition
-- event-aligned analysis
-- group-level analysis across mice
 - temporal behavioral GLMs
 - causal versus two-sided models
-- photometry-to-behavior prediction
+- real-data validation of photometry-to-behavior forecasts
 - regularization
 - blocked cross-validation
 - temporal exclusion gaps

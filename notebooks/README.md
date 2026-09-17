@@ -17,6 +17,26 @@ The notebooks committed to GitHub should remain clean, reusable examples. Mouse-
 
 ---
 
+## `05_batch_workflow.ipynb`
+
+No-terminal onboarding workflow for Windows and Anaconda Navigator. It uses the
+active Jupyter kernel to:
+
+- install the repository and its Python dependencies
+- create `analysis/sessions.csv` from an editable session list
+- batch-preprocess raw sessions
+- generate cue-aligned photometry PSTHs
+- generate cue-aligned licking-rate PSTHs
+- run mouse-level response statistics
+- generate lick-bout-aligned, delivery-sorted Astrocyte figures
+
+Each potentially long-running action has an explicit `RUN_... = False` switch.
+Review the paths and session rows first, change only the desired switch to
+`True`, and run that cell. The notebook calls the same scripts as the command-
+line workflow, so the underlying analysis implementation remains centralized.
+
+---
+
 ## `01_explore_session.ipynb`
 
 High-level example for loading and exploring one processed photometry session.
@@ -141,17 +161,10 @@ If a mouse contributes multiple sessions, those sessions are first summarized wi
 
 ### Session List
 
-Sessions are specified near the top of the notebook using a simple list:
-
-```python
-SESSIONS = [
-    {"mouse": "DK21", "date": "230704", "run": 1},
-    {"mouse": "DK21", "date": "230704", "run": 2},
-    {"mouse": "DK40", "date": "231005", "run": 1},
-]
-```
-
-The corresponding processed-session paths are constructed automatically.
+Sessions are loaded from the same `mouse,date,run` CSV manifest accepted by
+`scripts/run_preprocess_batch.py` and `scripts/run_psth.py`. Copy
+`config/sessions.example.csv` to `analysis/sessions.csv` and edit that local
+copy. The corresponding processed-session paths are constructed automatically.
 
 ### Current Group Analyses
 

@@ -1,13 +1,26 @@
 import numpy as np
-import pynapple as nap
-import nemos as nmo
 
-from scipy.signal import convolve
+try:
+    import pynapple as nap
+except ModuleNotFoundError:  # Optional modeling dependency.
+    nap = None
+
+try:
+    import nemos as nmo
+except ModuleNotFoundError:  # Optional modeling dependency.
+    nmo = None
 
 
 # ============================================================
 # General utilities
 # ============================================================
+
+def _require_modeling_dependencies():
+    if nap is None or nmo is None:
+        raise ImportError(
+            "NeMoS modeling requires the optional dependencies. "
+            "Install the project with: pip install -e '.[modeling]'"
+        )
 
 def _validate_window(window):
     """
@@ -87,6 +100,7 @@ def prepare_raw465_response(
     No IRLS correction or high-pass filtering is applied.
     """
 
+    _require_modeling_dependencies()
     glm_time = np.asarray(
         data["locomotion"].t,
         dtype=float
@@ -144,6 +158,7 @@ def create_slow_time_basis(
     Create broad spline functions spanning the entire session.
     """
 
+    _require_modeling_dependencies()
     glm_time = np.asarray(
         glm_time,
         dtype=float
@@ -296,6 +311,7 @@ def create_temporal_basis(
     lag window.
     """
 
+    _require_modeling_dependencies()
     start, end = _validate_window(
         window
     )
@@ -388,52 +404,7 @@ def create_two_sided_temporal_design(
         dtype=float
     )
 
-    n_samples = len(signal)
-    n_basis = basis_values.shape[1]
-
-    X = np.full(
-        (
-            n_samples,
-            n_basis
-        ),
-        np.nan
-    )
-
-    for basis_index in range(
-        n_basis
-    ):
-
-        weights = basis_values[
-            :,
-            basis_index
-        ]
-
-        X[:, basis_index] = convolve(
-            signal,
-            weights[::-1],
-            mode="same"
-        )
-
-    # --------------------------------------------------------
-    # Invalidate samples whose requested lag window extends
-    # outside the recording.
-    # --------------------------------------------------------
-
-    left_edge = max(
-        0,
-        -start_samples
-    )
-
-    right_edge = max(
-        0,
-        end_samples
-    )
-
-    if left_edge > 0:
-        X[:left_edge, :] = np.nan
-
-    if right_edge > 0:
-        X[-right_edge:, :] = np.nan
+    X = _apply_temporal_basis(signal, lag_samples, basis_values)
 
     return {
         "X": X,
@@ -443,6 +414,41 @@ def create_two_sided_temporal_design(
         "window": window,
         "n_basis_funcs": n_basis_funcs
     }
+
+
+def _apply_temporal_basis(signal, lag_samples, basis_values):
+    """Apply sampled basis weights with lag zero anchored explicitly."""
+    signal = np.asarray(signal, dtype=float)
+    lag_samples = np.asarray(lag_samples, dtype=int)
+    basis_values = np.asarray(basis_values, dtype=float)
+    if signal.ndim != 1 or lag_samples.ndim != 1 or basis_values.ndim != 2:
+        raise ValueError("Invalid temporal-basis dimensions.")
+    if len(lag_samples) != basis_values.shape[0]:
+        raise ValueError("Each lag sample must have one row of basis weights.")
+
+    n_samples = len(signal)
+    X = np.zeros((n_samples, basis_values.shape[1]), dtype=float)
+    for lag_index, lag in enumerate(lag_samples):
+        if lag < 0:
+            response_slice = slice(-lag, n_samples)
+            predictor_slice = slice(0, n_samples + lag)
+        elif lag > 0:
+            response_slice = slice(0, n_samples - lag)
+            predictor_slice = slice(lag, n_samples)
+        else:
+            response_slice = slice(0, n_samples)
+            predictor_slice = slice(0, n_samples)
+        X[response_slice] += (
+            signal[predictor_slice, None] * basis_values[lag_index][None, :]
+        )
+
+    left_edge = max(0, -int(lag_samples.min(initial=0)))
+    right_edge = max(0, int(lag_samples.max(initial=0)))
+    if left_edge:
+        X[:left_edge] = np.nan
+    if right_edge:
+        X[-right_edge:] = np.nan
+    return X
 
 
 # ============================================================
@@ -675,6 +681,16 @@ def get_valid_samples(
     )
 
 
+def standardize_train_test(X_train, X_test):
+    """Standardize predictors using training-partition statistics only."""
+    X_train = np.asarray(X_train, dtype=float)
+    X_test = np.asarray(X_test, dtype=float)
+    mean = np.mean(X_train, axis=0)
+    scale = np.std(X_train, axis=0)
+    scale[~np.isfinite(scale) | (scale == 0)] = 1.0
+    return (X_train - mean) / scale, (X_test - mean) / scale, mean, scale
+
+
 # ============================================================
 # Metrics
 # ============================================================
@@ -749,6 +765,7 @@ def fit_gaussian_glm(
     By default uses Ridge regularization.
     """
 
+    _require_modeling_dependencies()
     model = nmo.glm.GLM(
         observation_model="Gaussian",
         regularizer=regularizer,
@@ -823,6 +840,11 @@ def make_gapped_folds(
             "gap_samples must be nonnegative."
         )
 
+    if n_samples < 2:
+        raise ValueError("At least two samples are required for cross-validation.")
+    if n_folds < 2 or n_folds > n_samples:
+        raise ValueError("n_folds must be between 2 and n_samples.")
+
     indices = np.arange(
         n_samples
     )
@@ -869,6 +891,28 @@ def make_gapped_folds(
             )
         )
 
+    return folds
+
+
+def make_time_gapped_folds(time, n_folds=5, gap_seconds=0.0):
+    """Create blocked folds with exclusion gaps measured in real time."""
+    time = np.asarray(time, dtype=float)
+    if time.ndim != 1 or len(time) < 2 or not np.all(np.isfinite(time)):
+        raise ValueError("time must be a finite one-dimensional array with two samples.")
+    if np.any(np.diff(time) <= 0):
+        raise ValueError("time must be strictly increasing.")
+    if gap_seconds < 0:
+        raise ValueError("gap_seconds must be nonnegative.")
+    if n_folds < 2 or n_folds > len(time):
+        raise ValueError("n_folds must be between 2 and the number of samples.")
+
+    positions = np.arange(len(time))
+    folds = []
+    for test_indices in np.array_split(positions, n_folds):
+        lower = time[test_indices[0]] - gap_seconds
+        upper = time[test_indices[-1]] + gap_seconds
+        train_indices = positions[(time < lower) | (time > upper)]
+        folds.append((train_indices, test_indices))
     return folds
 
 
@@ -956,7 +1000,10 @@ def select_ridge_strength(
     y,
     candidate_strengths,
     inner_folds=3,
-    gap_samples=0
+    gap_samples=0,
+    nuisance_X=None,
+    sample_time=None,
+    gap_seconds=None,
 ):
     """
     Select ridge strength using only the supplied training data.
@@ -970,12 +1017,32 @@ def select_ridge_strength(
     """
 
     n_samples = len(y)
+    candidate_strengths = tuple(float(value) for value in candidate_strengths)
+    if not candidate_strengths or any(
+        not np.isfinite(value) or value < 0 for value in candidate_strengths
+    ):
+        raise ValueError("candidate_strengths must contain finite nonnegative values.")
 
-    folds = make_gapped_folds(
-        n_samples=n_samples,
-        n_folds=inner_folds,
-        gap_samples=gap_samples
-    )
+    if nuisance_X is not None:
+        nuisance_X = np.asarray(nuisance_X, dtype=float)
+        if nuisance_X.ndim != 2 or nuisance_X.shape[0] != n_samples:
+            raise ValueError("nuisance_X must be 2D and match y.")
+
+    if sample_time is not None:
+        sample_time = np.asarray(sample_time, dtype=float)
+        if len(sample_time) != n_samples:
+            raise ValueError("sample_time must match y.")
+        folds = make_time_gapped_folds(
+            sample_time,
+            n_folds=inner_folds,
+            gap_seconds=float(gap_seconds if gap_seconds is not None else 0.0),
+        )
+    else:
+        folds = make_gapped_folds(
+            n_samples=n_samples,
+            n_folds=inner_folds,
+            gap_samples=gap_samples
+        )
 
     scores = {}
 
@@ -988,30 +1055,36 @@ def select_ridge_strength(
             if len(train_indices) == 0:
                 continue
 
+            y_train = y[train_indices]
+            y_test = y[test_indices]
+
+            if nuisance_X is not None:
+                nuisance_beta = np.linalg.lstsq(
+                    nuisance_X[train_indices], y_train, rcond=None
+                )[0]
+                y_train = y_train - nuisance_X[train_indices] @ nuisance_beta
+                y_test = y_test - nuisance_X[test_indices] @ nuisance_beta
+
+            X_train, X_test, _, _ = standardize_train_test(
+                X[train_indices], X[test_indices]
+            )
+
             model = fit_gaussian_glm(
-                X[
-                    train_indices
-                ],
-                y[
-                    train_indices
-                ],
+                X_train,
+                y_train,
                 regularizer="Ridge",
                 regularizer_strength=strength
             )
 
             prediction = np.asarray(
                 model.predict(
-                    X[
-                        test_indices
-                    ]
+                    X_test
                 )
             )
 
             fold_mse.append(
                 mse_score(
-                    y[
-                        test_indices
-                    ],
+                    y_test,
                     prediction
                 )
             )
@@ -1105,7 +1178,9 @@ def fit_behavior_to_photometry(
     n_outer_folds=5,
     n_inner_folds=3,
     candidate_strengths=None,
-    gap_seconds=10.0
+    gap_seconds=10.0,
+    validity_predictor_signals=None,
+    validity_predictor_windows=None,
 ):
     """
     Fit behavior -> residual photometry using nested blocked CV.
@@ -1156,9 +1231,11 @@ def fit_behavior_to_photometry(
     )
 
     y = np.asarray(
-        response["residual"],
+        response["y"],
         dtype=float
     )
+
+    X_slow = np.asarray(response["X_slow"], dtype=float)
 
     X, bases = build_behavioral_design(
         glm_time=glm_time,
@@ -1167,14 +1244,30 @@ def fit_behavior_to_photometry(
         n_basis_funcs=predictor_basis_funcs
     )
 
+    X_for_validity = X
+    if validity_predictor_signals is not None:
+        if validity_predictor_windows is None:
+            raise ValueError(
+                "validity_predictor_windows is required with validity predictors."
+            )
+        X_for_validity, _ = build_behavioral_design(
+            glm_time=glm_time,
+            predictors=validity_predictor_signals,
+            windows=validity_predictor_windows,
+            n_basis_funcs=predictor_basis_funcs,
+        )
+
     (
-        X_valid,
+        _,
         y_valid,
         valid_mask
     ) = get_valid_samples(
-        X,
+        combine_design_matrices(X_for_validity, X_slow),
         y
     )
+
+    X_behavior_valid = X[valid_mask]
+    X_slow_valid = X_slow[valid_mask]
 
     valid_time = glm_time[
         valid_mask
@@ -1191,10 +1284,10 @@ def fit_behavior_to_photometry(
         )
     )
 
-    outer_folds = make_gapped_folds(
-        n_samples=len(y_valid),
+    outer_folds = make_time_gapped_folds(
+        valid_time,
         n_folds=n_outer_folds,
-        gap_samples=gap_samples
+        gap_seconds=gap_seconds,
     )
 
     fold_results = []
@@ -1203,6 +1296,7 @@ def fit_behavior_to_photometry(
         len(y_valid),
         np.nan
     )
+    oof_target = np.full(len(y_valid), np.nan)
 
     # --------------------------------------------------------
     # Outer CV
@@ -1216,7 +1310,12 @@ def fit_behavior_to_photometry(
         start=1
     ):
 
-        X_train = X_valid[
+        if len(outer_train) < n_inner_folds:
+            raise ValueError(
+                "Temporal gap leaves too few outer-training samples for inner CV."
+            )
+
+        X_train = X_behavior_valid[
             outer_train
         ]
 
@@ -1224,7 +1323,7 @@ def fit_behavior_to_photometry(
             outer_train
         ]
 
-        X_test = X_valid[
+        X_test = X_behavior_valid[
             outer_test
         ]
 
@@ -1236,6 +1335,14 @@ def fit_behavior_to_photometry(
         # Inner selection of ridge strength
         # ----------------------------------------------------
 
+        # Fit the nuisance slow component using outer-training response
+        # only, then apply that fit to both partitions.
+        slow_beta = np.linalg.lstsq(
+            X_slow_valid[outer_train], y_train, rcond=None
+        )[0]
+        y_train_residual = y_train - X_slow_valid[outer_train] @ slow_beta
+        y_test_residual = y_test - X_slow_valid[outer_test] @ slow_beta
+
         (
             best_strength,
             inner_scores
@@ -1244,7 +1351,10 @@ def fit_behavior_to_photometry(
             y=y_train,
             candidate_strengths=candidate_strengths,
             inner_folds=n_inner_folds,
-            gap_samples=gap_samples
+            gap_samples=gap_samples,
+            nuisance_X=X_slow_valid[outer_train],
+            sample_time=valid_time[outer_train],
+            gap_seconds=gap_seconds,
         )
 
         # ----------------------------------------------------
@@ -1252,22 +1362,27 @@ def fit_behavior_to_photometry(
         # with selected strength
         # ----------------------------------------------------
 
+        X_train_scaled, X_test_scaled, feature_mean, feature_scale = (
+            standardize_train_test(X_train, X_test)
+        )
+
         model = fit_gaussian_glm(
-            X_train,
-            y_train,
+            X_train_scaled,
+            y_train_residual,
             regularizer="Ridge",
             regularizer_strength=best_strength
         )
 
         prediction = np.asarray(
             model.predict(
-                X_test
+                X_test_scaled
             )
         )
 
         oof_prediction[
             outer_test
         ] = prediction
+        oof_target[outer_test] = y_test_residual
 
         fold_results.append(
             {
@@ -1282,29 +1397,33 @@ def fit_behavior_to_photometry(
                     outer_test
                 ),
                 "r2": r2_score(
-                    y_test,
+                    y_test_residual,
                     prediction
                 ),
                 "mse": mse_score(
-                    y_test,
+                    y_test_residual,
                     prediction
                 ),
                 "ridge_strength": best_strength,
                 "inner_scores": inner_scores,
-                "coefficients": np.asarray(
-                    model.coef_
-                ).squeeze()
+                "coefficients": np.asarray(model.coef_).squeeze() / feature_scale,
+                "coefficients_standardized": np.asarray(model.coef_).squeeze(),
+                "slow_coefficients": slow_beta,
+                "feature_mean": feature_mean,
+                "feature_scale": feature_scale,
             }
         )
 
     return {
         "model": None,
         "X": X,
-        "X_valid": X_valid,
-        "y_valid": y_valid,
+        "X_valid": X_behavior_valid,
+        "X_slow_valid": X_slow_valid,
+        "y_valid": oof_target,
         "valid_time": valid_time,
         "valid_mask": valid_mask,
         "oof_prediction": oof_prediction,
+        "oof_target": oof_target,
         "bases": bases,
         "predictors": tuple(
             predictor_signals.keys()
@@ -1443,7 +1562,9 @@ def fit_full_behavior_model(
     n_basis_funcs=6,
     n_outer_folds=5,
     n_inner_folds=3,
-    candidate_strengths=None
+    candidate_strengths=None,
+    validity_predictors=None,
+    validity_windows=None,
 ):
     """
     Fit the complete regularized behavioral model.
@@ -1454,7 +1575,7 @@ def fit_full_behavior_model(
             abs(window[0]),
             abs(window[1])
         )
-        for window in windows.values()
+        for window in (validity_windows or windows).values()
     )
 
     return fit_behavior_to_photometry(
@@ -1465,7 +1586,9 @@ def fit_full_behavior_model(
         n_outer_folds=n_outer_folds,
         n_inner_folds=n_inner_folds,
         candidate_strengths=candidate_strengths,
-        gap_seconds=gap_seconds
+        gap_seconds=gap_seconds,
+        validity_predictor_signals=validity_predictors,
+        validity_predictor_windows=validity_windows,
     )
 
 
@@ -1492,6 +1615,9 @@ def fit_reduced_behavior_model(
             f"Unknown predictor: {exclude}"
         )
 
+    if len(predictors) < 2:
+        raise ValueError("A reduced model requires at least two original predictors.")
+
     reduced_predictors = {
         name: signal
         for name, signal in predictors.items()
@@ -1510,7 +1636,9 @@ def fit_reduced_behavior_model(
         n_basis_funcs=n_basis_funcs,
         n_outer_folds=n_outer_folds,
         n_inner_folds=n_inner_folds,
-        candidate_strengths=candidate_strengths
+        candidate_strengths=candidate_strengths,
+        validity_predictors=predictors,
+        validity_windows=windows,
     )
 
 
@@ -1578,6 +1706,11 @@ def compare_full_and_reduced(
     ]
 
     for name, reduced in reduced_models.items():
+
+        if not np.array_equal(full_model["valid_time"], reduced["valid_time"]):
+            raise ValueError(
+                f"Reduced model {name!r} was evaluated on different samples."
+            )
 
         comparison[name] = {
             "full_r2": full_r2,

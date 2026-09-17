@@ -1,4 +1,5 @@
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -66,6 +67,33 @@ def parse_arguments():
         help="Run number, e.g. 3"
     )
 
+    parser.add_argument(
+        "--data-root",
+        type=Path,
+        required=True,
+        help="Root directory containing mouse/session folders."
+    )
+
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Optional directory for the processed .npz file."
+    )
+
+    parser.add_argument("--ttl-threshold", type=float, default=1.5)
+    parser.add_argument("--photometry-edge", type=int, default=3)
+    parser.add_argument("--irls-constant", type=float, default=1.4)
+    parser.add_argument("--post-cue-window", type=float, default=2.0)
+    parser.add_argument("--lick-bout-interval", type=float, default=1.0)
+    parser.add_argument("--minimum-bout-licks", type=int, default=3)
+    parser.add_argument(
+        "--channel-map",
+        type=json.loads,
+        default=None,
+        help="Optional JSON object mapping signal names to zero-based data rows.",
+    )
+
     return parser.parse_args()
 
 
@@ -115,7 +143,8 @@ def main():
     session_paths = get_session_paths(
         mouse_name=mouse,
         date=date,
-        run=run
+        run=run,
+        data_root=args.data_root,
     )
 
     print(
@@ -137,7 +166,8 @@ def main():
     )
 
     session = load_session_data(
-        session_paths
+        session_paths,
+        channel_map=args.channel_map,
     )
 
     print(
@@ -155,7 +185,13 @@ def main():
     )
 
     processed_session = preprocess_session(
-        session
+        session,
+        ttl_threshold=args.ttl_threshold,
+        photometry_edge=args.photometry_edge,
+        irls_constant=args.irls_constant,
+        post_cue_window=args.post_cue_window,
+        lick_bout_interval=args.lick_bout_interval,
+        minimum_bout_licks=args.minimum_bout_licks,
     )
 
     print(
@@ -173,7 +209,8 @@ def main():
     )
 
     save_path = save_session(
-        processed_session
+        processed_session,
+        output_dir=args.output_dir,
     )
 
     print()
