@@ -169,6 +169,20 @@ PNG by default.
 All figure-producing commands accept `--formats svg png pdf`, `--font-family`,
 and `--dpi`. SVG output retains editable text for Adobe Illustrator.
 
+## `validate_notebooks.py`
+
+Checks maintained root, FluoPulse, and iFLiP3 notebooks without executing
+experimental analyses. Validation requires nbformat 4 JSON, Python-syntax code
+cells, cleared outputs and execution counts, and no personal or former-checkout
+paths.
+
+```bash
+python scripts/validate_notebooks.py
+```
+
+This check also runs in CI. Pass explicit notebook files or directories to
+validate a smaller set.
+
 ## Future Scripts
 
 Additional command-line workflows may be added here, for example:

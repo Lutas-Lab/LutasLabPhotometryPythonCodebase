@@ -1,5 +1,7 @@
 import numpy as np
 
+from lutaslab_core.events import find_ttl_pulses as _find_ttl_pulses_core
+
 from .trial_classification import classify_cue_licking
 
 
@@ -27,7 +29,7 @@ def _irls_qc(experimental, reference, fitted):
     return correlation, residual_rmse
 
 
-def find_ttl_pulses(ttl,threshold=1.5,min_width=None, max_width=None):
+def find_ttl_pulses(ttl, threshold=1.5, min_width=None, max_width=None):
     """
     find complete TTL-high pulses.
     Returns
@@ -46,32 +48,18 @@ def find_ttl_pulses(ttl,threshold=1.5,min_width=None, max_width=None):
     if min_width is not None and max_width is not None and min_width > max_width:
         raise ValueError("min_width cannot exceed max_width.")
 
-    ttl_high = ttl>threshold
-    rising = np.where(np.diff(ttl_high.astype(int))==1)[0]+1
-    falling = np.where(np.diff(ttl_high.astype(int))==-1)[0]+1
-
-    pairs=[]
-    j=0
-    for r in rising:
-        while j<len(falling) and falling[j]<r:
-            j+= 1
-        if j < len(falling):
-            f=falling[j]     
-            pairs.append((r,f))
-            j+=1
-
-    rising_valid=np.array([p[0] for p in pairs], dtype=int)
-    falling_valid=np.array([p[1] for p in pairs], dtype=int)
-
-    widths = falling_valid-rising_valid
-    good = np.ones(len(widths),dtype=bool)
-    if min_width is not None:
-        good &= widths >=min_width
-
-    if max_width is not None:
-        good &= widths <= max_width
-
-    return rising_valid[good],falling_valid[good]
+    if ttl.size < 2:
+        empty = np.array([], dtype=int)
+        return empty, empty.copy()
+    pulses = _find_ttl_pulses_core(
+        ttl,
+        np.arange(ttl.size, dtype=float),
+        threshold=threshold,
+        min_width_seconds=min_width,
+        max_width_seconds=max_width,
+        include_boundary_pulses=False,
+    )
+    return pulses.rising_indices, pulses.falling_indices
     
 def preprocess_photometry(
     raw_photo,

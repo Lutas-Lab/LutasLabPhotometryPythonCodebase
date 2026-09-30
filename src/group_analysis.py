@@ -4,6 +4,12 @@ from pathlib import Path
 import warnings
 
 import numpy as np
+from lutaslab_core.perievent import (
+    extract_perievent_event_rate as _extract_perievent_event_rate,
+    extract_perievent_trials as _extract_perievent_trials,
+    generate_null_onsets as _generate_null_onsets,
+    normalize_trials as _normalize_trials,
+)
 
 from .save_sessiondata import load_session
 from .session_manifest import processed_session_path, resolve_session_channel
@@ -26,29 +32,7 @@ def _peri_time(window, dt):
 
 def extract_perievent_trials(signal_time, signal, event_times, window=(-5, 10), dt=0.02):
     """Interpolate a continuous signal around events with complete windows."""
-    signal_time = np.asarray(signal_time, dtype=float)
-    signal = np.asarray(signal, dtype=float)
-    event_times = np.asarray(event_times, dtype=float)
-    if signal_time.ndim != 1 or signal.ndim != 1:
-        raise ValueError("signal_time and signal must be one-dimensional.")
-    if len(signal_time) != len(signal) or len(signal_time) < 2:
-        raise ValueError("signal_time and signal must have equal nontrivial lengths.")
-    if not np.all(np.diff(signal_time) > 0):
-        raise ValueError("signal_time must be strictly increasing.")
-
-    start, end = _validate_window(window)
-    peri_time = _peri_time(window, dt)
-    valid = np.flatnonzero(
-        np.isfinite(event_times)
-        & (event_times + start >= signal_time[0])
-        & (event_times + end <= signal_time[-1])
-    )
-    trials = np.empty((len(valid), len(peri_time)), dtype=float)
-    for row, event_index in enumerate(valid):
-        trials[row] = np.interp(
-            event_times[event_index] + peri_time, signal_time, signal
-        )
-    return peri_time, trials, valid
+    return _extract_perievent_trials(signal_time, signal, event_times, window, dt)
 
 
 def extract_perievent_event_rate(
@@ -59,57 +43,18 @@ def extract_perievent_event_rate(
     dt=0.1,
 ):
     """Bin discrete events as rates around alignments with complete windows."""
-    event_times = np.asarray(event_times, dtype=float)
-    alignment_times = np.asarray(alignment_times, dtype=float)
-    if event_times.ndim != 1 or alignment_times.ndim != 1:
-        raise ValueError("event_times and alignment_times must be one-dimensional.")
-    if len(recording_bounds) != 2 or recording_bounds[0] >= recording_bounds[1]:
-        raise ValueError("recording_bounds must contain increasing start and end values.")
-
-    start, end = _validate_window(window)
-    if not np.isfinite(dt) or dt <= 0:
-        raise ValueError("dt must be finite and positive.")
-    n_bins = int(np.floor((end - start) / dt + 0.5))
-    if n_bins < 1 or not np.isclose(n_bins * dt, end - start):
-        raise ValueError("The event-rate window duration must be divisible by dt.")
-    edges = start + np.arange(n_bins + 1, dtype=float) * dt
-    peri_time = edges[:-1] + dt / 2
-    recording_start, recording_end = map(float, recording_bounds)
-    valid = np.flatnonzero(
-        np.isfinite(alignment_times)
-        & (alignment_times + start >= recording_start)
-        & (alignment_times + end <= recording_end)
+    return _extract_perievent_event_rate(
+        event_times,
+        alignment_times,
+        recording_bounds,
+        window,
+        dt,
     )
-    finite_events = event_times[np.isfinite(event_times)]
-    trials = np.empty((len(valid), n_bins), dtype=float)
-    for row, alignment_index in enumerate(valid):
-        relative_events = finite_events - alignment_times[alignment_index]
-        trials[row] = np.histogram(relative_events, bins=edges)[0] / dt
-    return peri_time, trials, valid
 
 
 def normalize_trials(peri_time, trials, normalization="zscore", baseline=(-5, 0)):
     """Apply trial-local baseline subtraction or z-scoring."""
-    peri_time = np.asarray(peri_time, dtype=float)
-    trials = np.asarray(trials, dtype=float)
-    if normalization in (None, "none"):
-        return trials.copy()
-    if normalization not in ("subtract", "zscore"):
-        raise ValueError("normalization must be 'none', 'subtract', or 'zscore'.")
-    if baseline is None or len(baseline) != 2 or baseline[0] >= baseline[1]:
-        raise ValueError("baseline must contain increasing start and end values.")
-
-    baseline_mask = (peri_time >= baseline[0]) & (peri_time < baseline[1])
-    if not np.any(baseline_mask):
-        raise ValueError("baseline does not overlap the peri-event time vector.")
-    baseline_values = trials[:, baseline_mask]
-    baseline_mean = np.nanmean(baseline_values, axis=1, keepdims=True)
-    output = trials - baseline_mean
-    if normalization == "zscore":
-        baseline_std = np.nanstd(baseline_values, axis=1, ddof=1, keepdims=True)
-        baseline_std[(baseline_std <= 0) | ~np.isfinite(baseline_std)] = np.nan
-        output = output / baseline_std
-    return output
+    return _normalize_trials(peri_time, trials, normalization, baseline)
 
 
 def generate_null_onsets(
@@ -122,58 +67,14 @@ def generate_null_onsets(
     rng=None,
 ):
     """Generate session-local random or circularly shifted event onsets."""
-    event_times = np.asarray(event_times, dtype=float)
-    event_times = event_times[np.isfinite(event_times)]
-    if event_times.ndim != 1 or len(event_times) == 0:
-        raise ValueError("event_times must contain at least one finite event.")
-    if len(onset_bounds) != 2 or onset_bounds[0] >= onset_bounds[1]:
-        raise ValueError("onset_bounds must contain increasing start and end values.")
-    if not isinstance(n_shuffles, int) or isinstance(n_shuffles, bool) or n_shuffles < 1:
-        raise ValueError("n_shuffles must be a positive integer.")
-    if method not in ("random_onsets", "circular_shift"):
-        raise ValueError("method must be 'random_onsets' or 'circular_shift'.")
-    if not np.isfinite(exclusion) or exclusion < 0:
-        raise ValueError("exclusion must be finite and nonnegative.")
-
-    low, high = map(float, onset_bounds)
-    rng = np.random.default_rng() if rng is None else rng
-    output = np.empty((n_shuffles, len(event_times)), dtype=float)
-
-    def sufficiently_far(candidates):
-        if exclusion == 0:
-            return np.ones(len(candidates), dtype=bool)
-        distances = np.abs(candidates[:, None] - event_times[None, :])
-        return np.all(distances >= exclusion, axis=1)
-
-    if method == "random_onsets":
-        for shuffle_index in range(n_shuffles):
-            selected = []
-            for _ in range(1000):
-                candidates = rng.uniform(low, high, size=max(64, 2 * len(event_times)))
-                selected.extend(candidates[sufficiently_far(candidates)].tolist())
-                if len(selected) >= len(event_times):
-                    break
-            if len(selected) < len(event_times):
-                raise ValueError(
-                    "Could not sample enough random onsets. Reduce null exclusion."
-                )
-            output[shuffle_index] = selected[: len(event_times)]
-        return output
-
-    span = high - low
-    wrapped_events = low + np.mod(event_times - low, span)
-    for shuffle_index in range(n_shuffles):
-        for _ in range(10000):
-            shift = rng.uniform(0.0, span)
-            candidates = low + np.mod(wrapped_events - low + shift, span)
-            if np.all(sufficiently_far(candidates)):
-                output[shuffle_index] = candidates
-                break
-        else:
-            raise ValueError(
-                "Could not find an eligible circular shift. Reduce null exclusion."
-            )
-    return output
+    return _generate_null_onsets(
+        event_times,
+        onset_bounds,
+        n_shuffles=n_shuffles,
+        method=method,
+        exclusion=exclusion,
+        rng=rng,
+    )
 
 
 def _session_rng(seed, info):

@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  core:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -14,11 +14,90 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install project
-        run: python -m pip install -e ".[dev,modeling]"
+      - name: Install shared core
+        run: python -m pip install -e "packages/lutaslab-core[events,plotting,dev]"
+      - name: Test shared core
+        run: python -m pytest packages/lutaslab-core/tests
+      - name: Lint shared core
+        run: python -m ruff check packages/lutaslab-core/src packages/lutaslab-core/tests
+
+  conventional-photometry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install locked default analysis stack
+        run: |
+          python -m pip install "uv==0.12.21"
+          uv sync --frozen --all-packages --extra dev --extra forecasting --python 3.12
       - name: Compile source and notebooks
-        run: python -m compileall -q src scripts tests
-      - name: Run tests
-        run: python -m pytest
-      - name: Lint
-        run: python -m ruff check src scripts tests
+        run: .venv/bin/python -m compileall -q src scripts tests
+      - name: Validate maintained notebooks
+        run: .venv/bin/python scripts/validate_notebooks.py
+      - name: Run conventional-photometry tests
+        run: .venv/bin/python -m pytest
+      - name: Lint conventional-photometry code
+        run: .venv/bin/ruff check src scripts tests
+
+  fluopulse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install FluoPulse stack
+        run: >-
+          python -m pip install
+          -e packages/lutaslab-core
+          -e "packages/fluopulse-analysis[dev,events]"
+      - name: Run FluoPulse tests
+        run: python -m pytest packages/fluopulse-analysis/tests
+
+  iflip3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install iFLiP3 stack
+        run: >-
+          python -m pip install
+          -e packages/lutaslab-core
+          -e "packages/iflip3-analysis[dev,events]"
+      - name: Run iFLiP3 tests
+        run: python -m pytest packages/iflip3-analysis/tests
+
+  optional-nemos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install locked optional NeMoS backend
+        run: |
+          python -m pip install "uv==0.12.21"
+          uv sync --frozen --all-packages --extra dev --extra nemos --python 3.12
+      - name: Test NeMoS compatibility interface
+        run: .venv/bin/python -m pytest tests/test_nemos_analysis.py
+      - name: Smoke-test an actual NeMoS Gaussian ridge fit
+        run: >-
+          .venv/bin/python -c
+          "import numpy as np;
+          from src.nemos_analysis import fit_gaussian_glm;
+          X=np.column_stack([np.ones(40),np.linspace(-1,1,40)]);
+          y=0.25+0.8*X[:,1];
+          prediction=np.asarray(fit_gaussian_glm(X,y,regularizer_strength=0.1).predict(X));
+          assert prediction.shape==(40,) and np.all(np.isfinite(prediction))"

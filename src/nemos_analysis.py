@@ -1,4 +1,19 @@
+"""Optional NeMoS compatibility backend.
+
+The supported default for continuous-photometry ridge models is
+``lutaslab_core.glm``. This module remains available for older notebooks and
+for workflows that explicitly need NeMoS/JAX objects; importing it does not
+make NeMoS a dependency of the base package.
+"""
+
 import numpy as np
+from lutaslab_core.glm import (
+    apply_lag_basis as _apply_lag_basis_core,
+    blocked_folds as _blocked_folds_core,
+    mse_score as _mse_score_core,
+    r2_score as _r2_score_core,
+    reconstruct_kernel as _reconstruct_kernel_core,
+)
 
 try:
     import pynapple as nap
@@ -418,37 +433,7 @@ def create_two_sided_temporal_design(
 
 def _apply_temporal_basis(signal, lag_samples, basis_values):
     """Apply sampled basis weights with lag zero anchored explicitly."""
-    signal = np.asarray(signal, dtype=float)
-    lag_samples = np.asarray(lag_samples, dtype=int)
-    basis_values = np.asarray(basis_values, dtype=float)
-    if signal.ndim != 1 or lag_samples.ndim != 1 or basis_values.ndim != 2:
-        raise ValueError("Invalid temporal-basis dimensions.")
-    if len(lag_samples) != basis_values.shape[0]:
-        raise ValueError("Each lag sample must have one row of basis weights.")
-
-    n_samples = len(signal)
-    X = np.zeros((n_samples, basis_values.shape[1]), dtype=float)
-    for lag_index, lag in enumerate(lag_samples):
-        if lag < 0:
-            response_slice = slice(-lag, n_samples)
-            predictor_slice = slice(0, n_samples + lag)
-        elif lag > 0:
-            response_slice = slice(0, n_samples - lag)
-            predictor_slice = slice(lag, n_samples)
-        else:
-            response_slice = slice(0, n_samples)
-            predictor_slice = slice(0, n_samples)
-        X[response_slice] += (
-            signal[predictor_slice, None] * basis_values[lag_index][None, :]
-        )
-
-    left_edge = max(0, -int(lag_samples.min(initial=0)))
-    right_edge = max(0, int(lag_samples.max(initial=0)))
-    if left_edge:
-        X[:left_edge] = np.nan
-    if right_edge:
-        X[-right_edge:] = np.nan
-    return X
+    return _apply_lag_basis_core(signal, lag_samples, basis_values)
 
 
 # ============================================================
@@ -703,12 +688,7 @@ def mse_score(
     Mean squared error.
     """
 
-    return np.mean(
-        (
-            np.asarray(y_true)
-            - np.asarray(y_pred)
-        ) ** 2
-    )
+    return _mse_score_core(y_true, y_pred)
 
 
 def r2_score(
@@ -719,34 +699,7 @@ def r2_score(
     Coefficient of determination.
     """
 
-    y_true = np.asarray(
-        y_true,
-        dtype=float
-    )
-
-    y_pred = np.asarray(
-        y_pred,
-        dtype=float
-    )
-
-    ss_res = np.sum(
-        (y_true - y_pred) ** 2
-    )
-
-    ss_tot = np.sum(
-        (
-            y_true
-            - np.mean(y_true)
-        ) ** 2
-    )
-
-    if ss_tot == 0:
-        return np.nan
-
-    return (
-        1
-        - ss_res / ss_tot
-    )
+    return _r2_score_core(y_true, y_pred)
 
 
 # ============================================================
@@ -798,25 +751,7 @@ def make_blocked_folds(
     Create contiguous test blocks.
     """
 
-    indices = np.arange(
-        n_samples
-    )
-
-    blocks = np.array_split(
-        indices,
-        n_folds
-    )
-
-    return [
-        (
-            np.setdiff1d(
-                indices,
-                test_indices
-            ),
-            test_indices
-        )
-        for test_indices in blocks
-    ]
+    return _blocked_folds_core(n_samples, n_folds=n_folds, gap_samples=0)
 
 
 def make_gapped_folds(
@@ -835,63 +770,11 @@ def make_gapped_folds(
         block.
     """
 
-    if gap_samples < 0:
-        raise ValueError(
-            "gap_samples must be nonnegative."
-        )
-
-    if n_samples < 2:
-        raise ValueError("At least two samples are required for cross-validation.")
-    if n_folds < 2 or n_folds > n_samples:
-        raise ValueError("n_folds must be between 2 and n_samples.")
-
-    indices = np.arange(
-        n_samples
+    return _blocked_folds_core(
+        n_samples,
+        n_folds=n_folds,
+        gap_samples=gap_samples,
     )
-
-    test_blocks = np.array_split(
-        indices,
-        n_folds
-    )
-
-    folds = []
-
-    for test_indices in test_blocks:
-
-        test_start = test_indices[0]
-        test_end = test_indices[-1]
-
-        gap_start = max(
-            0,
-            test_start - gap_samples
-        )
-
-        gap_end = min(
-            n_samples - 1,
-            test_end + gap_samples
-        )
-
-        train_mask = np.ones(
-            n_samples,
-            dtype=bool
-        )
-
-        train_mask[
-            gap_start:gap_end + 1
-        ] = False
-
-        train_indices = indices[
-            train_mask
-        ]
-
-        folds.append(
-            (
-                train_indices,
-                test_indices
-            )
-        )
-
-    return folds
 
 
 def make_time_gapped_folds(time, n_folds=5, gap_seconds=0.0):
@@ -1759,10 +1642,7 @@ def reconstruct_temporal_kernel(
         dtype=float
     )
 
-    kernel = (
-        basis_values
-        @ coefficients
-    )
+    kernel = _reconstruct_kernel_core(basis_values, coefficients)
 
     return (
         np.asarray(

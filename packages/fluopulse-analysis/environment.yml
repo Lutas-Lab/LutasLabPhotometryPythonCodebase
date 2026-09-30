@@ -1,0 +1,16 @@
+name: fluopulse-analysis
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - h5py
+  - numpy
+  - scipy
+  - matplotlib
+  - openpyxl
+  - pytest
+  - jupyterlab
+  - ipykernel
+  - pip
+  - pip:
+      - pynapple>=0.11,<0.12

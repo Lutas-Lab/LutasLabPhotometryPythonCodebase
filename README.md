@@ -4,6 +4,25 @@ Python tools for preprocessing, visualizing, and modeling fiber photometry and b
 
 This repository is designed to provide a reusable analysis pipeline while keeping the underlying analysis code separate from interactive notebooks and command-line workflows.
 
+This is the authoritative monorepo for conventional photometry, FluoPulse,
+iFLiP3, and the shared `lutaslab-core` package. The package ownership and GLM
+support policy are documented in
+[`docs/architecture.md`](docs/architecture.md); remaining release work is
+tracked in [`docs/release-hardening.md`](docs/release-hardening.md).
+Exact environment creation and dependency-update procedures are in
+[`docs/environment.md`](docs/environment.md).
+The reporting status of the deposited-data tests is fixed in
+[`docs/statistical-analysis-policy.md`](docs/statistical-analysis-policy.md),
+and the former-repository notebook audit is in
+[`docs/legacy-repository-audit.md`](docs/legacy-repository-audit.md).
+
+The processed-data reanalysis of the paper's Figure 5 GLM is documented in
+[`docs/figure5-reanalysis.md`](docs/figure5-reanalysis.md).
+The follow-up test of lick-bout structure is documented in
+[`docs/figure5-bout-analysis.md`](docs/figure5-bout-analysis.md).
+The matched multitastant delivery-kernel analysis is documented in
+[`docs/multitastant-analysis.md`](docs/multitastant-analysis.md).
+
 ## Features
 
 The current pipeline supports:
@@ -22,7 +41,8 @@ The current pipeline supports:
 - Pynapple integration
 - event-aligned photometry analysis
 - trial-level visualization
-- NeMoS behavioral GLMs
+- shared NumPy/SciPy temporal ridge GLMs
+- optional NeMoS compatibility workflows
 - temporal behavioral kernels
 - causal/predictive models
 - two-sided temporal-association models
@@ -33,7 +53,10 @@ The current pipeline supports:
 
 # Installation
 
-Python 3.12 is recommended for compatibility with the current NeMoS release.
+The monorepo application environment requires Python 3.12. The individual
+shared-core and sensor packages retain Python 3.10+ support, but NeMoS 0.2.9
+requires Python 3.12 and therefore fixes the fully locked workspace to 3.12.
+NeMoS/JAX are optional and only needed for the compatibility workflow.
 
 ## Quick start: Windows and Anaconda
 
@@ -54,12 +77,21 @@ python -m pip install -e .
 python -m pytest
 ```
 
-The final command is optional but verifies the installation. Core
-preprocessing and plotting do not require JAX or NeMoS. Install those optional
-modeling dependencies only when needed:
+For an exact reproducible installation, use the committed `uv.lock` instead:
 
 ```text
-python -m pip install -e ".[modeling]"
+python -m pip install "uv==0.12.21"
+uv sync --frozen --all-packages --extra dev --extra forecasting
+.venv\Scripts\python -m pytest
+```
+
+The final command is optional but verifies the installation. Core
+preprocessing and plotting do not require JAX or NeMoS. Install those optional
+NeMoS compatibility dependencies only when needed (the historical `modeling`
+extra remains supported):
+
+```text
+python -m pip install -e ".[nemos]"
 ```
 
 ### Expected raw-data layout
@@ -712,9 +744,11 @@ not automatically be interpreted as biological causality.
 
 ---
 
-# NeMoS Modeling
+# Behavioral GLM modeling
 
-Behavior-photometry relationships can be modeled using NeMoS.
+The supported default for continuous photometry is the NumPy/SciPy ridge GLM
+in `lutaslab_core.glm`. NeMoS remains available through `src.nemos_analysis`
+for older notebooks and analyses that explicitly require NeMoS/JAX objects.
 
 Current behavioral predictors include:
 
@@ -903,7 +937,7 @@ Raw-data preprocessing is currently designed primarily for a Windows workstation
 Z:\Photometry
 ```
 
-Computational NeMoS analyses are being developed and tested on NIH Biowulf/Linux.
+Optional computational NeMoS analyses can be run on NIH Biowulf/Linux.
 
 Processed `.npz` sessions provide a portable interface between these environments:
 
@@ -920,7 +954,7 @@ processed .npz
    | copy selected sessions
    v
 Biowulf
-NeMoS / HPC analysis
+optional NeMoS / HPC analysis
 ```
 
 The Windows and Linux directory structures do not need to be identical.
