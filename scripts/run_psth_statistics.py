@@ -22,6 +22,7 @@ from src.psth_statistics import (
 )
 from src.publication_figures import save_metric_figures
 from src.session_manifest import load_session_manifest
+from src.trial_classification import TRIAL_CLASS_KEYS
 
 
 def parse_arguments():
@@ -32,6 +33,18 @@ def parse_arguments():
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--event-key", default="cue_onset")
+    parser.add_argument(
+        "--trial-class",
+        choices=TRIAL_CLASS_KEYS,
+        default="all",
+        help="For cue_onset analyses, include only the selected lick-response class.",
+    )
+    parser.add_argument(
+        "--post-cue-window",
+        type=float,
+        default=2.0,
+        help="Seconds after cue offset used to classify post-cue licking.",
+    )
     parser.add_argument(
         "--channel",
         choices=("manifest", "1", "2"),
@@ -92,6 +105,8 @@ def _write_rows(path, rows):
         "condition",
         "channel",
         "event_key",
+        "trial_class",
+        "post_cue_window",
         "trial",
         "event_index",
         "event_time",
@@ -157,6 +172,8 @@ def main():
         n_shuffles=args.n_shuffles,
         random_seed=args.seed,
         null_exclusion=args.null_exclusion,
+        trial_class=args.trial_class,
+        post_cue_window=args.post_cue_window,
     )
     results["test_rows"] = run_pairwise_tests(results["mouse_rows"], test=args.test)
     results["prism_rows"] = prism_wide_rows(results["mouse_rows"])
@@ -194,6 +211,8 @@ def main():
         "manifest": str(args.manifest),
         "data_root": str(args.data_root),
         "event_key": args.event_key,
+        "trial_class": args.trial_class,
+        "post_cue_window": args.post_cue_window,
         "channel": args.channel,
         "window": args.window,
         "dt": args.dt,

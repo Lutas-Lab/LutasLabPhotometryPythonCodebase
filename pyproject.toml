@@ -7,8 +7,9 @@ name = "lutaslab-photometry"
 version = "0.1.0"
 description = "Fiber photometry preprocessing, visualization, and behavioral modeling"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.12,<3.13"
 dependencies = [
+    "lutaslab-core>=0.1,<0.2",
     "numpy>=1.26,<3",
     "scipy>=1.11,<2",
     "matplotlib>=3.8,<4",
@@ -19,7 +20,15 @@ dependencies = [
 forecasting = [
     "scikit-learn>=1.5,<2",
 ]
+gui = [
+    "pandas>=2,<3",
+    "streamlit>=1.41,<2",
+]
 modeling = [
+    "nemos>=0.2.9,<0.3",
+    "jax>=0.4,<1",
+]
+nemos = [
     "nemos>=0.2.9,<0.3",
     "jax>=0.4,<1",
 ]
@@ -41,3 +50,16 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E9", "F63", "F7", "F82"]
+
+[tool.uv]
+required-version = ">=0.12.21,<0.13"
+
+[tool.uv.workspace]
+members = [
+    "packages/lutaslab-core",
+    "packages/fluopulse-analysis",
+    "packages/iflip3-analysis",
+]
+
+[tool.uv.sources]
+lutaslab-core = { workspace = true }

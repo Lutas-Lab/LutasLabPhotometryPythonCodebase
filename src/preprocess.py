@@ -1,5 +1,9 @@
 import numpy as np
 
+from lutaslab_core.events import find_ttl_pulses as _find_ttl_pulses_core
+
+from .trial_classification import classify_cue_licking
+
 
 def _as_1d_finite(values, name):
     """Return a finite one-dimensional float array."""
@@ -25,7 +29,7 @@ def _irls_qc(experimental, reference, fitted):
     return correlation, residual_rmse
 
 
-def find_ttl_pulses(ttl,threshold=1.5,min_width=None, max_width=None):
+def find_ttl_pulses(ttl, threshold=1.5, min_width=None, max_width=None):
     """
     find complete TTL-high pulses.
     Returns
@@ -44,32 +48,18 @@ def find_ttl_pulses(ttl,threshold=1.5,min_width=None, max_width=None):
     if min_width is not None and max_width is not None and min_width > max_width:
         raise ValueError("min_width cannot exceed max_width.")
 
-    ttl_high = ttl>threshold
-    rising = np.where(np.diff(ttl_high.astype(int))==1)[0]+1
-    falling = np.where(np.diff(ttl_high.astype(int))==-1)[0]+1
-
-    pairs=[]
-    j=0
-    for r in rising:
-        while j<len(falling) and falling[j]<r:
-            j+= 1
-        if j < len(falling):
-            f=falling[j]     
-            pairs.append((r,f))
-            j+=1
-
-    rising_valid=np.array([p[0] for p in pairs], dtype=int)
-    falling_valid=np.array([p[1] for p in pairs], dtype=int)
-
-    widths = falling_valid-rising_valid
-    good = np.ones(len(widths),dtype=bool)
-    if min_width is not None:
-        good &= widths >=min_width
-
-    if max_width is not None:
-        good &= widths <= max_width
-
-    return rising_valid[good],falling_valid[good]
+    if ttl.size < 2:
+        empty = np.array([], dtype=int)
+        return empty, empty.copy()
+    pulses = _find_ttl_pulses_core(
+        ttl,
+        np.arange(ttl.size, dtype=float),
+        threshold=threshold,
+        min_width_seconds=min_width,
+        max_width_seconds=max_width,
+        include_boundary_pulses=False,
+    )
+    return pulses.rising_indices, pulses.falling_indices
     
 def preprocess_photometry(
     raw_photo,
@@ -792,130 +782,6 @@ def find_lick_bouts(
         bout_offset,
         bout_duration,
         bout_lick_count
-    )
-    
-def classify_cue_licking(
-    cue_onset,
-    cue_offset,
-    lick_times,
-    post_cue_window=2.0
-):
-    """
-    Classify cue trials based on licking during the cue
-    and during the period immediately following cue offset.
-
-    Cue duration may vary across trials. The actual cue onset
-    and offset are used for each trial.
-
-    Parameters
-    ----------
-    cue_onset : array-like
-        Cue onset timestamps.
-
-    cue_offset : array-like
-        Cue offset timestamps.
-
-    lick_times : array-like
-        Individual lick timestamps.
-
-    post_cue_window : float
-        Length of the post-cue response window in seconds.
-        Default = 2 seconds.
-
-    Returns
-    -------
-    cue_lick : np.ndarray of bool
-        At least one lick occurred during the cue.
-
-    post_cue_lick : np.ndarray of bool
-        At least one lick occurred after cue offset and within
-        the post-cue response window.
-
-    cue_only : np.ndarray of bool
-        Licking during cue but not post-cue.
-
-    post_only : np.ndarray of bool
-        Licking post-cue but not during cue.
-
-    cue_and_post : np.ndarray of bool
-        Licking occurred during both periods.
-
-    cue_miss : np.ndarray of bool
-        No licking during either period.
-    """
-
-    cue_onset = np.atleast_1d(np.asarray(cue_onset, dtype=float).squeeze())
-    cue_offset = np.atleast_1d(np.asarray(cue_offset, dtype=float).squeeze())
-    lick_times = np.atleast_1d(np.asarray(lick_times, dtype=float).squeeze())
-
-    if len(cue_onset) != len(cue_offset):
-        raise ValueError(
-            "cue_onset and cue_offset must have the same length."
-        )
-
-    cue_lick = np.zeros(
-        len(cue_onset),
-        dtype=bool
-    )
-
-    post_cue_lick = np.zeros(
-        len(cue_onset),
-        dtype=bool
-    )
-
-    for i, (onset, offset) in enumerate(
-        zip(cue_onset, cue_offset)
-    ):
-
-        # Licking during the actual cue period
-        cue_lick[i] = np.any(
-            (lick_times >= onset)
-            &
-            (lick_times <= offset)
-        )
-
-        # Licking during the 2 s after cue offset
-        post_cue_lick[i] = np.any(
-            (lick_times > offset)
-            &
-            (lick_times <= offset + post_cue_window)
-        )
-
-    # ----------------------------------------
-    # Combined trial classifications
-    # ----------------------------------------
-
-    cue_only = (
-        cue_lick
-        &
-        ~post_cue_lick
-    )
-
-    post_only = (
-        ~cue_lick
-        &
-        post_cue_lick
-    )
-
-    cue_and_post = (
-        cue_lick
-        &
-        post_cue_lick
-    )
-
-    cue_miss = (
-        ~cue_lick
-        &
-        ~post_cue_lick
-    )
-
-    return (
-        cue_lick,
-        post_cue_lick,
-        cue_only,
-        post_only,
-        cue_and_post,
-        cue_miss
     )
     
 def preprocess_session(

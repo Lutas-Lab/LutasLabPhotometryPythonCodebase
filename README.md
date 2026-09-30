@@ -4,6 +4,25 @@ Python tools for preprocessing, visualizing, and modeling fiber photometry and b
 
 This repository is designed to provide a reusable analysis pipeline while keeping the underlying analysis code separate from interactive notebooks and command-line workflows.
 
+This is the authoritative monorepo for conventional photometry, FluoPulse,
+iFLiP3, and the shared `lutaslab-core` package. The package ownership and GLM
+support policy are documented in
+[`docs/architecture.md`](docs/architecture.md); remaining release work is
+tracked in [`docs/release-hardening.md`](docs/release-hardening.md).
+Exact environment creation and dependency-update procedures are in
+[`docs/environment.md`](docs/environment.md).
+The reporting status of the deposited-data tests is fixed in
+[`docs/statistical-analysis-policy.md`](docs/statistical-analysis-policy.md),
+and the former-repository notebook audit is in
+[`docs/legacy-repository-audit.md`](docs/legacy-repository-audit.md).
+
+The processed-data reanalysis of the paper's Figure 5 GLM is documented in
+[`docs/figure5-reanalysis.md`](docs/figure5-reanalysis.md).
+The follow-up test of lick-bout structure is documented in
+[`docs/figure5-bout-analysis.md`](docs/figure5-bout-analysis.md).
+The matched multitastant delivery-kernel analysis is documented in
+[`docs/multitastant-analysis.md`](docs/multitastant-analysis.md).
+
 ## Features
 
 The current pipeline supports:
@@ -22,7 +41,8 @@ The current pipeline supports:
 - Pynapple integration
 - event-aligned photometry analysis
 - trial-level visualization
-- NeMoS behavioral GLMs
+- shared NumPy/SciPy temporal ridge GLMs
+- optional NeMoS compatibility workflows
 - temporal behavioral kernels
 - causal/predictive models
 - two-sided temporal-association models
@@ -33,17 +53,19 @@ The current pipeline supports:
 
 # Installation
 
-Python 3.12 is recommended for compatibility with the current NeMoS release.
+The monorepo application environment requires Python 3.12. The individual
+shared-core and sensor packages retain Python 3.10+ support, but NeMoS 0.2.9
+requires Python 3.12 and therefore fixes the fully locked workspace to 3.12.
+NeMoS/JAX are optional and only needed for the compatibility workflow.
 
 ## Quick start: Windows and Anaconda
 
-First download the repository with GitHub Desktop, or clone it and select the
-analysis branch:
+First download the repository with GitHub Desktop, or clone the current
+`main` branch:
 
 ```powershell
 git clone https://github.com/Lutas-Lab/LutasLabPhotometryPythonCodebase.git
 cd LutasLabPhotometryPythonCodebase
-git switch codex/reliability-hardening
 ```
 
 Open **Anaconda Prompt**, then create and install the analysis environment:
@@ -55,12 +77,21 @@ python -m pip install -e .
 python -m pytest
 ```
 
-The final command is optional but verifies the installation. Core
-preprocessing and plotting do not require JAX or NeMoS. Install those optional
-modeling dependencies only when needed:
+For an exact reproducible installation, use the committed `uv.lock` instead:
 
 ```text
-python -m pip install -e ".[modeling]"
+python -m pip install "uv==0.12.21"
+uv sync --frozen --all-packages --extra dev --extra forecasting
+.venv\Scripts\python -m pytest
+```
+
+The final command is optional but verifies the installation. Core
+preprocessing and plotting do not require JAX or NeMoS. Install those optional
+NeMoS compatibility dependencies only when needed (the historical `modeling`
+extra remains supported):
+
+```text
+python -m pip install -e ".[nemos]"
 ```
 
 ### Expected raw-data layout
@@ -117,6 +148,46 @@ The notebook uses the active Jupyter kernel to run the same maintained scripts
 documented below. It can create the session manifest, batch-preprocess data,
 and generate cue-photometry, cue-licking, statistical, and
 lick-bout/delivery figures without entering shell commands.
+
+## Prototype browser interface
+
+A Streamlit prototype provides a browser-based session editor and launchers
+for batch preprocessing and event-aligned PSTHs.
+
+### Windows setup without Anaconda
+
+1. Install a 64-bit Python 3.12.x release from the
+   [Python Windows downloads page](https://www.python.org/downloads/windows/).
+   Enable **Add python.exe to PATH** in the Python installer.
+2. Download or clone this repository.
+3. Double-click `install_gui.bat` once. It creates an isolated `.venv` inside
+   the repository and installs the application without changing other Python
+   environments.
+4. Double-click `launch_gui.bat` whenever you want to start the interface.
+
+An internet connection is required during the initial installation. Moving or
+renaming the repository after installation may require running
+`install_gui.bat` again. Do not copy the `.venv` folder between computers.
+
+### Existing Anaconda environment
+
+Users who already have the `photometry` environment can instead install the
+optional GUI dependency and start it from the repository root:
+
+```text
+conda activate photometry
+python -m pip install -e ".[gui]"
+python -m streamlit run streamlit_app.py
+```
+
+The interface opens locally in a browser. It uses the same maintained scripts
+as PowerShell and Jupyter rather than reimplementing the analysis. **Preview
+analysis commands only** is enabled by default, so preprocessing and PSTH
+buttons show the exact command without running it. Manifest validation, saving,
+and CSV downloads still work in preview mode. Disable preview mode only when
+the manifest, data root, and output directory are correct. Existing processed
+files remain protected unless **Overwrite existing processed files** is
+explicitly enabled.
 
 ## Other environments
 
@@ -281,6 +352,26 @@ python scripts/run_psth.py \
     --normalization zscore \
     --baseline -5 0
 ```
+
+Cue trials can be filtered at analysis time without rerunning preprocessing.
+For example, plot only trials with no licking during the cue or the following
+four seconds:
+
+```bash
+python scripts/run_psth.py \
+    --manifest analysis/sessions.csv \
+    --data-root "Z:\Photometry" \
+    --output-dir "analysis/figures/cue_miss_4s" \
+    --event-key cue_onset \
+    --trial-class cue_miss \
+    --post-cue-window 4
+```
+
+Available classes are `all`, `cue_lick`, `post_cue_lick`, `cue_only`,
+`post_only`, `cue_and_post`, and `cue_miss`. The selected class and post-cue
+window are recorded in numeric/statistical outputs. These masks are recomputed
+from saved `cue_onset`, `cue_offset`, and `lick_times` arrays; the masks stored
+during preprocessing remain available for provenance and older workflows.
 
 Add a reproducible random-alignment control with:
 
@@ -597,6 +688,10 @@ Cue trials can be classified according to whether licking occurs:
 
 Actual cue onset and offset timestamps are used so that analyses can accommodate experiments with different cue durations.
 
+For cue-aligned PSTHs and statistics, classification is performed at analysis
+time from the saved cue and lick timestamps. This allows the post-cue response
+window to be changed without reprocessing raw photometry.
+
 ---
 
 # Forecasting Future Photometry and Behavior
@@ -649,9 +744,11 @@ not automatically be interpreted as biological causality.
 
 ---
 
-# NeMoS Modeling
+# Behavioral GLM modeling
 
-Behavior-photometry relationships can be modeled using NeMoS.
+The supported default for continuous photometry is the NumPy/SciPy ridge GLM
+in `lutaslab_core.glm`. NeMoS remains available through `src.nemos_analysis`
+for older notebooks and analyses that explicitly require NeMoS/JAX objects.
 
 Current behavioral predictors include:
 
@@ -799,7 +896,7 @@ warning because their exact processing configuration may be unavailable.
 
 # Group Analysis
 
-Processed `.npz` files provide the foundation for future group-level analyses across mice.
+Processed `.npz` files provide the foundation for group-level analyses across mice.
 
 The intended hierarchy is:
 
@@ -821,14 +918,14 @@ group mean
 
 Group analyses should generally preserve the mouse as the biological unit rather than simply pooling every trial from every mouse.
 
-Future group-level tools will support analyses such as:
+The current group-level tools support:
 
 - mean event-aligned timecourses across mice
 - SEM across mice
 - cue hit versus miss comparisons
 - reward-aligned responses
 - lick-bout-aligned responses
-- group-level model summaries
+- condition comparisons and mouse-level statistical exports
 
 ---
 
@@ -840,7 +937,7 @@ Raw-data preprocessing is currently designed primarily for a Windows workstation
 Z:\Photometry
 ```
 
-Computational NeMoS analyses are being developed and tested on NIH Biowulf/Linux.
+Optional computational NeMoS analyses can be run on NIH Biowulf/Linux.
 
 Processed `.npz` sessions provide a portable interface between these environments:
 
@@ -857,7 +954,7 @@ processed .npz
    | copy selected sessions
    v
 Biowulf
-NeMoS / HPC analysis
+optional NeMoS / HPC analysis
 ```
 
 The Windows and Linux directory structures do not need to be identical.
@@ -892,17 +989,15 @@ describes interactive and example notebooks.
 
 This repository is under active development.
 
-Current areas of development include:
+Current areas of development and validation include:
 
 - photometry quality-control procedures
 - alternative handling of poor 405 reference signals
 - slow fluorescence decomposition
-- temporal behavioral GLMs
-- causal versus two-sided models
+- expanded real-data validation of temporal behavioral GLMs
+- interpretation of causal versus two-sided models
 - real-data validation of photometry-to-behavior forecasts
-- regularization
-- blocked cross-validation
-- temporal exclusion gaps
+- regularization and cross-validation parameter selection
 - computational efficiency on HPC systems
 
 Analysis parameters should therefore be treated as configurable modeling choices rather than fixed biological assumptions.

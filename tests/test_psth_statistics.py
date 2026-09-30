@@ -40,6 +40,8 @@ def _write_session(root, info, amplitude):
         locomotion_time=time,
         processed_locomotion=np.zeros_like(time),
         cue_onset=events,
+        cue_offset=events + 0.5,
+        lick_times=np.array([10.25, 10.75, 20.25]),
     )
 
 
@@ -140,6 +142,29 @@ class PsthStatisticsTests(unittest.TestCase):
         self.assertEqual(len(results["shuffle_rows"]), 2)
         prism = prism_wide_rows(results["mouse_rows"])
         self.assertIn("control__rewarded__mean", prism[0])
+
+    def test_manifest_metrics_preserve_original_event_indices_after_filtering(self):
+        root = Path("tests/_psth_statistics_data")
+        session = {"mouse": "M1", "date": "260101", "run": 1}
+        try:
+            _write_session(root, session, 1.0)
+            results = analyze_manifest_metrics(
+                [session],
+                root,
+                trial_class="cue_only",
+                post_cue_window=2.0,
+                window=(-2.0, 3.0),
+                response_window=(0.0, 2.0),
+                dt=0.1,
+                normalization="none",
+                metrics=("mean",),
+            )
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+        self.assertEqual(len(results["trial_rows"]), 1)
+        self.assertEqual(results["trial_rows"][0]["event_index"], 1)
+        self.assertEqual(results["trial_rows"][0]["trial_class"], "cue_only")
 
     @unittest.skipUnless(SCIPY_AVAILABLE, "SciPy is not installed")
     def test_pairwise_conditions_use_matched_mice(self):

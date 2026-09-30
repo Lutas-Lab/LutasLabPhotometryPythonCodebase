@@ -111,7 +111,9 @@ Event-aligned averages describe temporal relationships around events but should 
 
 Trial-level analysis of cue-related photometry responses.
 
-This notebook uses the behavioral trial classifications generated during preprocessing rather than recalculating them in the notebook.
+This notebook recalculates behavioral trial classifications from saved cue and
+lick timestamps. Change `POST_CUE_WINDOW` to test a different post-cue response
+period without preprocessing the raw data again.
 
 Analyses include:
 
@@ -128,7 +130,8 @@ Analyses include:
 
 Cue-related licking classifications use the actual cue onset and cue offset for each trial.
 
-Post-cue licking is defined relative to cue offset.
+Post-cue licking is defined relative to cue offset using the configurable
+`POST_CUE_WINDOW` value.
 
 The notebook preserves trial-level variability within a session but does not treat individual trials as independent animals for group-level statistical analysis.
 
