@@ -15,7 +15,10 @@ dependencies = [
 [project.optional-dependencies]
 events = ["pynapple>=0.11,<0.12"]
 plotting = ["matplotlib>=3.8,<4"]
-dev = ["pytest>=8,<9"]
+dev = [
+    "pytest>=8,<9",
+    "ruff>=0.8,<1",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
