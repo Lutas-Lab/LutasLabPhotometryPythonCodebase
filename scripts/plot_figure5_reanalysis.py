@@ -12,6 +12,7 @@ from src.figure5_reanalysis import (
     build_figure5_design,
     fit_nested_blocked_ridge,
     load_figure5_trials,
+    load_raw_figure5_trials,
     model_columns,
     reconstruct_figure5_kernels,
 )
@@ -219,6 +220,14 @@ def main() -> None:
     parser.add_argument("data_root", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--example-mouse", type=int, default=1)
+    parser.add_argument(
+        "--input-source", choices=("deposited", "raw"), default="deposited"
+    )
+    parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--processed-root", type=Path)
+    parser.add_argument(
+        "--photometry-source", choices=("raw465", "dff"), default="raw465"
+    )
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
 
@@ -230,7 +239,16 @@ def main() -> None:
             "svg.fonttype": "none",
         }
     )
-    trials = load_figure5_trials(args.data_root)
+    if args.input_source == "raw":
+        if args.manifest is None or args.processed_root is None:
+            parser.error("--input-source=raw requires --manifest and --processed-root")
+        trials = load_raw_figure5_trials(
+            args.manifest,
+            args.processed_root,
+            photometry_source=args.photometry_source,
+        )
+    else:
+        trials = load_figure5_trials(args.data_root)
     mouse_ids = np.unique(trials.mouse_ids).astype(int)
     data = _collect_panel_data(trials, mouse_ids, args.example_mouse)
 

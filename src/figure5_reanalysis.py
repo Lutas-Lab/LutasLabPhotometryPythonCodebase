@@ -18,6 +18,11 @@ from lutaslab_core.glm import (
     raised_cosine_basis,
     reconstruct_kernel,
 )
+from lutaslab_core.manifest import load_session_manifest
+from lutaslab_core.perievent import extract_perievent_trials, normalize_trials
+
+from .save_sessiondata import load_session
+from .session_manifest import processed_session_path, resolve_session_channel
 
 
 @dataclass(frozen=True)
@@ -109,6 +114,167 @@ def load_figure5_trials(
         cue_events=cue_events,
         ensure_events=ensure_events,
         sample_rate_hz=float(model["Fs"]),
+    )
+
+
+def _raw_processed_session_path(data_root: str | Path, session: dict) -> Path:
+    """Resolve either the flat reprocessing layout or the standard nested layout."""
+
+    root = Path(data_root)
+    mouse = str(session["mouse"])
+    date = str(session["date"])
+    run = int(session["run"])
+    flat_path = root / f"{mouse}-{date}-{run:03d}-processed.npz"
+    if flat_path.is_file():
+        return flat_path
+    return processed_session_path(root, session)
+
+
+def _event_grid(
+    event_times: np.ndarray,
+    alignment_times: np.ndarray,
+    *,
+    window_start: float,
+    dt: float,
+    sample_count: int,
+) -> np.ndarray:
+    """Place timestamped events in the nearest sample of each trial."""
+
+    event_times = np.asarray(event_times, dtype=float)
+    grid = np.zeros((alignment_times.size, sample_count), dtype=float)
+    for row, alignment in enumerate(np.asarray(alignment_times, dtype=float)):
+        relative = event_times - alignment
+        indices = np.rint((relative - window_start) / dt).astype(int)
+        indices = indices[(indices >= 0) & (indices < sample_count)]
+        grid[row, np.unique(indices)] = 1.0
+    return grid
+
+
+def load_raw_figure5_trials(
+    manifest_path: str | Path,
+    processed_root: str | Path,
+    *,
+    photometry_source: str = "raw465",
+    window: tuple[float, float] = (-5.0, 15.0),
+    baseline: tuple[float, float] = (-5.0, 0.0),
+    dt: float = 0.02,
+    postcue_window: tuple[float, float] = (8.0, 10.0),
+    boundary_tolerance: float = 0.01,
+) -> Figure5Trials:
+    """Build Figure 5 trials directly from newly processed raw sessions.
+
+    The full-model trial set follows the paper's fixed programmed-cue rule: a
+    trial is included when at least one lick occurs more than 8 and no later
+    than 10 seconds after cue onset.  This deliberately does not use the
+    detected cue offset, which can be shortened by an imperfect TTL pulse.
+    """
+
+    if photometry_source not in {"raw465", "dff"}:
+        raise ValueError("photometry_source must be 'raw465' or 'dff'")
+    if window[0] >= window[1] or baseline[0] >= baseline[1]:
+        raise ValueError("window and baseline must contain increasing values")
+    if postcue_window[0] >= postcue_window[1]:
+        raise ValueError("postcue_window must contain increasing values")
+    if not np.isfinite(dt) or dt <= 0:
+        raise ValueError("dt must be finite and positive")
+    if not np.isfinite(boundary_tolerance) or boundary_tolerance < 0:
+        raise ValueError("boundary_tolerance must be finite and nonnegative")
+
+    mouse_ids = []
+    trial_numbers = []
+    photometry_trials = []
+    lick_trials = []
+    cue_trials = []
+    ensure_trials = []
+
+    sessions = load_session_manifest(manifest_path)
+    expected_sample_count = int(np.floor((window[1] - window[0]) / dt + 0.5))
+    for mouse_id, manifest_session in enumerate(sessions, start=1):
+        channel = resolve_session_channel(manifest_session)
+        session_path = _raw_processed_session_path(processed_root, manifest_session)
+        session = load_session(session_path)
+        time_key = f"photo_time_465_ch{channel}"
+        signal_key = (
+            f"photometry_465_ch{channel}"
+            if photometry_source == "raw465"
+            else f"dff_ch{channel}"
+        )
+        missing = {key for key in (time_key, signal_key, "cue_onset", "lick_times", "solenoid_onset") if key not in session}
+        if missing:
+            raise ValueError(f"{session_path} is missing keys: {sorted(missing)}")
+
+        cue_onsets = np.asarray(session["cue_onset"], dtype=float)
+        lick_times = np.asarray(session["lick_times"], dtype=float)
+        peri_time, extracted, valid = extract_perievent_trials(
+            np.asarray(session[time_key], dtype=float),
+            np.asarray(session[signal_key], dtype=float),
+            cue_onsets,
+            window=window,
+            dt=dt,
+        )
+        extracted = normalize_trials(peri_time, extracted, "zscore", baseline)
+
+        valid_cues = cue_onsets[valid]
+        selected = np.asarray(
+            [
+                np.any(
+                    (lick_times - cue > postcue_window[0])
+                    & (lick_times - cue <= postcue_window[1] + boundary_tolerance)
+                )
+                for cue in valid_cues
+            ],
+            dtype=bool,
+        )
+        selected_cues = valid_cues[selected]
+        selected_trial_numbers = valid[selected] + 1
+        selected_photometry = extracted[selected, :expected_sample_count]
+        if selected_photometry.shape[1] != expected_sample_count:
+            raise ValueError(
+                f"{session_path} produced {selected_photometry.shape[1]} samples per trial; "
+                f"expected {expected_sample_count}"
+            )
+        if selected_cues.size == 0:
+            raise ValueError(f"{session_path} has no trials satisfying the Figure 5 rule")
+
+        mouse_ids.append(np.full(selected_cues.size, mouse_id, dtype=int))
+        trial_numbers.append(selected_trial_numbers.astype(int))
+        photometry_trials.append(selected_photometry)
+        lick_trials.append(
+            _event_grid(
+                lick_times,
+                selected_cues,
+                window_start=window[0],
+                dt=dt,
+                sample_count=expected_sample_count,
+            )
+        )
+        cue_trials.append(
+            _event_grid(
+                cue_onsets,
+                selected_cues,
+                window_start=window[0],
+                dt=dt,
+                sample_count=expected_sample_count,
+            )
+        )
+        ensure_trials.append(
+            _event_grid(
+                np.asarray(session["solenoid_onset"], dtype=float),
+                selected_cues,
+                window_start=window[0],
+                dt=dt,
+                sample_count=expected_sample_count,
+            )
+        )
+
+    return Figure5Trials(
+        mouse_ids=np.concatenate(mouse_ids),
+        trial_numbers=np.concatenate(trial_numbers),
+        photometry=np.vstack(photometry_trials),
+        lick_events=np.vstack(lick_trials),
+        cue_events=np.vstack(cue_trials),
+        ensure_events=np.vstack(ensure_trials),
+        sample_rate_hz=1.0 / dt,
     )
 
 

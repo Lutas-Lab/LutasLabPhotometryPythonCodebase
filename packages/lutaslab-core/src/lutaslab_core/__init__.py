@@ -37,17 +37,20 @@ from .perievent import (
     summarize_trials,
 )
 from .provenance import build_run_record, describe_path, utc_now, write_run_record
+from .publication import PublicationBundle, BundleValidation, validate_publication_bundle
 from .synchronization import ClockAlignment, fit_clock_alignment
 
 __all__ = [
     "AlignedSession",
     "ClockAlignment",
+    "BundleValidation",
     "ContinuousSignal",
     "DEFAULT_CHANNEL_ROWS",
     "EventSeries",
     "IntervalSeries",
     "LickBouts",
     "NIDAQRecording",
+    "PublicationBundle",
     "RunningData",
     "RidgeCVResult",
     "TTLPulses",
@@ -81,6 +84,7 @@ __all__ = [
     "run_batch",
     "summarize_trials",
     "utc_now",
+    "validate_publication_bundle",
     "write_run_record",
 ]
 

@@ -18,6 +18,7 @@ from src.figure5_reanalysis import (
     build_figure5_design,
     fit_nested_blocked_ridge,
     load_figure5_trials,
+    load_raw_figure5_trials,
     model_columns,
     reconstruct_figure5_kernels,
 )
@@ -86,6 +87,20 @@ def main() -> None:
     parser.add_argument("--primary-basis-count", type=int, default=12)
     parser.add_argument("--folds", type=int, default=5)
     parser.add_argument(
+        "--input-source",
+        choices=("deposited", "raw"),
+        default="deposited",
+        help="Use deposited trial matrices or newly processed raw sessions",
+    )
+    parser.add_argument("--manifest", type=Path, help="Raw-session manifest CSV")
+    parser.add_argument("--processed-root", type=Path, help="Processed raw-session directory")
+    parser.add_argument(
+        "--photometry-source",
+        choices=("raw465", "dff"),
+        default="raw465",
+        help="Signal from the audited receiver when --input-source=raw",
+    )
+    parser.add_argument(
         "--config",
         type=Path,
         default=Path(__file__).resolve().parents[1] / "config/published_reanalysis.json",
@@ -95,7 +110,16 @@ def main() -> None:
 
     config = load_published_reanalysis_config(args.config)
     data_paths = resolve_dataset_paths(args.data_root, config["datasets"])
-    trials = load_figure5_trials(args.data_root, data_paths["figure5_total"])
+    if args.input_source == "raw":
+        if args.manifest is None or args.processed_root is None:
+            parser.error("--input-source=raw requires --manifest and --processed-root")
+        trials = load_raw_figure5_trials(
+            args.manifest,
+            args.processed_root,
+            photometry_source=args.photometry_source,
+        )
+    else:
+        trials = load_figure5_trials(args.data_root, data_paths["figure5_total"])
     available_mice = np.unique(trials.mouse_ids).astype(int)
     mouse_ids = available_mice if not args.mice else np.asarray(args.mice, dtype=int)
     missing = np.setdiff1d(mouse_ids, available_mice)
@@ -202,6 +226,10 @@ def main() -> None:
         "full_consumption_epoch_r2",
     ]
     summary = {
+        "input_source": args.input_source,
+        "photometry_source": (
+            args.photometry_source if args.input_source == "raw" else "deposited"
+        ),
         "mouse_count": len(primary_rows),
         "cross_validation": "nested contiguous trial-blocked",
         "outer_folds": args.folds,
@@ -290,11 +318,14 @@ def main() -> None:
     axes[2].legend(frameon=False)
     fig.savefig(args.output / "reanalysis_summary.png", dpi=200)
     plt.close(fig)
+    provenance_inputs = [data_paths["figure5_dry"], data_paths["figure5_total"], args.config]
+    if args.input_source == "raw":
+        provenance_inputs.extend([args.manifest, *sorted(args.processed_root.glob("*.npz"))])
     write_run_record(
         args.output / "run_metadata.json",
         workflow="figure5_reanalysis",
         parameters=vars(args),
-        inputs=[data_paths["figure5_dry"], data_paths["figure5_total"], args.config],
+        inputs=provenance_inputs,
         outputs=[
             args.output / "mouse_results.csv",
             args.output / "basis_sensitivity.csv",

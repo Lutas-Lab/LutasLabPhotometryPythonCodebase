@@ -11,6 +11,8 @@ support policy are documented in
 tracked in [`docs/release-hardening.md`](docs/release-hardening.md).
 Exact environment creation and dependency-update procedures are in
 [`docs/environment.md`](docs/environment.md).
+The compact source-data export format for future papers is described in
+[`docs/publication-bundles.md`](docs/publication-bundles.md).
 The reporting status of the deposited-data tests is fixed in
 [`docs/statistical-analysis-policy.md`](docs/statistical-analysis-policy.md),
 and the former-repository notebook audit is in
@@ -127,6 +129,28 @@ Run commands from the repository root. For example, in PowerShell:
 ```powershell
 python scripts/run_preprocess_batch.py --manifest analysis/sessions.csv --data-root "Z:\Photometry" --continue-on-error
 python scripts/run_psth.py --manifest analysis/sessions.csv --data-root "Z:\Photometry" --output-dir analysis/cue_psth_20s --event-key cue_onset --window -5 20 --baseline -5 0 --normalization zscore
+```
+
+### Figure 4 dopamine input and PKA transfer model
+
+The 18-mouse consumption-evoked CeA dopamine trajectory reported in the paper
+is Figure 4a-e. The builder reads the deposited workspace's embedded trial
+criterion, audits the CeA photoreceiver separately for each contributing
+session, reprocesses raw data, and exports mouse-level and population-level
+dopamine inputs with bootstrap uncertainty:
+
+```powershell
+python -m scripts.build_figure4_dopamine_input "PATH_TO_DEPOSITED_INDIVIDUAL_TRIALS_MAT" "Z:\Photometry" outputs\figure4_dopamine_input --save-processed
+```
+
+The primary `legacy` input reproduces the paper's trial-level `Z465 - Z405`
+calculation. `raw465` and `dff` inputs are retained as preprocessing
+sensitivities. Once a PKA time course is available as an NPZ containing `time`
+and `pka`, or a CSV with columns named `time` and `pka`, fit the delayed causal
+biochemical transfer model with:
+
+```powershell
+python -m scripts.fit_dopamine_pka_transfer outputs\figure4_dopamine_input\figure4_dopamine_input.npz PATH_TO_PKA_DATA outputs\dopamine_pka_fit --source legacy
 ```
 
 ## Quick start without PowerShell: JupyterLab

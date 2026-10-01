@@ -2,6 +2,11 @@
 
 Shared, sensor-independent building blocks for Lutas Lab time-series analyses.
 
+The package also provides `PublicationBundle` for exporting small, versioned,
+compressed source-data deposits with figure mappings and integrity checks. See
+[`docs/publication-bundles.md`](../../docs/publication-bundles.md) for the data
+retention policy and an example.
+
 The package owns laboratory NI-DAQ loading, TTL and behavioral event
 representations, affine clock alignment, common time-series containers, and
 conversion to Pynapple. Sensor-specific preprocessing remains in the
