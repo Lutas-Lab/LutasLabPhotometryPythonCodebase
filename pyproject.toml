@@ -53,6 +53,7 @@ select = ["E9", "F63", "F7", "F82"]
 
 [tool.uv]
 required-version = ">=0.12.21,<0.13"
+system-certs = true
 
 [tool.uv.workspace]
 members = [

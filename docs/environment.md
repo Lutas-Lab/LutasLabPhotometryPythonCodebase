@@ -4,25 +4,37 @@ The authoritative monorepo environment uses Python 3.12 and is resolved in
 `uv.lock`. The lock includes every workspace package and optional extra, with
 exact versions, source artifacts, and hashes. Do not hand-edit the lockfile.
 
-## Default analysis environment
+## Lab-user environment
 
 Install `uv` once, then create the default environment from the repository
 root:
 
 ```powershell
 python -m pip install "uv==0.12.21"
-uv sync --frozen --all-packages --extra dev --extra forecasting
+uv sync --frozen
 ```
 
-The environment is created at `.venv`. Run commands through it directly or
-activate it:
+This installs conventional photometry and `lutaslab-core`. The environment is
+created at `.venv`. Confirm the main imports and a small synthetic GLM fit with
+the lightweight installation check:
 
 ```powershell
-.\.venv\Scripts\Activate.ps1
-python -m pytest
+uv run python -m scripts.check_install
 ```
 
-This default environment intentionally does not install NeMoS or JAX.
+The checked-in `pyproject.toml` enables operating-system certificates for
+`uv`. This is useful on institution-managed Windows computers and replaces the
+deprecated `--native-tls` command-line option.
+
+Optional features are installed only when required:
+
+```powershell
+uv sync --frozen --extra forecasting   # scikit-learn forecasting
+uv sync --frozen --all-packages        # conventional, FluoPulse, and iFLiP3
+```
+
+Running a later sync without an extra removes that extra from the exact
+project environment. To add multiple capabilities, specify them together.
 
 ## Optional NeMoS compatibility environment
 
@@ -30,17 +42,41 @@ Add the optional backend only when an older notebook or a NeMoS-specific
 analysis requires it:
 
 ```powershell
-uv sync --frozen --all-packages --extra dev --extra forecasting --extra nemos
+uv sync --frozen --extra nemos
 ```
 
 The historical extra name remains accepted:
 
 ```powershell
-uv sync --frozen --all-packages --extra dev --extra modeling
+uv sync --frozen --extra modeling
 ```
 
 Running a later sync without `--extra nemos` or `--extra modeling` removes the
 optional backend from the environment.
+
+## Maintainer and developer environment
+
+Ordinary users do not need pytest, Ruff, every workspace package, or every
+optional analysis backend. Maintainers can install the complete non-NeMoS test
+environment and run all package tests with:
+
+```powershell
+uv sync --frozen --all-packages --extra dev --extra forecasting
+uv run python -m pytest
+uv run ruff check src scripts tests packages
+```
+
+Install and test NeMoS separately so an optional JAX dependency problem cannot
+hide failures in the standard analysis stack:
+
+```powershell
+uv sync --frozen --extra dev --extra nemos
+uv run python -m pytest tests/test_nemos_analysis.py
+```
+
+GitHub Actions remains the authoritative full validation matrix. It tests the
+shared core, conventional photometry, FluoPulse, iFLiP3, and NeMoS compatibility
+in separate jobs.
 
 ## Updating dependencies
 
