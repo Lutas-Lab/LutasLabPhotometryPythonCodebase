@@ -1,6 +1,10 @@
 import numpy as np
 
-from lutaslab_core.events import find_lick_bouts, find_ttl_pulses
+from lutaslab_core.events import (
+    find_lick_bouts,
+    find_ttl_pulses,
+    sample_lick_bout_features,
+)
 
 
 def test_ttl_detection_includes_boundary_pulses_and_filters_width():
@@ -38,3 +42,18 @@ def test_lick_bouts_groups_and_filters():
     np.testing.assert_allclose(bouts.onset_times, [0.0])
     np.testing.assert_allclose(bouts.offset_times, [0.4])
     np.testing.assert_array_equal(bouts.lick_counts, [3])
+
+
+def test_sampled_bout_features_encode_onset_duration_and_occupancy():
+    time = np.arange(0.0, 3.0, 0.1)
+    features = sample_lick_bout_features(
+        np.array([0.2, 0.4, 0.6, 2.0, 2.2]),
+        time,
+        max_interlick_gap_seconds=0.5,
+        min_licks=3,
+    )
+    np.testing.assert_array_equal(np.flatnonzero(features.onset_counts), [2])
+    np.testing.assert_allclose(features.duration_at_onset_seconds[2], 0.4)
+    np.testing.assert_array_equal(
+        np.flatnonzero(features.occupancy), [2, 3, 4, 5, 6]
+    )

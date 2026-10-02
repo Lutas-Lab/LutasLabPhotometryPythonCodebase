@@ -66,6 +66,15 @@ class LickBouts:
         return self.offset_times - self.onset_times
 
 
+@dataclass(frozen=True)
+class SampledBoutFeatures:
+    """Lick-bout features represented on a regular sample grid."""
+
+    onset_counts: np.ndarray
+    duration_at_onset_seconds: np.ndarray
+    occupancy: np.ndarray
+
+
 def find_ttl_pulses(
     signal: np.ndarray,
     timestamps: np.ndarray | None = None,
@@ -167,3 +176,45 @@ def find_lick_bouts(
         start_indices=starts[keep],
         stop_indices=stops[keep],
     )
+
+
+def sample_lick_bout_features(
+    lick_times: np.ndarray,
+    sample_time: np.ndarray,
+    *,
+    max_interlick_gap_seconds: float = 1.0,
+    min_licks: int = 3,
+) -> SampledBoutFeatures:
+    """Represent bout onsets, durations, and occupancy on a regular time grid."""
+
+    sample_time = _finite_vector(sample_time, "sample_time", increasing=True)
+    if sample_time.size < 2:
+        raise ValueError("sample_time must contain at least two samples")
+    dt = float(np.median(np.diff(sample_time)))
+    if not np.allclose(np.diff(sample_time), dt, rtol=1e-6, atol=1e-12):
+        raise ValueError("sample_time must be regularly sampled")
+    bouts = find_lick_bouts(
+        lick_times,
+        max_interlick_gap_seconds=max_interlick_gap_seconds,
+        min_licks=min_licks,
+    )
+    onset_counts = np.zeros(sample_time.size, dtype=float)
+    duration = np.zeros(sample_time.size, dtype=float)
+    occupancy = np.zeros(sample_time.size, dtype=float)
+    edges = np.r_[sample_time - dt / 2.0, sample_time[-1] + dt / 2.0]
+    for onset, offset, bout_duration in zip(
+        bouts.onset_times,
+        bouts.offset_times,
+        bouts.durations,
+        strict=True,
+    ):
+        index = int(np.searchsorted(edges, onset, side="right") - 1)
+        if 0 <= index < sample_time.size:
+            onset_counts[index] += 1.0
+            duration[index] += float(bout_duration)
+        stop = int(np.searchsorted(edges, offset, side="right") - 1)
+        first = max(0, index)
+        last = min(sample_time.size - 1, stop)
+        if first <= last:
+            occupancy[first : last + 1] = 1.0
+    return SampledBoutFeatures(onset_counts, duration, occupancy)
