@@ -80,26 +80,37 @@ Open **Anaconda Prompt**, then create and install the analysis environment:
 ```text
 conda create -n photometry python=3.12 pip jupyterlab ipykernel -y
 conda activate photometry
-python -m pip install -e .
-python -m pytest
+python -m pip install -e packages/lutaslab-core -e .
+python -m scripts.check_install
 ```
 
-For an exact reproducible installation, use the committed `uv.lock` instead:
+For an exact reproducible installation, use the committed `uv.lock` instead.
+This installs conventional photometry and the shared core; it does not install
+sensor-specific packages or developer tools:
 
 ```text
 python -m pip install "uv==0.12.21"
-uv sync --frozen --all-packages --extra dev --extra forecasting
-.venv\Scripts\python -m pytest
+uv sync --frozen
+uv run python -m scripts.check_install
 ```
 
-The final command is optional but verifies the installation. Core
-preprocessing and plotting do not require JAX or NeMoS. Install those optional
-NeMoS compatibility dependencies only when needed (the historical `modeling`
-extra remains supported):
+The repository tells `uv` to use operating-system certificates, which avoids
+certificate failures on institution-managed Windows computers. The final
+command is an optional lightweight installation check. It does not run the
+developer test suite.
+
+Install optional components only when the corresponding analysis needs them:
 
 ```text
-python -m pip install -e ".[nemos]"
+uv sync --frozen --extra forecasting          # scikit-learn forecasting
+uv sync --frozen --all-packages               # also FluoPulse and iFLiP3
+uv sync --frozen --extra nemos                 # NeMoS/JAX compatibility
 ```
+
+Core preprocessing, plotting, and the supported NumPy/SciPy GLM do not require
+scikit-learn, JAX, or NeMoS. See
+[`docs/environment.md`](docs/environment.md) for maintainer installation and
+testing commands.
 
 ### Expected raw-data layout
 
