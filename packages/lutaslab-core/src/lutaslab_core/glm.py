@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Mapping
 
 import numpy as np
 
@@ -21,6 +22,16 @@ class RidgeCVResult:
     mean_scores: np.ndarray
     fold_scores: np.ndarray
     column_scale: np.ndarray
+
+
+@dataclass(frozen=True)
+class TrialwiseDesign:
+    """A flattened trial-by-time design with named column ranges."""
+
+    matrix: np.ndarray
+    column_slices: dict[str, slice]
+    trial_count: int
+    samples_per_trial: int
 
 
 def raised_cosine_basis(
@@ -178,6 +189,99 @@ def lagged_basis_matrix(
         else:
             design += signal[:, None] * basis_values[row]
     return design
+
+
+def build_trialwise_basis_design(
+    predictors: Mapping[str, np.ndarray],
+    bases: Mapping[str, TemporalBasis],
+    sample_interval_seconds: float,
+    *,
+    trial_covariates: Mapping[str, np.ndarray] | None = None,
+    include_intercept: bool = True,
+) -> TrialwiseDesign:
+    """Build a basis-expanded design while resetting convolution at trial edges.
+
+    Predictor arrays must have shape ``(trials, samples)``. Trial covariates
+    contain one value per trial and are expanded across that trial's samples.
+    """
+
+    if not predictors:
+        raise ValueError("predictors must contain at least one named array")
+    if set(predictors) != set(bases):
+        raise ValueError("predictors and bases must contain the same names")
+    if "intercept" in predictors:
+        raise ValueError("'intercept' is reserved for the optional intercept column")
+    if not np.isfinite(sample_interval_seconds) or sample_interval_seconds <= 0:
+        raise ValueError("sample_interval_seconds must be finite and positive")
+    arrays = {
+        name: np.asarray(values, dtype=float) for name, values in predictors.items()
+    }
+    first = next(iter(arrays.values()))
+    if first.ndim != 2 or min(first.shape) < 1:
+        raise ValueError("predictors must be nonempty trial-by-sample arrays")
+    shape = first.shape
+    if any(values.shape != shape for values in arrays.values()):
+        raise ValueError("all predictors must have matching shapes")
+    if any(not np.all(np.isfinite(values)) for values in arrays.values()):
+        raise ValueError("predictors must be finite")
+    covariates = (
+        {}
+        if trial_covariates is None
+        else {
+            name: np.asarray(values, dtype=float)
+            for name, values in trial_covariates.items()
+        }
+    )
+    if set(covariates) & set(predictors) or "intercept" in covariates:
+        raise ValueError("trial covariate names must be unique and cannot be 'intercept'")
+    if any(
+        values.ndim != 1 or values.size != shape[0]
+        for values in covariates.values()
+    ):
+        raise ValueError("trial covariates must contain one value per trial")
+    if any(not np.all(np.isfinite(values)) for values in covariates.values()):
+        raise ValueError("trial covariates must be finite")
+
+    slices: dict[str, slice] = {}
+    start = 0
+    if include_intercept:
+        slices["intercept"] = slice(start, start + 1)
+        start += 1
+    for name in covariates:
+        slices[name] = slice(start, start + 1)
+        start += 1
+    for name, basis in bases.items():
+        slices[name] = slice(start, start + basis.values.shape[1])
+        start += basis.values.shape[1]
+
+    trial_matrices = []
+    for trial_index in range(shape[0]):
+        columns = []
+        if include_intercept:
+            columns.append(np.ones((shape[1], 1), dtype=float))
+        columns.extend(
+            np.full((shape[1], 1), values[trial_index], dtype=float)
+            for values in covariates.values()
+        )
+        for name, basis in bases.items():
+            lag_samples = basis.lag_times / sample_interval_seconds
+            rounded_lags = np.rint(lag_samples).astype(int)
+            if not np.allclose(lag_samples, rounded_lags, atol=1e-8):
+                raise ValueError(
+                    f"basis lags for {name!r} do not fall on the sample grid"
+                )
+            columns.append(
+                lagged_basis_matrix(
+                    arrays[name][trial_index], rounded_lags, basis.values
+                )
+            )
+        trial_matrices.append(np.column_stack(columns))
+    return TrialwiseDesign(
+        matrix=np.vstack(trial_matrices),
+        column_slices=slices,
+        trial_count=shape[0],
+        samples_per_trial=shape[1],
+    )
 
 
 def predict_lagged_signal(

@@ -51,6 +51,11 @@ The current pipeline supports:
 - blocked cross-validation
 - regularized multi-predictor models
 
+The synthetic [`examples/event_glm_and_transfer.py`](examples/event_glm_and_transfer.py)
+shows the reusable modeling APIs without depending on paper-specific data. It
+constructs a trial-reset raised-cosine design, performs grouped ridge selection,
+and fits a causal gamma transfer function.
+
 ---
 
 # Installation

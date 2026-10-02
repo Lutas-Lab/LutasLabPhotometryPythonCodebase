@@ -3,6 +3,7 @@ import numpy as np
 from lutaslab_core.glm import (
     apply_lag_basis,
     blocked_folds,
+    build_trialwise_basis_design,
     convolve_basis,
     event_times_to_counts,
     fit_grouped_ridge_cv,
@@ -89,3 +90,23 @@ def test_blocked_folds_apply_temporal_gap():
     folds = blocked_folds(20, n_folds=4, gap_samples=2)
     for train, test in folds:
         assert np.all(np.abs(train[:, None] - test[None, :]) > 2)
+
+
+def test_trialwise_design_resets_convolution_between_trials():
+    basis = raised_cosine_basis((0.0, 0.4), count=3, dt=0.1)
+    events = np.zeros((2, 10))
+    events[0, -1] = 1.0
+    events[1, 2] = 1.0
+    design = build_trialwise_basis_design(
+        {"reward": events},
+        {"reward": basis},
+        0.1,
+        trial_covariates={"trained": np.array([0.0, 1.0])},
+    )
+    assert design.matrix.shape == (20, 5)
+    np.testing.assert_array_equal(design.matrix[:10, 0], 1.0)
+    np.testing.assert_array_equal(design.matrix[:10, 1], 0.0)
+    np.testing.assert_array_equal(design.matrix[10:, 1], 1.0)
+    np.testing.assert_array_equal(
+        design.matrix[10, design.column_slices["reward"]], 0.0
+    )
