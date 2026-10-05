@@ -9,8 +9,22 @@ former standalone repositories remain intact as read-only references while
 their examples, notebooks, and Git histories are audited. Make reusable source
 changes in this monorepo.
 
-With `uv`, install the workspace from the repository root. With ordinary pip,
-install all local packages together:
+Install the complete workspace from the monorepo root with the recommended
+`uv` environment:
+
+```powershell
+python -m pip install "uv==0.12.21"
+uv python install 3.12
+uv sync --frozen --all-packages --extra dev
+uv run python -m scripts.check_install
+```
+
+This creates `.venv` beside the root `pyproject.toml`; Conda is not required.
+Run tests or Jupyter through the same environment with
+`uv run python -m pytest` or `uv run jupyter lab`.
+
+If an existing environment must be used, install all local packages together
+with ordinary pip from the monorepo root:
 
 ```powershell
 python -m pip install -e packages/lutaslab-core -e . `

@@ -65,7 +65,7 @@ shared-core and sensor packages retain Python 3.10+ support, but NeMoS 0.2.9
 requires Python 3.12 and therefore fixes the fully locked workspace to 3.12.
 NeMoS/JAX are optional and only needed for the compatibility workflow.
 
-## Quick start: Windows and Anaconda
+## Recommended Windows setup
 
 First download the repository with GitHub Desktop, or clone the current
 `main` branch:
@@ -75,42 +75,47 @@ git clone https://github.com/Lutas-Lab/LutasLabPhotometryPythonCodebase.git
 cd LutasLabPhotometryPythonCodebase
 ```
 
-Open **Anaconda Prompt**, then create and install the analysis environment:
+Open PowerShell in the repository folder. In GitHub Desktop, use
+**Repository -> Open in PowerShell**; in File Explorer, open the repository,
+right-click an empty area, and choose **Open in Terminal**. Confirm that the
+folder contains `pyproject.toml`, `uv.lock`, `packages`, and `src`, then run:
 
-```text
-conda create -n photometry python=3.12 pip jupyterlab ipykernel -y
-conda activate photometry
-python -m pip install -e packages/lutaslab-core -e .
-python -m scripts.check_install
-```
-
-For an exact reproducible installation, use the committed `uv.lock` instead.
-This installs conventional photometry and the shared core; it does not install
-sensor-specific packages or developer tools:
-
-```text
+```powershell
 python -m pip install "uv==0.12.21"
-uv sync --frozen
+uv python install 3.12
+uv sync --frozen --all-packages --extra dev
 uv run python -m scripts.check_install
 ```
 
-The repository tells `uv` to use operating-system certificates, which avoids
-certificate failures on institution-managed Windows computers. The final
-command is an optional lightweight installation check. It does not run the
-developer test suite.
+This is the recommended lab installation. Conda is not required. `uv` creates
+a private environment in the repository's `.venv` folder and installs the
+exact versions recorded in `uv.lock`. The environment does not appear in
+`conda info --envs`; that is expected. Do not copy `.venv` between computers.
 
-Install optional components only when the corresponding analysis needs them:
+For later sessions, open PowerShell in the repository and run commands through
+`uv`. Activation is unnecessary:
 
-```text
-uv sync --frozen --extra forecasting          # scikit-learn forecasting
-uv sync --frozen --all-packages               # also FluoPulse and iFLiP3
-uv sync --frozen --extra nemos                 # NeMoS/JAX compatibility
+```powershell
+uv run jupyter lab
+uv run python scripts/run_preprocess_batch.py --help
+```
+
+The initial sync installs conventional photometry, FluoPulse, iFLiP3,
+JupyterLab, and the developer checks. Add specialized analysis backends only
+when needed:
+
+```powershell
+uv sync --frozen --all-packages --extra dev --extra forecasting
+uv sync --frozen --all-packages --extra dev --extra nemos
 ```
 
 Core preprocessing, plotting, and the supported NumPy/SciPy GLM do not require
-scikit-learn, JAX, or NeMoS. See
+scikit-learn, JAX, or NeMoS. A later sync must repeat every extra that should
+remain installed because `uv sync` makes the environment match the requested
+configuration exactly. The repository tells `uv` to use operating-system
+certificates, which helps on institution-managed Windows computers. See
 [`docs/environment.md`](docs/environment.md) for maintainer installation and
-testing commands.
+testing commands and the optional Conda fallback.
 
 ### Expected raw-data layout
 
@@ -143,8 +148,8 @@ DK21,230705,2,control,trained,1
 Run commands from the repository root. For example, in PowerShell:
 
 ```powershell
-python scripts/run_preprocess_batch.py --manifest analysis/sessions.csv --data-root "Z:\Photometry" --continue-on-error
-python scripts/run_psth.py --manifest analysis/sessions.csv --data-root "Z:\Photometry" --output-dir analysis/cue_psth_20s --event-key cue_onset --window -5 20 --baseline -5 0 --normalization zscore
+uv run python scripts/run_preprocess_batch.py --manifest analysis/sessions.csv --data-root "Z:\Photometry" --continue-on-error
+uv run python scripts/run_psth.py --manifest analysis/sessions.csv --data-root "Z:\Photometry" --output-dir analysis/cue_psth_20s --event-key cue_onset --window -5 20 --baseline -5 0 --normalization zscore
 ```
 
 ### Figure 4 dopamine input and PKA transfer model
@@ -156,7 +161,7 @@ session, reprocesses raw data, and exports mouse-level and population-level
 dopamine inputs with bootstrap uncertainty:
 
 ```powershell
-python -m scripts.build_figure4_dopamine_input "PATH_TO_DEPOSITED_INDIVIDUAL_TRIALS_MAT" "Z:\Photometry" outputs\figure4_dopamine_input --save-processed
+uv run python -m scripts.build_figure4_dopamine_input "PATH_TO_DEPOSITED_INDIVIDUAL_TRIALS_MAT" "Z:\Photometry" outputs\figure4_dopamine_input --save-processed
 ```
 
 The primary `legacy` input reproduces the paper's trial-level `Z465 - Z405`
@@ -166,23 +171,20 @@ and `pka`, or a CSV with columns named `time` and `pka`, fit the delayed causal
 biochemical transfer model with:
 
 ```powershell
-python -m scripts.fit_dopamine_pka_transfer outputs\figure4_dopamine_input\figure4_dopamine_input.npz PATH_TO_PKA_DATA outputs\dopamine_pka_fit --source legacy
+uv run python -m scripts.fit_dopamine_pka_transfer outputs\figure4_dopamine_input\figure4_dopamine_input.npz PATH_TO_PKA_DATA outputs\dopamine_pka_fit --source legacy
 ```
 
-## Quick start without PowerShell: JupyterLab
+## JupyterLab workflow
 
 The complete batch workflow can also be launched from
 [`notebooks/05_batch_workflow.ipynb`](notebooks/05_batch_workflow.ipynb). This
-is often the easiest route for Windows users:
+is often the easiest analysis interface for Windows users after completing the
+recommended installation above:
 
-1. Download the repository with GitHub Desktop or **Code → Download ZIP** on
-   GitHub.
-2. In Anaconda Navigator, create an environment named `photometry` with Python
-   3.12 and install `pip`, `jupyterlab`, and `ipykernel` in that environment.
-3. Launch JupyterLab using the `photometry` environment.
-4. Navigate to the repository and open `notebooks/05_batch_workflow.ipynb`.
-5. Run the installation cell once, restart the kernel if requested, and then
-   edit the configuration and session-list cells.
+1. Open PowerShell in the repository folder.
+2. Run `uv run jupyter lab`.
+3. Open `notebooks/05_batch_workflow.ipynb`.
+4. Edit the configuration and session-list cells and run the notebook.
 
 The notebook uses the active Jupyter kernel to run the same maintained scripts
 documented below. It can create the session manifest, batch-preprocess data,
@@ -209,15 +211,14 @@ An internet connection is required during the initial installation. Moving or
 renaming the repository after installation may require running
 `install_gui.bat` again. Do not copy the `.venv` folder between computers.
 
-### Existing Anaconda environment
+### Start the GUI with `uv`
 
-Users who already have the `photometry` environment can instead install the
-optional GUI dependency and start it from the repository root:
+Users of the recommended project environment can install the optional GUI
+dependency and start it from the repository root:
 
-```text
-conda activate photometry
-python -m pip install -e ".[gui]"
-python -m streamlit run streamlit_app.py
+```powershell
+uv sync --frozen --all-packages --extra dev --extra gui
+uv run python -m streamlit run streamlit_app.py
 ```
 
 The interface opens locally in a browser. It uses the same maintained scripts
@@ -229,11 +230,28 @@ the manifest, data root, and output directory are correct. Existing processed
 files remain protected unless **Overwrite existing processed files** is
 explicitly enabled.
 
-## Other environments
+## Optional Conda or plain-pip fallback
+
+Conda is not needed for the recommended installation. Users who are required
+to use a centrally managed Conda environment may install the local packages
+with pip after that environment has been created successfully:
+
+```powershell
+conda create -n photometry python=3.12 pip jupyterlab ipykernel -y
+conda activate photometry
+python -m pip install -e packages/lutaslab-core -e . `
+  -e packages/fluopulse-analysis -e packages/iflip3-analysis
+python -m scripts.check_install
+```
+
+Conda channel, proxy, certificate, or Terms-of-Service failures occur before
+this repository is installed and are not caused by `uv.lock`. A plain Python
+virtual environment is also possible, but it does not use the locked workspace:
 
 ```bash
 python -m venv .venv
-python -m pip install -e .
+python -m pip install -e packages/lutaslab-core -e . \
+  -e packages/fluopulse-analysis -e packages/iflip3-analysis
 ```
 
 Install modeling and development dependencies when needed:
@@ -321,7 +339,7 @@ Routine preprocessing is performed using the command-line wrapper in `scripts/`.
 For example:
 
 ```bash
-python scripts/run_preprocess.py --mouse DK21 --date 230704 --run 2 --data-root "Z:\Photometry"
+uv run python scripts/run_preprocess.py --mouse DK21 --date 230704 --run 2 --data-root "Z:\Photometry"
 ```
 
 The script:
@@ -371,7 +389,7 @@ manifest for every session.
 Batch preprocessing saves each processed file beside its original raw files:
 
 ```bash
-python scripts/run_preprocess_batch.py \
+uv run python scripts/run_preprocess_batch.py \
     --manifest analysis/sessions.csv \
     --data-root "Z:\Photometry"
 ```
@@ -384,7 +402,7 @@ failures in one run.
 Generate cue-aligned per-mouse figures and a group mean with SEM across mice:
 
 ```bash
-python scripts/run_psth.py \
+uv run python scripts/run_psth.py \
     --manifest analysis/sessions.csv \
     --data-root "Z:\Photometry" \
     --output-dir "analysis/figures/cue" \
@@ -398,7 +416,7 @@ For example, plot only trials with no licking during the cue or the following
 four seconds:
 
 ```bash
-python scripts/run_psth.py \
+uv run python scripts/run_psth.py \
     --manifest analysis/sessions.csv \
     --data-root "Z:\Photometry" \
     --output-dir "analysis/figures/cue_miss_4s" \
@@ -416,7 +434,7 @@ during preprocessing remain available for provenance and older workflows.
 Add a reproducible random-alignment control with:
 
 ```bash
-python scripts/run_psth.py \
+uv run python scripts/run_psth.py \
     --manifest analysis/sessions.csv \
     --data-root "Z:\Photometry" \
     --output-dir "analysis/figures/cue_random" \
@@ -441,7 +459,7 @@ Generate cue-aligned licking-rate PSTHs using the same group and condition
 comparisons:
 
 ```bash
-python scripts/run_psth.py \
+uv run python scripts/run_psth.py \
     --manifest analysis/sessions.csv \
     --data-root "Z:\Photometry" \
     --output-dir "analysis/licking_psth_20s" \
@@ -460,7 +478,7 @@ To test whether Astrocyte photometry follows Ensure delivery timing rather than
 licking itself, generate lick-bout-aligned PSTHs and delivery-sorted heatmaps:
 
 ```bash
-python scripts/run_lickbout_delivery_analysis.py \
+uv run python scripts/run_lickbout_delivery_analysis.py \
     --manifest analysis/sessions.csv \
     --data-root "Z:\Photometry" \
     --output-dir analysis/astrocyte_lickbout_delivery_20s \
@@ -505,7 +523,7 @@ Extract predefined response metrics and run statistics with mice, rather than
 trials, as the independent biological units:
 
 ```bash
-python scripts/run_psth_statistics.py \
+uv run python scripts/run_psth_statistics.py \
     --manifest analysis/sessions.csv \
     --data-root "Z:\Photometry" \
     --output-dir analysis/statistics/cue \
@@ -739,15 +757,15 @@ window to be changed without reprocessing raw photometry.
 Forecasting is available without NeMoS or JAX through the optional
 `forecasting` dependency:
 
-```bash
-python -m pip install -e ".[forecasting]"
+```powershell
+uv sync --frozen --all-packages --extra dev --extra forecasting
 ```
 
 The manifest-driven forecasting script supports future `photometry`,
 `locomotion`, `lick_binary`, and `lick_count` targets. For example:
 
 ```bash
-python scripts/run_forecasting.py \
+uv run python scripts/run_forecasting.py \
     --manifest analysis/sessions.csv \
     --data-root "Z:\Photometry" \
     --output-dir analysis/forecasts/licks \
