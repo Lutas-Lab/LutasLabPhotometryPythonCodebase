@@ -31,28 +31,25 @@ The package retains `fit_global` as an experimental advanced method for cases
 where shared lifetimes truly need to be estimated from several low-count decay
 matrices simultaneously.
 
-## Installation with the project-local Conda environment
+## Installation
 
-From an Anaconda Prompt:
+Install iFLiP3 as part of the authoritative monorepo workspace. Open PowerShell
+in the monorepo root, where `uv.lock` is located, then run:
 
-```bat
-cd /d "C:\path\to\iflip3-analysis"
-conda create --prefix .\.conda-env python=3.12 numpy scipy matplotlib jupyterlab ipykernel pytest --solver classic -y
-conda activate .\.conda-env
-python -m pip install -e . --no-deps
-pytest
+```powershell
+python -m pip install "uv==0.12.21"
+uv python install 3.12
+uv sync --frozen --all-packages --extra dev
+uv run python -m pytest packages/iflip3-analysis/tests
 ```
 
-For later sessions:
+Conda is not required. `uv` creates a repository-local `.venv` containing the
+locked workspace dependencies. For later sessions, open PowerShell in the
+monorepo root and launch Jupyter with:
 
-```bat
-cd /d "C:\path\to\iflip3-analysis"
-conda activate .\.conda-env
-jupyter lab
+```powershell
+uv run jupyter lab
 ```
-
-An `environment.yml` is also provided for systems where named Conda environment
-creation works normally.
 
 ## Run the example workflow
 
@@ -110,11 +107,10 @@ mouse data in the repository:
    as a research draft because its modeling assumptions and workflow have not
    yet been promoted to the supported package API.
 
-Launch Jupyter Lab from the activated project environment:
+Launch JupyterLab from the monorepo root:
 
-```bat
-conda activate .\.conda-env
-jupyter lab
+```powershell
+uv run jupyter lab
 ```
 
 Open the first notebook and edit its session-configuration cell. Run the
@@ -229,8 +225,8 @@ without the underscore, such as `AL164_260923004.iFLiP3`.
 
 Install Pynapple as an optional event-analysis dependency:
 
-```bat
-python -m pip install -e ".[events]"
+```powershell
+uv sync --frozen --all-packages --extra dev --extra events
 ```
 
 Run a complete aligned analysis with an iFLiP file, its NI-DAQ file, and a

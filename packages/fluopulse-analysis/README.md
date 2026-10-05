@@ -42,20 +42,21 @@ that every Doric file uses identical port numbers.
 
 ## Installation
 
-From Anaconda Prompt:
+Install FluoPulse as part of the authoritative monorepo workspace. Open
+PowerShell in the monorepo root, where `uv.lock` is located, then run:
 
-```bat
-cd /d "C:\path\to\fluopulse-analysis"
-conda env create -f environment.yml
-conda activate fluopulse-analysis
-python -m pip install -e . --no-deps
-pytest
+```powershell
+python -m pip install "uv==0.12.21"
+uv python install 3.12
+uv sync --frozen --all-packages --extra dev
+uv run python -m pytest packages/fluopulse-analysis/tests
 ```
 
-Alternatively, install into an existing environment:
+Conda is not required. `uv` creates a repository-local `.venv` containing the
+locked workspace dependencies. Launch Jupyter from the monorepo root with:
 
-```bat
-python -m pip install -e ".[dev,events]"
+```powershell
+uv run jupyter lab
 ```
 
 ## Inspect a Doric recording

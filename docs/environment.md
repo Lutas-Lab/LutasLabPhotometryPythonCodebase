@@ -4,23 +4,35 @@ The authoritative monorepo environment uses Python 3.12 and is resolved in
 `uv.lock`. The lock includes every workspace package and optional extra, with
 exact versions, source artifacts, and hashes. Do not hand-edit the lockfile.
 
-## Lab-user environment
+## Recommended lab-user environment
 
-Install `uv` once, then create the default environment from the repository
-root:
+Conda is not required. Open PowerShell in the repository root, where
+`pyproject.toml` and `uv.lock` are located, then run:
 
 ```powershell
 python -m pip install "uv==0.12.21"
-uv sync --frozen
-```
-
-This installs conventional photometry and `lutaslab-core`. The environment is
-created at `.venv`. Confirm the main imports and a small synthetic GLM fit with
-the lightweight installation check:
-
-```powershell
+uv python install 3.12
+uv sync --frozen --all-packages --extra dev
 uv run python -m scripts.check_install
 ```
+
+This installs conventional photometry, FluoPulse, iFLiP3, JupyterLab, and the
+developer checks. `uv` creates the project environment at `.venv`. It is a
+regular isolated Python environment, but it is owned by this repository rather
+than Conda, so it does not appear in `conda info --envs`.
+
+There is no need to activate `.venv`. For later sessions, open PowerShell in
+the repository and run commands through `uv`:
+
+```powershell
+uv run jupyter lab
+uv run python scripts/run_preprocess_batch.py --help
+```
+
+`uv run` reuses the existing environment and checks that it remains consistent
+with the project. `uv sync` updates the environment rather than creating a new
+Python installation on every run. Do not copy `.venv` to another computer;
+recreate it there from `uv.lock`.
 
 The checked-in `pyproject.toml` enables operating-system certificates for
 `uv`. This is useful on institution-managed Windows computers and replaces the
@@ -29,12 +41,30 @@ deprecated `--native-tls` command-line option.
 Optional features are installed only when required:
 
 ```powershell
-uv sync --frozen --extra forecasting   # scikit-learn forecasting
-uv sync --frozen --all-packages        # conventional, FluoPulse, and iFLiP3
+uv sync --frozen --all-packages --extra dev --extra forecasting
 ```
 
 Running a later sync without an extra removes that extra from the exact
 project environment. To add multiple capabilities, specify them together.
+
+## Optional Conda fallback
+
+Use Conda only when a lab computer or another workflow specifically requires a
+Conda-managed environment. Conda must create the environment before this
+repository can be installed:
+
+```powershell
+conda create -n photometry python=3.12 pip jupyterlab ipykernel -y
+conda activate photometry
+python -m pip install -e packages/lutaslab-core -e . `
+  -e packages/fluopulse-analysis -e packages/iflip3-analysis
+python -m scripts.check_install
+```
+
+If `conda create` stops while gathering or reviewing channels, the repository
+has not yet been read. That indicates a Conda channel, proxy, certificate, or
+Terms-of-Service problem; using the recommended `uv` workflow avoids that
+Conda-specific setup step.
 
 ## Optional NeMoS compatibility environment
 
@@ -42,13 +72,13 @@ Add the optional backend only when an older notebook or a NeMoS-specific
 analysis requires it:
 
 ```powershell
-uv sync --frozen --extra nemos
+uv sync --frozen --all-packages --extra dev --extra nemos
 ```
 
 The historical extra name remains accepted:
 
 ```powershell
-uv sync --frozen --extra modeling
+uv sync --frozen --all-packages --extra dev --extra modeling
 ```
 
 Running a later sync without `--extra nemos` or `--extra modeling` removes the
@@ -56,9 +86,10 @@ optional backend from the environment.
 
 ## Maintainer and developer environment
 
-Ordinary users do not need pytest, Ruff, every workspace package, or every
-optional analysis backend. Maintainers can install the complete non-NeMoS test
-environment and run all package tests with:
+The recommended lab setup includes the lightweight developer tools so one
+command also provides JupyterLab and package tests across the workspace.
+Maintainers can add forecasting support and run the complete non-NeMoS test
+suite with:
 
 ```powershell
 uv sync --frozen --all-packages --extra dev --extra forecasting
@@ -70,7 +101,7 @@ Install and test NeMoS separately so an optional JAX dependency problem cannot
 hide failures in the standard analysis stack:
 
 ```powershell
-uv sync --frozen --extra dev --extra nemos
+uv sync --frozen --all-packages --extra dev --extra nemos
 uv run python -m pytest tests/test_nemos_analysis.py
 ```
 
