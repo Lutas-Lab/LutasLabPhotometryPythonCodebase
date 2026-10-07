@@ -27,7 +27,7 @@ Users of the standard project environment can install the GUI extra and launch
 the app directly:
 
 ```powershell
-uv sync --frozen --all-packages --extra dev --extra gui
+uv sync --frozen --all-packages --extra gui
 uv run python -m streamlit run streamlit_app.py
 ```
 

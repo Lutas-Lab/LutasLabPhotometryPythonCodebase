@@ -14,7 +14,7 @@ backend requires Python 3.12 and uses the tested JAX 0.11 release series.
 Install it with:
 
 ```powershell
-uv sync --frozen --all-packages --extra dev --extra nemos
+uv sync --frozen --all-packages --extra nemos
 ```
 
 ## Predictors and signal representations
@@ -58,7 +58,7 @@ The optional forecasting workflow predicts future photometry, locomotion, lick
 occurrence, or lick counts from past-only features:
 
 ```powershell
-uv sync --frozen --all-packages --extra dev --extra forecasting
+uv sync --frozen --all-packages --extra forecasting
 
 uv run lutaslab-run-forecasting `
   --manifest analysis/sessions.csv `

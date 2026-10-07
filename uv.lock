@@ -613,9 +613,6 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "ipykernel", version = "7.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "ipykernel", version = "7.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "jupyterlab" },
     { name = "pytest" },
 ]
 events = [
@@ -625,8 +622,6 @@ events = [
 [package.metadata]
 requires-dist = [
     { name = "h5py", specifier = ">=3.10" },
-    { name = "ipykernel", marker = "extra == 'dev'", specifier = ">=6" },
-    { name = "jupyterlab", marker = "extra == 'dev'", specifier = ">=4" },
     { name = "lutaslab-core", editable = "packages/lutaslab-core" },
     { name = "matplotlib", specifier = ">=3.8" },
     { name = "numpy", specifier = ">=1.26" },
@@ -858,9 +853,6 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "ipykernel", version = "7.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "ipykernel", version = "7.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "jupyterlab" },
     { name = "pytest" },
 ]
 events = [
@@ -872,8 +864,6 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "ipykernel", marker = "extra == 'dev'", specifier = ">=6" },
-    { name = "jupyterlab", marker = "extra == 'dev'", specifier = ">=4" },
     { name = "lutaslab-core", editable = "packages/lutaslab-core" },
     { name = "matplotlib", specifier = ">=3.8" },
     { name = "numpy", specifier = ">=1.26" },
@@ -1587,10 +1577,17 @@ nemos = [
     { name = "jax", marker = "python_full_version >= '3.12'" },
     { name = "nemos", marker = "python_full_version >= '3.12'" },
 ]
+notebooks = [
+    { name = "ipykernel", version = "7.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "ipykernel", version = "7.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "jupyterlab" },
+]
 
 [package.metadata]
 requires-dist = [
+    { name = "ipykernel", marker = "extra == 'notebooks'", specifier = ">=6,<8" },
     { name = "jax", marker = "python_full_version >= '3.12' and extra == 'nemos'", specifier = ">=0.11,<0.12" },
+    { name = "jupyterlab", marker = "extra == 'notebooks'", specifier = ">=4,<5" },
     { name = "lutaslab-core", editable = "packages/lutaslab-core" },
     { name = "matplotlib", specifier = ">=3.8,<4" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.14,<2" },
@@ -1604,7 +1601,7 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.11,<2" },
     { name = "streamlit", marker = "extra == 'gui'", specifier = ">=1.41,<2" },
 ]
-provides-extras = ["forecasting", "gui", "nemos", "dev"]
+provides-extras = ["forecasting", "gui", "notebooks", "nemos", "dev"]
 
 [[package]]
 name = "markdown-it-py"

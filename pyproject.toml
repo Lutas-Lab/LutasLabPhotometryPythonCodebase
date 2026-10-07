@@ -24,6 +24,10 @@ gui = [
     "pandas>=2,<3",
     "streamlit>=1.41,<2",
 ]
+notebooks = [
+    "ipykernel>=6,<8",
+    "jupyterlab>=4,<5",
+]
 nemos = [
     "nemos>=0.2.9,<0.3; python_version >= '3.12'",
     "jax>=0.11,<0.12; python_version >= '3.12'",

@@ -48,6 +48,7 @@ locked workspace dependencies. For later sessions, open PowerShell in the
 monorepo root and launch Jupyter with:
 
 ```powershell
+uv sync --frozen --all-packages --extra notebooks
 uv run jupyter lab
 ```
 
@@ -189,7 +190,7 @@ without the underscore, such as `AL164_260923004.iFLiP3`.
 Install Pynapple as an optional event-analysis dependency:
 
 ```powershell
-uv sync --frozen --all-packages --extra dev --extra events
+uv sync --frozen --all-packages --extra events
 ```
 
 Run a complete aligned analysis through the Python API with an iFLiP file, its

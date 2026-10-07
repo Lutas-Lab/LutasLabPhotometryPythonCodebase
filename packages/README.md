@@ -15,13 +15,13 @@ Install the complete workspace from the monorepo root with the recommended
 ```powershell
 python -m pip install "uv==0.12.21"
 uv python install 3.12
-uv sync --frozen --all-packages --extra dev
+uv sync --frozen --all-packages
 uv run lutaslab-check-install
 ```
 
 This creates `.venv` beside the root `pyproject.toml`; Conda is not required.
-Run tests or Jupyter through the same environment with
-`uv run python -m pytest` or `uv run jupyter lab`.
+Add `--extra dev` only when running repository tests and linters. For Jupyter,
+sync with `--extra notebooks`, then run `uv run jupyter lab`.
 
 If an existing environment must be used, install all local packages together
 with ordinary pip from the monorepo root:

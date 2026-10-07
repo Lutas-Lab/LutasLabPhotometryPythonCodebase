@@ -13,12 +13,12 @@ Conda is not required. Open PowerShell in the repository root, where
 ```powershell
 python -m pip install "uv==0.12.21"
 uv python install 3.12
-uv sync --frozen --all-packages --extra dev
+uv sync --frozen --all-packages
 uv run lutaslab-check-install
 ```
 
-This installs conventional photometry, FluoPulse, iFLiP3, JupyterLab, and the
-developer checks. `uv` creates the project environment at `.venv`. It is a
+This installs conventional photometry, FluoPulse, and iFLiP3. `uv` creates the
+project environment at `.venv`. It is a
 regular isolated Python environment, but it is owned by this repository rather
 than Conda, so it does not appear in `conda info --envs`.
 
@@ -26,7 +26,6 @@ There is no need to activate `.venv`. For later sessions, open PowerShell in
 the repository and run commands through `uv`:
 
 ```powershell
-uv run jupyter lab
 uv run lutaslab-run-preprocess-batch --help
 ```
 
@@ -42,11 +41,21 @@ deprecated `--native-tls` command-line option.
 Optional features are installed only when required:
 
 ```powershell
-uv sync --frozen --all-packages --extra dev --extra forecasting
+uv sync --frozen --all-packages --extra forecasting
 ```
 
 Running a later sync without an extra removes that extra from the exact
 project environment. To add multiple capabilities, specify them together.
+
+## Notebook environment
+
+JupyterLab and its kernel support are kept in the explicitly named `notebooks`
+extra rather than the developer-tool extra:
+
+```powershell
+uv sync --frozen --all-packages --extra notebooks
+uv run jupyter lab
+```
 
 ## Optional Conda fallback
 
@@ -73,7 +82,7 @@ Add the optional backend only when an older notebook or a NeMoS-specific
 analysis requires it:
 
 ```powershell
-uv sync --frozen --all-packages --extra dev --extra nemos
+uv sync --frozen --all-packages --extra nemos
 ```
 
 The `nemos` extra requires Python 3.12 and constrains JAX to the tested 0.11
@@ -82,10 +91,9 @@ optional backend from the environment.
 
 ## Maintainer and developer environment
 
-The recommended lab setup includes the lightweight developer tools so one
-command also provides JupyterLab and package tests across the workspace.
-Maintainers can add forecasting support and run the complete non-NeMoS test
-suite with:
+The `dev` extra is for maintainers and contributors; normal analysis does not
+require it. Maintainers can add forecasting support and run the complete
+non-NeMoS test suite with:
 
 ```powershell
 uv sync --frozen --all-packages --extra dev --extra forecasting

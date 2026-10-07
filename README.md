@@ -17,7 +17,7 @@ repository root:
 ```powershell
 python -m pip install "uv==0.12.21"
 uv python install 3.12
-uv sync --frozen --all-packages --extra dev
+uv sync --frozen --all-packages
 uv run lutaslab-check-install
 ```
 
@@ -70,7 +70,9 @@ statistics, and notebook workflow.
 
 ## Other ways to run the pipeline
 
-- Jupyter: run `uv run jupyter lab` and open
+- Jupyter: install the notebook tools with
+  `uv sync --frozen --all-packages --extra notebooks`, then run
+  `uv run jupyter lab` and open
   [`notebooks/05_batch_workflow.ipynb`](notebooks/05_batch_workflow.ipynb).
 - Browser GUI: use `install_gui.bat` and `launch_gui.bat`, or install the `gui`
   extra and launch `streamlit_app.py`. See the [GUI guide](docs/gui.md).

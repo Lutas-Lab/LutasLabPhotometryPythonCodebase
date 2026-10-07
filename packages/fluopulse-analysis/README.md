@@ -56,6 +56,7 @@ Conda is not required. `uv` creates a repository-local `.venv` containing the
 locked workspace dependencies. Launch Jupyter from the monorepo root with:
 
 ```powershell
+uv sync --frozen --all-packages --extra notebooks
 uv run jupyter lab
 ```
 
