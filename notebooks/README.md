@@ -2,13 +2,13 @@
 
 This directory contains Jupyter notebooks for interactive exploration, quality control, visualization, trial-level analysis, and group-level analysis of fiber photometry data.
 
-The notebooks provide a high-level interface to the reusable functions implemented in `src`.
+The notebooks provide a high-level interface to the reusable functions implemented in `lutaslab_photometry`.
 
 The general distinction is:
 
 ```text
-src/        = reusable analysis implementation
-scripts/    = automated workflows
+lutaslab_photometry/      = reusable analysis implementation
+lutaslab_photometry/cli/  = command-line workflow implementations
 notebooks/  = clean interactive examples and templates
 analysis/   = local mouse/session-specific working notebooks
 ```
@@ -32,8 +32,9 @@ active Jupyter kernel to:
 
 Each potentially long-running action has an explicit `RUN_... = False` switch.
 Review the paths and session rows first, change only the desired switch to
-`True`, and run that cell. The notebook calls the same scripts as the command-
-line workflow, so the underlying analysis implementation remains centralized.
+`True`, and run that cell. The notebook calls the same installed commands as
+the command-line workflow, so the underlying analysis implementation remains
+centralized.
 
 ---
 
@@ -165,7 +166,7 @@ If a mouse contributes multiple sessions, those sessions are first summarized wi
 ### Session List
 
 Sessions are loaded from the same `mouse,date,run` CSV manifest accepted by
-`scripts/run_preprocess_batch.py` and `scripts/run_psth.py`. Copy
+`lutaslab-run-preprocess-batch` and `lutaslab-run-psth`. Copy
 `config/sessions.example.csv` to `analysis/sessions.csv` and edit that local
 copy. The corresponding processed-session paths are constructed automatically.
 
@@ -224,7 +225,7 @@ plot_something(...)
 
 rather than containing hundreds of lines implementing the loading, preprocessing, or plotting algorithms themselves.
 
-If code becomes reusable across notebooks, it should generally be moved into `src`.
+If code becomes reusable across notebooks, it should generally be moved into `lutaslab_photometry`.
 
 This keeps the analysis logic centralized and reduces the chance that different notebooks accidentally use different versions of the same analysis.
 
@@ -267,14 +268,15 @@ The repository should therefore look something like:
 ```text
 photometry-analysis/
 │
-├── src/
-├── scripts/
+├── lutaslab_photometry/
+│   └── cli/
 │
 ├── notebooks/
 │   ├── 01_explore_session.ipynb
 │   ├── 02_event_aligned_photometry.ipynb
 │   ├── 03_trial_analysis.ipynb
-│   └── 04_group_analysis.ipynb
+│   ├── 04_group_analysis.ipynb
+│   └── 05_batch_workflow.ipynb
 │
 └── analysis/
     ├── DK21_230704_002.ipynb
@@ -300,7 +302,7 @@ This allows working notebooks to contain:
 
 without cluttering the GitHub repository.
 
-Reusable improvements discovered while working in `analysis/` should be moved into the appropriate `src/` module or incorporated into one of the clean notebook templates.
+Reusable improvements discovered while working in `analysis/` should be moved into the appropriate `lutaslab_photometry/` module or incorporated into one of the clean notebook templates.
 
 ---
 
@@ -339,25 +341,8 @@ Example notebooks committed to GitHub should preferably:
 
 ---
 
-# Planned Notebook
+# Modeling workflows
 
-The next planned notebook is:
-
-```text
-05_nemos_glm.ipynb
-```
-
-This notebook will provide the high-level workflow for behavioral modeling using NeMoS, including:
-
-- raw 465 response preparation
-- broad session-scale fluorescence modeling
-- locomotion predictors
-- licking predictors
-- cue predictors
-- solenoid/reward predictors
-- causal/predictive temporal models
-- two-sided temporal-association models
-- temporal kernels
-- blocked cross-validation
-- regularization
-- full-versus-reduced model comparisons
+The supported ridge-GLM and forecasting workflows are documented in
+[`../docs/modeling.md`](../docs/modeling.md). NeMoS remains an optional
+compatibility backend rather than the default notebook path.

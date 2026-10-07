@@ -1,5 +1,6 @@
 """Shared time-series infrastructure for Lutas Lab analysis packages."""
 
+from .batch import run_batch
 from .events import (
     LickBouts,
     SampledBoutFeatures,
@@ -8,8 +9,6 @@ from .events import (
     find_ttl_pulses,
     sample_lick_bout_features,
 )
-from .batch import run_batch
-from .manifest import load_session_manifest
 from .glm import (
     RidgeCVResult,
     TemporalBasis,
@@ -28,6 +27,7 @@ from .glm import (
     raised_cosine_basis,
     reconstruct_kernel,
 )
+from .manifest import load_session_manifest
 from .nidaq import (
     DEFAULT_CHANNEL_ROWS,
     NIDAQRecording,
@@ -37,7 +37,6 @@ from .nidaq import (
     read_running,
     running_from_mapping,
 )
-from .session import AlignedSession, ContinuousSignal, EventSeries, IntervalSeries
 from .perievent import (
     extract_perievent_event_rate,
     extract_perievent_trials,
@@ -46,7 +45,8 @@ from .perievent import (
     summarize_trials,
 )
 from .provenance import build_run_record, describe_path, utc_now, write_run_record
-from .publication import PublicationBundle, BundleValidation, validate_publication_bundle
+from .publication import BundleValidation, PublicationBundle, validate_publication_bundle
+from .session import AlignedSession, ContinuousSignal, EventSeries, IntervalSeries
 from .synchronization import ClockAlignment, fit_clock_alignment
 from .transfer import (
     GammaTransferFit,

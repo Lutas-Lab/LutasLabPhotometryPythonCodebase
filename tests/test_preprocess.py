@@ -1,7 +1,8 @@
-import numpy as np
 import unittest
 
-from src.preprocess import (
+import numpy as np
+
+from lutaslab_photometry.preprocess import (
     align_reference_to_experimental,
     classify_cue_licking,
     find_ttl_pulses,

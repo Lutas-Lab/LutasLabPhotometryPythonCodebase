@@ -22,7 +22,9 @@ def test_basis_convolution_and_kernel_reconstruction():
     design = convolve_basis(events, basis.values)
     assert design.shape == (30, 3)
     coefficients = np.array([1.0, -0.5, 0.25])
-    np.testing.assert_allclose(reconstruct_kernel(basis.values, coefficients), basis.values @ coefficients)
+    np.testing.assert_allclose(
+        reconstruct_kernel(basis.values, coefficients), basis.values @ coefficients
+    )
 
 
 def test_signed_lag_basis_marks_unobserved_edges():

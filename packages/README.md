@@ -16,7 +16,7 @@ Install the complete workspace from the monorepo root with the recommended
 python -m pip install "uv==0.12.21"
 uv python install 3.12
 uv sync --frozen --all-packages --extra dev
-uv run python -m scripts.check_install
+uv run lutaslab-check-install
 ```
 
 This creates `.venv` beside the root `pyproject.toml`; Conda is not required.
@@ -51,7 +51,7 @@ support contract and [`../docs/release-hardening.md`](../docs/release-hardening.
 for the remaining release work.
 
 Curated, output-free example notebooks are retained within each sensor package
-under `examples/notebooks`. `scripts/validate_notebooks.py` checks their JSON,
+under `examples/notebooks`. `lutaslab-validate-notebooks` checks their JSON,
 Python syntax, cleared execution state, and absence of machine-specific paths.
 
 ## Migration order

@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.pynapple_utils import session_to_core
+from lutaslab_photometry.pynapple_utils import session_to_core
 
 
 def test_session_to_core_preserves_photometry_and_behavior():

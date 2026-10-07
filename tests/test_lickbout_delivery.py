@@ -1,16 +1,16 @@
-from pathlib import Path
 import importlib.util
 import shutil
 import unittest
+from pathlib import Path
 
 import numpy as np
 
-from src.lickbout_delivery import (
+from lutaslab_photometry.lickbout_delivery import (
     compute_lickbout_delivery_psth,
     match_cue_lickbout_delivery_trials,
     save_delivery_sorted_heatmap,
 )
-from src.session_manifest import processed_session_path
+from lutaslab_photometry.session_manifest import processed_session_path
 
 
 class LickBoutDeliveryTests(unittest.TestCase):

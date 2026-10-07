@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import hashlib
-from importlib import metadata
 import json
-from pathlib import Path
 import platform
 import subprocess
 import sys
-from typing import Any, Iterable, Mapping
-
+from collections.abc import Iterable, Mapping
+from datetime import datetime, timezone
+from importlib import metadata
+from pathlib import Path
+from typing import Any
 
 DEFAULT_PACKAGES = (
     "lutaslab-core",
@@ -84,7 +84,7 @@ def describe_path(path: str | Path, *, hash_file: bool = True) -> dict[str, Any]
 
 
 def _package_versions(package_names: Iterable[str]) -> dict[str, str | None]:
-    versions = {}
+    versions: dict[str, str | None] = {}
     for name in package_names:
         try:
             versions[name] = metadata.version(name)

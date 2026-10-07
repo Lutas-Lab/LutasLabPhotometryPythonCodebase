@@ -46,7 +46,7 @@ sensitive to session differences and cannot by itself establish sensory coding.
 ## Run
 
 ```powershell
-python scripts/run_multitastant_analysis.py `
+lutaslab-run-multitastant-analysis `
   "C:\path\to\Depository Data" `
   "outputs\multitastant-analysis"
 ```

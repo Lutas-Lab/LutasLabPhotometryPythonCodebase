@@ -1,13 +1,12 @@
 import importlib.util
-from pathlib import Path
 import shutil
 import unittest
-
+from pathlib import Path
 
 SCIPY_AVAILABLE = importlib.util.find_spec("scipy") is not None
 if SCIPY_AVAILABLE:
-    from src.batch_processing import preprocess_manifest_sessions
-    from src.session_manifest import processed_session_path
+    from lutaslab_photometry.batch_processing import preprocess_manifest_sessions
+    from lutaslab_photometry.session_manifest import processed_session_path
 
 
 @unittest.skipUnless(SCIPY_AVAILABLE, "SciPy is not installed in the local smoke-test runtime")

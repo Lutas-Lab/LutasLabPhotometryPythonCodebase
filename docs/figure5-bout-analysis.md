@@ -50,7 +50,7 @@ to isolate because delivery and consummatory licking are tightly correlated.
 ## Run
 
 ```powershell
-python scripts/run_figure5_bout_analysis.py `
+lutaslab-run-figure5-bout-analysis `
   "C:\path\to\Depository Data" `
   "outputs\figure5-bout-analysis" `
   --bout-gaps 0.5 1.0 1.5 `

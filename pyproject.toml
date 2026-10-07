@@ -7,7 +7,7 @@ name = "lutaslab-photometry"
 version = "0.1.0"
 description = "Fiber photometry preprocessing, visualization, and behavioral modeling"
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.10,<3.13"
 dependencies = [
     "lutaslab-core>=0.1,<0.2",
     "numpy>=1.26,<3",
@@ -24,21 +24,39 @@ gui = [
     "pandas>=2,<3",
     "streamlit>=1.41,<2",
 ]
-modeling = [
-    "nemos>=0.2.9,<0.3",
-    "jax>=0.4,<1",
-]
 nemos = [
-    "nemos>=0.2.9,<0.3",
-    "jax>=0.4,<1",
+    "nemos>=0.2.9,<0.3; python_version >= '3.12'",
+    "jax>=0.11,<0.12; python_version >= '3.12'",
 ]
 dev = [
+    "mypy>=1.14,<2",
     "pytest>=8,<9",
     "ruff>=0.8,<1",
 ]
 
+[project.scripts]
+lutaslab-build-figure4-dopamine-input = "lutaslab_photometry.cli.build_figure4_dopamine_input:main"
+lutaslab-check-install = "lutaslab_photometry.cli.check_install:main"
+lutaslab-compare-figure5-reanalysis = "lutaslab_photometry.cli.compare_figure5_reanalysis:main"
+lutaslab-fit-dopamine-pka-transfer = "lutaslab_photometry.cli.fit_dopamine_pka_transfer:main"
+lutaslab-plot-figure5-reanalysis = "lutaslab_photometry.cli.plot_figure5_reanalysis:main"
+lutaslab-run-figure5-bout-analysis = "lutaslab_photometry.cli.run_figure5_bout_analysis:main"
+lutaslab-run-figure5-reanalysis = "lutaslab_photometry.cli.run_figure5_reanalysis:main"
+lutaslab-run-forecasting = "lutaslab_photometry.cli.run_forecasting:main"
+lutaslab-run-lickbout-delivery-analysis = "lutaslab_photometry.cli.run_lickbout_delivery_analysis:main"
+lutaslab-run-multitastant-analysis = "lutaslab_photometry.cli.run_multitastant_analysis:main"
+lutaslab-run-preprocess = "lutaslab_photometry.cli.run_preprocess:main"
+lutaslab-run-preprocess-batch = "lutaslab_photometry.cli.run_preprocess_batch:main"
+lutaslab-run-psth = "lutaslab_photometry.cli.run_psth:main"
+lutaslab-run-psth-statistics = "lutaslab_photometry.cli.run_psth_statistics:main"
+lutaslab-validate-figure5-glm = "lutaslab_photometry.cli.validate_figure5_glm:main"
+lutaslab-validate-notebooks = "lutaslab_photometry.cli.validate_notebooks:main"
+
 [tool.setuptools]
-packages = ["src"]
+packages = ["lutaslab_photometry", "lutaslab_photometry.cli"]
+
+[tool.setuptools.package-data]
+lutaslab_photometry = ["data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -49,7 +67,23 @@ target-version = "py310"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E9", "F63", "F7", "F82"]
+select = ["E", "F", "I", "B", "UP", "NPY"]
+
+[tool.mypy]
+# NumPy 2.4's installed stubs use Python 3.12 type-statement syntax. Ruff and
+# the 3.10/3.11 CI jobs separately enforce the package's base compatibility.
+python_version = "3.12"
+files = ["packages/lutaslab-core/src/lutaslab_core"]
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+show_error_codes = true
+pretty = true
+
+[[tool.mypy.overrides]]
+module = ["pynapple", "pynapple.*", "scipy", "scipy.*"]
+ignore_missing_imports = true
 
 [tool.uv]
 required-version = ">=0.12.21,<0.13"

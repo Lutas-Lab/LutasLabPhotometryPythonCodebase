@@ -1,9 +1,9 @@
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 import numpy as np
 
-from src.save_sessiondata import load_session, save_session
+from lutaslab_photometry.save_sessiondata import load_session, save_session
 
 
 class SessionPersistenceTests(unittest.TestCase):

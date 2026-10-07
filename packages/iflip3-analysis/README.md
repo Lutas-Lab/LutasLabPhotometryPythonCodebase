@@ -53,43 +53,14 @@ uv run jupyter lab
 
 ## Run the example workflow
 
-The default selects the fourth measurement file (zero-based index 3), uses
-one-second bins, an afterpulse ratio of 0.03, and the 0.4–12.3 ns lifetime
-window. Background index 1 selects the second background file, which matches
-the laser power used for example recording 004:
-
-```bat
-python examples\analyze_mouse.py ^
-  "C:\path\to\measurement-folder" ^
-  --output analysis_output_004 ^
-  --recording-index 3 ^
-  --background-index 1 ^
-  --bin-seconds 1 ^
-  --afterpulse-ratio 0.03
-```
-
-Outputs:
-
-- `analysis_summary.txt`: fitted lifetime and acquisition parameters
-- `time_series.csv`: MPET, component counts/fractions, and intensity QC
-- `lifetime_vs_intensity.png`: lifetime readouts compared with intensity
-
-The background does not need to be stored beside the measurement files. To use
-a laboratory background reference from another folder, provide its full path:
-
-```bat
-python examples\analyze_mouse.py ^
-  "C:\path\to\measurement-folder" ^
-  --output analysis_output ^
-  --recording-index 0 ^
-  --background-file "D:\lifetime-backgrounds\matched_background.iFLiP3"
-```
-
-The same background may be reused for many recordings when laser power,
-detector settings, timing configuration, and the relevant optical conditions
-are unchanged. The selected background filename is written to
-`analysis_summary.txt`. Periodic replacement measurements are recommended to
-quantify long-term background drift.
+Use `packages/iflip3-analysis/examples/notebooks/01_lifetime_qc.ipynb` for the
+maintained end-to-end example. Its configuration selects the measurement and
+matched background explicitly, together with temporal binning, afterpulse
+ratio, and lifetime window. A background may live outside the measurement
+folder and may be reused only when laser power, detector settings, timing
+configuration, and relevant optical conditions are unchanged. Record the
+selected background with every result and acquire replacements periodically to
+quantify long-term drift.
 
 ## Getting started in Jupyter
 
@@ -115,9 +86,8 @@ uv run jupyter lab
 
 Open the first notebook and edit its session-configuration cell. Run the
 lifetime QC notebook before the event-analysis notebook. The first two
-notebooks call the package API directly; the Python scripts remain the
-preferred route for reproducible or batch processing. Treat the third notebook
-as a preserved analysis draft rather than a validated example.
+notebooks call the package API directly. Treat the third notebook as a
+preserved analysis draft rather than a validated example.
 
 ## Example results
 
@@ -137,15 +107,8 @@ while intensity is retained as a QC channel and shows additional artifacts:
 
 ![Lifetime and intensity time courses for example recording 004](docs/images/example_004_time_series.png)
 
-Regenerate these figures from a local dataset with:
-
-```bat
-python examples\generate_readme_figures.py ^
-  "C:\path\to\measurement-folder" ^
-  --recording-index 3 ^
-  --background-index 1 ^
-  --afterpulse-ratio 0.03
-```
+Reproduce the analysis from a local dataset with the lifetime-QC notebook and
+record the selected background and afterpulse settings with the output.
 
 ## Core API
 
@@ -229,26 +192,11 @@ Install Pynapple as an optional event-analysis dependency:
 uv sync --frozen --all-packages --extra dev --extra events
 ```
 
-Run a complete aligned analysis with an iFLiP file, its NI-DAQ file, and a
-laser-power-matched background file. The background can be anywhere on disk:
-
-```bat
-python examples\analyze_aligned_session.py ^
-  "C:\path\to\recording004.iFLiP3" ^
-  "C:\path\to\recording-004-nidaq.mat" ^
-  "D:\lifetime-backgrounds\matched_background.iFLiP3" ^
-  --running-file "C:\path\to\recording-004-running.mat" ^
-  --output aligned_output_004
-```
-
-Outputs include synchronization diagnostics, aligned MPET and intensity CSVs,
-lick, visual-cue, and Ensure timestamps, an Ensure-aligned MPET CSV, and a
-summary figure.
-The lifetime measurement is sampled at 10 Hz, so event timing can be aligned
-to the sub-millisecond clock fit while the lifetime response itself still has
-0.1-second sample resolution.
-
-The same workflow is available in Python or Jupyter:
+Run a complete aligned analysis through the Python API with an iFLiP file, its
+NI-DAQ file, and a laser-power-matched background file. The background can be
+anywhere on disk. The lifetime measurement is sampled at 10 Hz, so event timing
+can be aligned to the sub-millisecond clock fit while the lifetime response
+itself still has 0.1-second sample resolution:
 
 ```python
 import pynapple as nap

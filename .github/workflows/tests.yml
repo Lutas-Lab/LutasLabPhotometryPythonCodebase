@@ -35,13 +35,34 @@ jobs:
           python -m pip install "uv==0.12.21"
           uv sync --frozen --extra dev --extra forecasting --python 3.12
       - name: Compile source and notebooks
-        run: .venv/bin/python -m compileall -q src scripts tests
+        run: .venv/bin/python -m compileall -q lutaslab_photometry tests
       - name: Validate maintained notebooks
-        run: .venv/bin/python scripts/validate_notebooks.py
+        run: .venv/bin/lutaslab-validate-notebooks
       - name: Run conventional-photometry tests
         run: .venv/bin/python -m pytest
       - name: Lint conventional-photometry code
-        run: .venv/bin/ruff check src scripts tests
+        run: .venv/bin/ruff check lutaslab_photometry tests streamlit_app.py
+      - name: Type-check shared core public implementation
+        run: .venv/bin/mypy
+
+  conventional-photometry-base-python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install locked base analysis stack
+        run: |
+          python -m pip install "uv==0.12.21"
+          uv sync --frozen --extra dev --python ${{ matrix.python-version }}
+      - name: Run base conventional-photometry tests
+        run: .venv/bin/python -m pytest
 
   fluopulse:
     runs-on: ubuntu-latest
@@ -96,7 +117,7 @@ jobs:
         run: >-
           .venv/bin/python -c
           "import numpy as np;
-          from src.nemos_analysis import fit_gaussian_glm;
+          from lutaslab_photometry.nemos_analysis import fit_gaussian_glm;
           X=np.column_stack([np.ones(40),np.linspace(-1,1,40)]);
           y=0.25+0.8*X[:,1];
           prediction=np.asarray(fit_gaussian_glm(X,y,regularizer_strength=0.1).predict(X));

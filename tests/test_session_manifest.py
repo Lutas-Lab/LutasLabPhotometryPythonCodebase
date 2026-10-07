@@ -1,7 +1,7 @@
-from pathlib import Path
 import unittest
+from pathlib import Path
 
-from src.session_manifest import (
+from lutaslab_photometry.session_manifest import (
     load_session_manifest,
     processed_session_path,
     resolve_session_channel,

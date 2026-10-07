@@ -61,18 +61,13 @@ uv run jupyter lab
 
 ## Inspect a Doric recording
 
-```bat
-python examples\inspect_recording.py ^
-  "C:\path\to\260923_SC81_run1_0000.doric" ^
-  --output analysis_output_run1 ^
-  --waveform-index 1000
-```
-
-This writes a vendor-lifetime QC plot and, when a waveform index is supplied,
-an independent IRF-convolved single-exponential fit. The fit is not intended to
-reproduce Doric's proprietary deconvolution exactly. Fit-window selection is
-important: on the local example, a 0-40 ns window produced values near `Tau01`,
-whereas shorter windows were substantially biased. This observation is a
+Open `packages/fluopulse-analysis/examples/notebooks/01_load_and_qc.ipynb` for
+vendor-lifetime QC and
+`packages/fluopulse-analysis/examples/notebooks/02_waveform_reanalysis.ipynb`
+for independent IRF-convolved fits. The latter is not intended to reproduce
+Doric's proprietary deconvolution exactly. Fit-window selection is important:
+on the local example, a 0-40 ns window produced values near `Tau01`, whereas
+shorter windows were substantially biased. This observation is a
 method-development result, not a completed validation.
 
 ## Align with NI-DAQ
@@ -85,17 +80,10 @@ Z:\Photometry\<mouse>\<mouse>_<date>\<mouse>-<date>-<run>-running.mat
 ```
 
 A Doric filename such as `260923_SC81_run1_0000.doric` supplies mouse, date,
-and run automatically:
-
-```bat
-python examples\analyze_aligned_session.py ^
-  "C:\path\to\260923_SC81_run1_0000.doric" ^
-  --output analysis_output_aligned
-```
-
-Use `--nidaq-file` and `--running-file` to override inferred paths. The command
-writes synchronization diagnostics, an aligned lifetime CSV, a behavior-event
-CSV, and a summary plot.
+and run automatically. Use `nidaq_paths_for_doric` to infer companion paths or
+pass explicit paths to `process_aligned_session`, as shown below. The aligned
+event-analysis workflow is demonstrated in
+`packages/fluopulse-analysis/examples/notebooks/03_aligned_event_analysis.ipynb`.
 
 Running timestamps are taken directly from the running MAT file when present.
 Otherwise, speed is attached to CAM pulses when the lengths match; if they do
@@ -104,8 +92,8 @@ and should be treated as a QC assumption.
 
 Because a uniform CAM pulse train does not encode pulse identity, the default
 alignment assumes that the first saved Doric and NI-DAQ CAM pulses correspond.
-If one system missed known leading pulses, use `--doric-sync-start-index` or
-`--nidaq-sync-start-index`.
+If one system missed known leading pulses, pass `doric_sync_start_index` or
+`nidaq_sync_start_index` to the alignment API.
 
 ## Python and Pynapple
 

@@ -1,10 +1,10 @@
-from pathlib import Path
 import shutil
 import unittest
+from pathlib import Path
 
 import numpy as np
 
-from src.group_analysis import (
+from lutaslab_photometry.group_analysis import (
     compute_manifest_psth,
     compute_manifest_psth_strata,
     extract_perievent_event_rate,
@@ -12,7 +12,7 @@ from src.group_analysis import (
     generate_null_onsets,
     normalize_trials,
 )
-from src.session_manifest import processed_session_path
+from lutaslab_photometry.session_manifest import processed_session_path
 
 
 def _write_processed_session(data_root, info, value):
@@ -108,7 +108,7 @@ class GroupAnalysisTests(unittest.TestCase):
         ]
         data_root = Path("tests/_group_analysis_data")
         try:
-            for info, value in zip(sessions, (1.0, 3.0, 5.0)):
+            for info, value in zip(sessions, (1.0, 3.0, 5.0), strict=True):
                 _write_processed_session(data_root, info, value)
 
             results = compute_manifest_psth(
@@ -139,7 +139,7 @@ class GroupAnalysisTests(unittest.TestCase):
         ]
         data_root = Path("tests/_group_analysis_data")
         try:
-            for info, value in zip(sessions, (1.0, 2.0)):
+            for info, value in zip(sessions, (1.0, 2.0), strict=True):
                 _write_processed_session(data_root, info, value)
             results = compute_manifest_psth(
                 sessions,
@@ -227,7 +227,9 @@ class GroupAnalysisTests(unittest.TestCase):
         ]
         data_root = Path("tests/_group_analysis_data")
         try:
-            for info, value in zip(sessions, (1.0, 2.0, 3.0, 4.0)):
+            for info, value in zip(
+                sessions, (1.0, 2.0, 3.0, 4.0), strict=True
+            ):
                 _write_processed_session(data_root, info, value)
             results = compute_manifest_psth_strata(
                 sessions,

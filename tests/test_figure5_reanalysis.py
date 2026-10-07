@@ -2,7 +2,7 @@ from pathlib import Path
 
 import numpy as np
 
-from src.figure5_reanalysis import (
+from lutaslab_photometry.figure5_reanalysis import (
     contiguous_trial_blocks,
     fit_nested_blocked_ridge,
     load_raw_figure5_trials,
@@ -64,13 +64,13 @@ def test_load_raw_figure5_trials_uses_manifest_channel_and_fixed_cue_window(
         return session
 
     monkeypatch.setattr(
-        "src.figure5_reanalysis.load_session_manifest", lambda _: [manifest_session]
+        "lutaslab_photometry.figure5_reanalysis.load_session_manifest", lambda _: [manifest_session]
     )
     monkeypatch.setattr(
-        "src.figure5_reanalysis._raw_processed_session_path",
+        "lutaslab_photometry.figure5_reanalysis._raw_processed_session_path",
         lambda *_: expected_path,
     )
-    monkeypatch.setattr("src.figure5_reanalysis.load_session", fake_load_session)
+    monkeypatch.setattr("lutaslab_photometry.figure5_reanalysis.load_session", fake_load_session)
     trials = load_raw_figure5_trials("manifest.csv", "processed")
 
     # The 7-second lick does not qualify despite the truncated detected cue;
@@ -83,5 +83,7 @@ def test_load_raw_figure5_trials_uses_manifest_channel_and_fixed_cue_window(
     assert trials.lick_events[0, 750] == 1.0
 
     baseline = channel_2[(time >= 35.0) & (time < 40.0)]
-    expected_first = (channel_2[np.searchsorted(time, 35.0)] - baseline.mean()) / baseline.std(ddof=1)
+    expected_first = (
+        channel_2[np.searchsorted(time, 35.0)] - baseline.mean()
+    ) / baseline.std(ddof=1)
     np.testing.assert_allclose(trials.photometry[0, 0], expected_first)

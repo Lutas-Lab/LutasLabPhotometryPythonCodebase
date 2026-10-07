@@ -1,7 +1,8 @@
-import numpy as np
 import unittest
 
-from src.nemos_analysis import (
+import numpy as np
+
+from lutaslab_photometry.nemos_analysis import (
     _apply_temporal_basis,
     make_gapped_folds,
     make_time_gapped_folds,

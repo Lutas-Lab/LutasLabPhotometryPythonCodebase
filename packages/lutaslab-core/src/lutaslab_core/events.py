@@ -41,7 +41,7 @@ class TTLPulses:
         object.__setattr__(self, "falling_indices", falling)
 
     @classmethod
-    def empty(cls) -> "TTLPulses":
+    def empty(cls) -> TTLPulses:
         empty_time = np.array([], dtype=float)
         empty_index = np.array([], dtype=int)
         return cls(empty_time, empty_time.copy(), empty_index, empty_index.copy())

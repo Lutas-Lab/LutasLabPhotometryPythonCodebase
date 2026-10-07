@@ -1,14 +1,18 @@
 import importlib.util
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 import numpy as np
-
 
 SCIPY_AVAILABLE = importlib.util.find_spec("scipy") is not None
 if SCIPY_AVAILABLE:
     from scipy.io import savemat
-    from src.load_data import DEFAULT_CHANNEL_MAP, get_session_paths, load_session_data
+
+    from lutaslab_photometry.load_data import (
+        DEFAULT_CHANNEL_MAP,
+        get_session_paths,
+        load_session_data,
+    )
 
 
 @unittest.skipUnless(SCIPY_AVAILABLE, "SciPy is not installed in the local smoke-test runtime")

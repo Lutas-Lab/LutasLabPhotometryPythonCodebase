@@ -5,7 +5,6 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-
 REQUIRED_SESSION_COLUMNS = ("mouse", "date", "run")
 
 

@@ -1,6 +1,6 @@
 import json
-from pathlib import Path
 import shutil
+from pathlib import Path
 
 from lutaslab_core.provenance import build_run_record, describe_path, write_run_record
 

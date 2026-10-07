@@ -1,8 +1,9 @@
 # Reproducible Python environment
 
-The authoritative monorepo environment uses Python 3.12 and is resolved in
-`uv.lock`. The lock includes every workspace package and optional extra, with
-exact versions, source artifacts, and hashes. Do not hand-edit the lockfile.
+The base workspace packages support Python 3.10–3.12. The recommended complete
+environment uses Python 3.12 so it can also install the optional NeMoS/JAX
+backend. `uv.lock` contains the compatible resolution, source artifacts, and
+hashes; do not hand-edit it.
 
 ## Recommended lab-user environment
 
@@ -13,7 +14,7 @@ Conda is not required. Open PowerShell in the repository root, where
 python -m pip install "uv==0.12.21"
 uv python install 3.12
 uv sync --frozen --all-packages --extra dev
-uv run python -m scripts.check_install
+uv run lutaslab-check-install
 ```
 
 This installs conventional photometry, FluoPulse, iFLiP3, JupyterLab, and the
@@ -26,7 +27,7 @@ the repository and run commands through `uv`:
 
 ```powershell
 uv run jupyter lab
-uv run python scripts/run_preprocess_batch.py --help
+uv run lutaslab-run-preprocess-batch --help
 ```
 
 `uv run` reuses the existing environment and checks that it remains consistent
@@ -58,7 +59,7 @@ conda create -n photometry python=3.12 pip jupyterlab ipykernel -y
 conda activate photometry
 python -m pip install -e packages/lutaslab-core -e . `
   -e packages/fluopulse-analysis -e packages/iflip3-analysis
-python -m scripts.check_install
+lutaslab-check-install
 ```
 
 If `conda create` stops while gathering or reviewing channels, the repository
@@ -75,13 +76,8 @@ analysis requires it:
 uv sync --frozen --all-packages --extra dev --extra nemos
 ```
 
-The historical extra name remains accepted:
-
-```powershell
-uv sync --frozen --all-packages --extra dev --extra modeling
-```
-
-Running a later sync without `--extra nemos` or `--extra modeling` removes the
+The `nemos` extra requires Python 3.12 and constrains JAX to the tested 0.11
+release series. Running a later sync without `--extra nemos` removes the
 optional backend from the environment.
 
 ## Maintainer and developer environment
@@ -94,7 +90,9 @@ suite with:
 ```powershell
 uv sync --frozen --all-packages --extra dev --extra forecasting
 uv run python -m pytest
-uv run ruff check src scripts tests packages
+uv run ruff check lutaslab_photometry tests streamlit_app.py
+uv run ruff check packages/lutaslab-core/src packages/lutaslab-core/tests
+uv run mypy
 ```
 
 Install and test NeMoS separately so an optional JAX dependency problem cannot

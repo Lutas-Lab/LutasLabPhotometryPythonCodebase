@@ -8,14 +8,14 @@ data or the richer processed-session representation.
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
 import gzip
 import hashlib
 import io
 import json
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable, Mapping, Sequence
-
+from typing import Any
 
 SCHEMA_VERSION = "1.0"
 
@@ -255,7 +255,9 @@ class PublicationBundle:
         (self.root / "README.md").write_text("\n".join(readme), encoding="utf-8")
 
         checksum_paths = sorted(
-            path for path in self.root.rglob("*") if path.is_file() and path.name != "checksums.sha256"
+            path
+            for path in self.root.rglob("*")
+            if path.is_file() and path.name != "checksums.sha256"
         )
         checksum_text = "".join(
             f"{_sha256(path)}  {path.relative_to(self.root).as_posix()}\n"
@@ -319,7 +321,8 @@ def validate_publication_bundle(root: str | Path) -> BundleValidation:
         errors.append("missing checksums.sha256")
     else:
         checked_paths: set[str] = set()
-        for line_number, line in enumerate(checksum_path.read_text(encoding="utf-8").splitlines(), 1):
+        checksum_lines = checksum_path.read_text(encoding="utf-8").splitlines()
+        for line_number, line in enumerate(checksum_lines, 1):
             try:
                 expected, relative = line.split("  ", 1)
                 path = root / _safe_relative_path(relative)
@@ -335,10 +338,12 @@ def validate_publication_bundle(root: str | Path) -> BundleValidation:
             if path.is_file() and path.name != "checksums.sha256"
         }
         if checked_paths != actual_paths:
-            missing = sorted(actual_paths - checked_paths)
+            checksum_missing = sorted(actual_paths - checked_paths)
             extra = sorted(checked_paths - actual_paths)
-            if missing:
-                errors.append(f"files absent from checksums.sha256: {missing}")
+            if checksum_missing:
+                errors.append(
+                    f"files absent from checksums.sha256: {checksum_missing}"
+                )
             if extra:
                 errors.append(f"checksums reference absent files: {extra}")
     return BundleValidation(

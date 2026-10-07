@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from src.trial_classification import (
+from lutaslab_photometry.trial_classification import (
     classify_cue_licking,
     classify_session_cue_licking,
 )

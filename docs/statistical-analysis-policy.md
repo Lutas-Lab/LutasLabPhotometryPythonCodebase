@@ -10,6 +10,38 @@ All model comparisons use out-of-fold predictions from the same contiguous
 trial-block splits. Ridge strength is selected inside each outer training
 partition. The mouse is the biological unit for group inference.
 
+Forecasting likewise uses gapped forward-chaining inner folds inside each
+outer training prefix for regularization selection. Binary lick forecasts use
+average precision as the primary metric and report AUROC, log loss, prevalence,
+and improvement over prevalence. Fold-local prevalence predictions and the
+target-history model provide no-skill and scientific baselines, respectively.
+
+## PSTH metric comparisons
+
+The primary PSTH inference uses equal-weight mouse summaries. With `--test
+auto`, repeated conditions in the same mice use a paired t-test and independent
+groups use Welch's test; this choice follows the design rather than a
+data-dependent normality screen. Outputs report Cohen's dz or Hedges' g as
+appropriate, together with reproducible mouse-level percentile-bootstrap 95%
+intervals for the raw difference and effect size. Paired bootstrap samples
+resample matched mice jointly; independent comparisons resample mice within
+each group separately.
+
+All pairwise comparisons emitted by one run form one Holm family, including
+all requested metrics, groups, conditions, and comparison directions. All
+shuffle tests emitted by that run form a second, separate Holm family. Output
+rows record both the family label and its size.
+
+Shuffle-test p-values use the finite-sample correction `(k + 1) / (n + 1)`
+with ties included among equally extreme null results. Non-finite null draws
+are removed before the exceedance count and denominator are calculated.
+
+A mixed-effects analysis of trial-level values is an optional sensitivity
+analysis, not a way to count trials as independent animals. It should be
+prespecified, nest trials within sessions within mice, and only be used when
+the number of mice and sessions can support the proposed random-effects
+structure.
+
 ## Figure 5 reanalysis
 
 Primary descriptive comparison:

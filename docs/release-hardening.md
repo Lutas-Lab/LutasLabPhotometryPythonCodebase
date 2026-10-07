@@ -27,8 +27,10 @@ codebase to a reproducible internal release.
 ## 3. Environments and dependencies
 
 - [x] Keep NeMoS/JAX out of the base installation.
-- [x] Preserve the historical `modeling` dependency extra.
-- [x] Create a reproducible Python 3.12 `uv.lock` with package hashes.
+- [x] Expose one Python-3.12-only `nemos` extra and constrain JAX to the tested
+  0.11 release series.
+- [x] Create a reproducible Python 3.10–3.12 `uv.lock` with package hashes;
+  retain Python 3.12 as the recommended complete environment.
 - [x] Verify a clean base install and a clean optional-NeMoS install.
 - [x] Verify FluoPulse `h5py` import and package tests in the current Windows
   analysis environment (`h5py 3.16.0`; 15 tests passed).
@@ -39,6 +41,7 @@ codebase to a reproducible internal release.
   `fluopulse-analysis`, and `iflip3-analysis` independently.
 - [x] Add a separate optional-NeMoS CI job so its dependency failures cannot
   hide failures in the default analysis path.
+- [x] Add Python 3.10 and 3.11 CI coverage for the base conventional package.
 - [x] Define public API compatibility expectations and deprecation policy.
 - [x] Run all package tests from clean default and optional-NeMoS environments.
 - [ ] Tag and document the first internal release.

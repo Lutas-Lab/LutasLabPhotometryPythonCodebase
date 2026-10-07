@@ -1,13 +1,20 @@
 import json
-from pathlib import Path
 import shutil
+from pathlib import Path
 
 import pytest
 
-from src.published_reanalysis_config import (
+from lutaslab_photometry.published_reanalysis_config import (
+    default_published_reanalysis_config_path,
     load_published_reanalysis_config,
     resolve_dataset_paths,
 )
+
+
+def test_packaged_default_config_loads():
+    config = load_published_reanalysis_config(default_published_reanalysis_config_path())
+
+    assert "figure5_total" in config["datasets"]
 
 
 def test_repository_config_loads_and_resolves_below_root():

@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from src.gui_workflows import (
+from lutaslab_photometry.gui_workflows import (
     MANIFEST_COLUMNS,
     build_preprocess_command,
     build_psth_command,
@@ -19,7 +19,6 @@ from src.gui_workflows import (
     run_command,
     write_manifest,
 )
-
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 TRIAL_CLASS_LABELS = {

@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.dopamine_pka_model import (
+from lutaslab_photometry.dopamine_pka_model import (
     causal_biexponential_kernel,
     fit_dopamine_to_pka,
     predict_pka_from_dopamine,

@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.multitastant_analysis import TastantDesign, build_paired_tastant_design
+from lutaslab_photometry.multitastant_analysis import TastantDesign, build_paired_tastant_design
 
 
 def _design(offset):
@@ -9,7 +9,12 @@ def _design(offset):
         matrix=matrix,
         response=np.arange(12, dtype=float),
         groups=np.repeat(np.arange(3), 4),
-        slices={"intercept": slice(0, 1), "lick": slice(1, 2), "bout": slice(2, 3), "delivery": slice(3, 4)},
+        slices={
+            "intercept": slice(0, 1),
+            "lick": slice(1, 2),
+            "bout": slice(2, 3),
+            "delivery": slice(3, 4),
+        },
         penalty_weights=np.array([0.0, 1.0, 1.0, 1.0]),
         delivery_basis_values=np.ones((3, 1)),
         delivery_lag_seconds=np.arange(3),

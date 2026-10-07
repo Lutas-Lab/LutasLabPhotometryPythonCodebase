@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "datasets": {
+    "figure5_dry": "Figure 5 - Model GLM/Figure 5 - ac- GLM dry licking/FilteredGLM_8sNoEnsureFinalSave.mat",
+    "figure5_total": "Figure 5 - Model GLM/Figure 5 - d- GLM total licking/FilteredGLM8sWithEnsureTotalLickingFinalsave.mat",
+    "Ensure": "Figure 6 - Multitastant/Figure 6 - h- Ensure match Sucralose/Ensure/ensuredata.mat",
+    "Sucralose": "Figure 6 - Multitastant/Figure 6 - h- Ensure match Sucralose/Sucralose/sucralosedata.mat",
+    "Sucrose": "Figure 6 - Multitastant/Figure 6 - i- Match licking Ensure vs Sucrose/sucrosedates-AlignSucrose/23-Sep-2025-ensure-sucrosedates-nomeanacrossmice.mat",
+    "EnsureQuinineCohort": "Figure 6 - Multitastant/Figure 6 - k- Ensure match Quinine/Ensure/ensurematchquinine_AlignEnsure.mat",
+    "QuinineEnsureMatched": "Figure 6 - Multitastant/Figure 6 - k- Ensure match Quinine/Quinine/quininematchensure_AlignEnsure.mat",
+    "Water": "Figure 6 - Multitastant/Figure 6 - d-f- Dopamine release with aversive tastant/Quinine GRAB/Match AUC Licking/watermatchQuinine-Ensure Align.mat",
+    "QuinineWaterMatched": "Figure 6 - Multitastant/Figure 6 - d-f- Dopamine release with aversive tastant/Quinine GRAB/Match AUC Licking/quininematchwater-Ensure Align.mat"
+  }
+}

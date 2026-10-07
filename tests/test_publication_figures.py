@@ -1,14 +1,13 @@
 import importlib.util
-from pathlib import Path
 import shutil
 import unittest
+from pathlib import Path
 
-from src.publication_figures import (
+from lutaslab_photometry.publication_figures import (
     configure_publication_style,
     save_figure_formats,
     save_metric_figures,
 )
-
 
 MATPLOTLIB_AVAILABLE = importlib.util.find_spec("matplotlib") is not None
 SCIPY_AVAILABLE = importlib.util.find_spec("scipy") is not None

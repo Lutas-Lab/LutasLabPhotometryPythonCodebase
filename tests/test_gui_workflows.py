@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from src.gui_workflows import (
+from lutaslab_photometry.gui_workflows import (
     build_preprocess_command,
     build_psth_command,
     manifest_csv_text,
@@ -69,9 +69,11 @@ def test_build_preprocess_command_uses_current_python_and_safe_arguments():
         overwrite=True,
         post_cue_window=20,
     )
-    assert command[1].endswith("scripts\\run_preprocess_batch.py") or command[1].endswith(
-        "scripts/run_preprocess_batch.py"
-    )
+    assert command[:3] == [
+        command[0],
+        "-m",
+        "lutaslab_photometry.cli.run_preprocess_batch",
+    ]
     assert command[command.index("--data-root") + 1] == str(Path("Z:/Photometry Data"))
     assert "--overwrite" in command
     assert command[command.index("--post-cue-window") + 1] == "20.0"

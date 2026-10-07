@@ -11,7 +11,6 @@ from scipy.io import loadmat
 
 from .events import TTLPulses, find_ttl_pulses
 
-
 DEFAULT_CHANNEL_ROWS: dict[str, int] = {
     "photoreceiver_1": 0,
     "sync": 1,

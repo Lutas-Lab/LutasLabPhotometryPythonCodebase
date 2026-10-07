@@ -2,7 +2,7 @@
 
 This workflow reanalyzes the processed 20-second trials deposited for Figure
 5. It complements, rather than replaces, the exact archived-MATLAB prediction
-check in `scripts/validate_figure5_glm.py`.
+check exposed by `lutaslab-validate-figure5-glm`.
 
 ## Model
 
@@ -54,7 +54,7 @@ on the other modeled events.
 From the repository root:
 
 ```powershell
-python scripts/run_figure5_reanalysis.py `
+lutaslab-run-figure5-reanalysis `
   "C:\path\to\Depository Data" `
   "outputs\figure5-reanalysis" `
   --basis-counts 6 12 24 `

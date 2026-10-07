@@ -24,19 +24,17 @@ default for continuous photometry models. It provides the temporal-basis,
 signed-lag, blocked/grouped cross-validation, ridge fitting, prediction, and
 kernel-reconstruction operations used by the Figure 5 reanalyses.
 
-NeMoS is optional. `src.nemos_analysis` remains available for older notebooks
+NeMoS is optional. `lutaslab_photometry.nemos_analysis` remains available for older notebooks
 and for analyses that specifically need NeMoS/JAX functionality, but it is not
 required by preprocessing, plotting, Pynapple integration, or the supported
 continuous-photometry GLM workflow. New analyses should use
 `lutaslab_core.glm` unless a documented NeMoS-only capability is needed.
 
-The optional dependency groups `nemos` and `modeling` currently install the
-same compatibility backend. `modeling` is retained so existing installation
-commands continue to work.
-
-The complete monorepo environment targets Python 3.12 because NeMoS 0.2.9 does
-not support Python 3.10 or 3.11. The independently packaged shared core,
-FluoPulse, and iFLiP3 libraries retain their broader Python 3.10+ declarations.
+The base `lutaslab-photometry` package supports Python 3.10–3.12, matching the
+other workspace packages. The single `nemos` extra is enabled only on Python
+3.12 and constrains JAX to the tested 0.11 release series. The repository's
+recommended environment remains Python 3.12 so it can run every optional
+workflow, while base preprocessing and analysis do not require NeMoS or JAX.
 
 ## Repository lifecycle
 
@@ -51,9 +49,10 @@ is not part of the package migration itself.
 - Shared dataclasses, event utilities, synchronization, peri-event functions,
   and GLM primitives exported by `lutaslab_core` are the intended public API.
 - Acquisition-specific preprocessing APIs are supported within their packages.
-- Files under `scripts/` are reproducible workflows and may expose additional
+- Modules under `lutaslab_photometry/cli/` are reproducible workflows exposed as
+  console commands and may provide additional
   experiment-specific options.
-- Notebook code and `src.nemos_analysis` are compatibility interfaces and are
+- Notebook code and `lutaslab_photometry.nemos_analysis` are compatibility interfaces and are
   not the preferred foundation for new reusable code.
 
 The current release series is `0.1.x`: scientifically usable and tested, but
@@ -67,6 +66,6 @@ removal should first be documented and, when practical, emit a
 listed in the release notes. Beginning with `1.0`, package versions will follow
 semantic versioning: incompatible public-API changes require a major release.
 
-Compatibility wrappers may live in acquisition packages or the root `src`
-package, but new implementations belong in the owning package identified
+Compatibility wrappers may live in acquisition packages or the root
+`lutaslab_photometry` package, but new implementations belong in the owning package identified
 above. Compatibility code should be thin and separately tested.

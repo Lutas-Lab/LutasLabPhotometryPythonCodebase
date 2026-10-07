@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.figure5_bout_analysis import extract_bout_features
+from lutaslab_photometry.figure5_bout_analysis import extract_bout_features
 
 
 def test_extract_bout_features_splits_and_filters_bouts():
