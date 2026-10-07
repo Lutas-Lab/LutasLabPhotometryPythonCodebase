@@ -1,4 +1,6 @@
+import csv
 import hashlib
+import json
 import warnings
 from collections import defaultdict
 from pathlib import Path
@@ -20,6 +22,15 @@ from lutaslab_core.perievent import (
 from .save_sessiondata import load_session
 from .session_manifest import processed_session_path, resolve_session_channel
 from .trial_classification import TRIAL_CLASS_KEYS, cue_trial_mask
+
+_BEHAVIORAL_EVENT_KEYS = (
+    "cue_onset",
+    "solenoid_onset",
+    "lick_times",
+    "lick_bout_onset",
+    "lick_bout_duration",
+    "lick_bout_lick_count",
+)
 
 
 def _validate_window(window):
@@ -102,6 +113,8 @@ def _null_session_means(
     null_method,
     null_exclusion,
     rng,
+    real_trials,
+    behavioral_events,
 ):
     start, end = _validate_window(window)
     onset_bounds = (float(signal_time[0]) - start, float(signal_time[-1]) - end)
@@ -114,15 +127,94 @@ def _null_session_means(
         rng=rng,
     )
     means = []
-    for onsets in shuffled_onsets:
+    baseline_mask = (peri_time := _peri_time(window, dt)) >= baseline[0]
+    baseline_mask &= peri_time < baseline[1]
+    real_baseline_std = np.nanstd(
+        np.asarray(real_trials, dtype=float)[:, baseline_mask], axis=1, ddof=1
+    )
+    null_baseline_std = []
+    null_trial_max_abs_z = []
+    event_distance = {"alignment": []}
+    event_distance.update(
+        {
+            name: []
+            for name, values in behavioral_events.items()
+            if np.asarray(values).size
+        }
+    )
+    amplitude_by_normalization = {"none": [], "subtract": [], "zscore": []}
+    example_trials = None
+    example_onsets = None
+    for shuffle_index, onsets in enumerate(shuffled_onsets):
         peri_time, trials, _ = extract_perievent_trials(
             signal_time, signal, onsets, window=window, dt=dt
         )
-        normalized = normalize_trials(
-            peri_time, trials, normalization=normalization, baseline=baseline
+        baseline_values = trials[:, baseline_mask]
+        null_baseline_std.extend(
+            np.nanstd(baseline_values, axis=1, ddof=1).tolist()
         )
-        means.append(np.nanmean(normalized, axis=0))
-    return np.asarray(means, dtype=float)
+        event_distance["alignment"].extend(
+            np.min(
+                np.abs(onsets[:, None] - real_event_times[None, :]), axis=1
+            ).tolist()
+        )
+        for name, event_times in behavioral_events.items():
+            event_times = np.asarray(event_times, dtype=float)
+            if event_times.size:
+                event_distance[name].extend(
+                    np.min(
+                        np.abs(onsets[:, None] - event_times[None, :]), axis=1
+                    ).tolist()
+                )
+        normalized_by_method = {
+            method: normalize_trials(
+                peri_time,
+                trials,
+                normalization=method,
+                baseline=baseline,
+            )
+            for method in ("none", "subtract", "zscore")
+        }
+        for trial in normalized_by_method["zscore"]:
+            finite_trial = trial[np.isfinite(trial)]
+            null_trial_max_abs_z.append(
+                float(np.max(np.abs(finite_trial))) if finite_trial.size else np.nan
+            )
+        for method, method_trials in normalized_by_method.items():
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                shuffle_mean = np.nanmean(method_trials, axis=0)
+            finite = shuffle_mean[np.isfinite(shuffle_mean)]
+            amplitude_by_normalization[method].append(
+                float(np.max(np.abs(finite))) if finite.size else np.nan
+            )
+        normalized = normalized_by_method[
+            "none" if normalization in (None, "none") else normalization
+        ]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            means.append(np.nanmean(normalized, axis=0))
+        if shuffle_index == 0:
+            example_trials = normalized[: min(12, len(normalized))]
+            example_onsets = onsets[: min(12, len(onsets))]
+    return np.asarray(means, dtype=float), {
+        "real_baseline_std": np.asarray(real_baseline_std, dtype=float),
+        "null_baseline_std": np.asarray(null_baseline_std, dtype=float),
+        "null_trial_max_abs_z": np.asarray(null_trial_max_abs_z, dtype=float),
+        "null_onset_distance": np.asarray(event_distance["alignment"], dtype=float),
+        "null_event_distances": {
+            name: np.asarray(values, dtype=float)
+            for name, values in event_distance.items()
+        },
+        "max_abs_shuffle_mean": {
+            method: np.asarray(values, dtype=float)
+            for method, values in amplitude_by_normalization.items()
+        },
+        "example_trials": np.asarray(example_trials, dtype=float),
+        "example_onsets": np.asarray(example_onsets, dtype=float),
+        "peri_time": np.asarray(peri_time, dtype=float),
+        "onset_bounds": np.asarray(onset_bounds, dtype=float),
+    }
 
 
 def _mean_and_sem(rows):
@@ -166,6 +258,8 @@ def _psth_context(results):
 
 
 def _psth_description(results):
+    if results.get("description"):
+        return str(results["description"])
     event_label = str(results["event_key"]).replace("_", " ")
     trial_class = str(results.get("trial_class", "all")).replace("_", " ")
     trial_suffix = (
@@ -284,11 +378,17 @@ def compute_manifest_psth(
             "channel": selected_channel,
             "signal_key": signal_key if signal_type == "photometry" else "lick_times",
             "n_events": len(valid_indices),
+            "alignment_times": event_times[valid_indices],
+            "behavioral_events": {
+                key: np.asarray(session.get(key, []), dtype=float)
+                for key in _BEHAVIORAL_EVENT_KEYS
+            },
+            "trials": normalized,
             "mean": session_mean,
         }
         if null_method != "none":
             valid_event_times = event_times[valid_indices]
-            result["null_means"] = _null_session_means(
+            result["null_means"], result["null_diagnostics"] = _null_session_means(
                 np.asarray(session[time_key], dtype=float),
                 np.asarray(session[signal_key], dtype=float),
                 valid_event_times,
@@ -300,6 +400,16 @@ def compute_manifest_psth(
                 null_method=null_method,
                 null_exclusion=null_exclusion,
                 rng=_session_rng(random_seed, info),
+                real_trials=trials,
+                behavioral_events={
+                    key: np.asarray(session.get(key, []), dtype=float)
+                    for key in (
+                        "cue_onset",
+                        "solenoid_onset",
+                        "lick_times",
+                        "lick_bout_onset",
+                    )
+                },
             )
         session_results.append(result)
 
@@ -547,6 +657,452 @@ def save_condition_comparison_figures(
         plt.close(fig)
         saved.extend(paths)
     return saved
+
+
+def save_psth_heatmaps(
+    results,
+    output_dir,
+    *,
+    sort="event_order",
+    sort_window=None,
+    direction="auto",
+    unmatched="bottom",
+    cmap="coolwarm",
+    formats=("svg", "png"),
+    dpi=300,
+    font_family="Arial",
+):
+    """Save session, mouse-level, and descriptive pooled-trial heatmaps."""
+    import matplotlib.pyplot as plt
+
+    from .heatmap_ordering import HEATMAP_SORT_LABELS, order_heatmap_trials
+    from .publication_figures import configure_publication_style, save_figure_formats
+
+    output_dir = Path(output_dir) / "heatmaps"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    configure_publication_style(font_family=font_family)
+    time = np.asarray(results["time"], dtype=float)
+    colorbar_label = results.get("ylabel") or _psth_ylabel(
+        results["normalization"], results.get("signal_type", "photometry")
+    )
+    context = _psth_context(results)
+    context_prefix = f"{context}: " if context else ""
+    response_suffix = (
+        "_licking" if results.get("signal_type", "photometry") == "licking" else ""
+    )
+    order_label = HEATMAP_SORT_LABELS[sort]
+    saved = []
+
+    def save_matrix(rows, base, title, ylabel, row_labels=None, figsize=(8, 5)):
+        rows = np.asarray(rows, dtype=float)
+        finite = rows[np.isfinite(rows)]
+        limit = float(np.max(np.abs(finite))) if finite.size else 1.0
+        if limit == 0:
+            limit = 1.0
+        fig, ax = plt.subplots(figsize=figsize)
+        image = ax.imshow(
+            rows,
+            aspect="auto",
+            origin="upper",
+            interpolation="nearest",
+            extent=(time[0], time[-1], rows.shape[0] + 0.5, 0.5),
+            cmap=cmap,
+            vmin=-limit,
+            vmax=limit,
+        )
+        ax.axvline(0, color="black", linestyle="--", linewidth=1)
+        ax.set(
+            xlabel=f"Time from {results['event_key']} (s)",
+            ylabel=ylabel,
+            title=title,
+        )
+        if row_labels is not None:
+            ax.set_yticks(np.arange(1, rows.shape[0] + 1), labels=row_labels)
+        fig.colorbar(image, ax=ax, label=colorbar_label)
+        fig.tight_layout()
+        saved.extend(save_figure_formats(fig, base, formats=formats, dpi=dpi))
+        plt.close(fig)
+
+    session_orderings = []
+    metadata_rows = []
+    for session_index, session in enumerate(results["session_results"]):
+        ordered = order_heatmap_trials(
+            session,
+            time,
+            sort=sort,
+            sort_window=sort_window,
+            direction=direction,
+            unmatched=unmatched,
+        )
+        session_orderings.append(ordered)
+        sorted_position = {int(index): row for row, index in enumerate(ordered["order"], start=1)}
+        for original_index, (alignment, value, matched_time) in enumerate(
+            zip(
+                session["alignment_times"],
+                ordered["values"],
+                ordered["matched_event_times"],
+                strict=True,
+            )
+        ):
+            metadata_rows.append(
+                {
+                    "mouse": session["mouse"],
+                    "date": session["date"],
+                    "run": int(session["run"]),
+                    "session_index": session_index + 1,
+                    "original_trial_index": original_index + 1,
+                    "session_sorted_index": sorted_position.get(original_index, ""),
+                    "pooled_sorted_index": "",
+                    "alignment_time": float(alignment),
+                    "sort_method": sort,
+                    "sort_value": float(value) if np.isfinite(value) else "",
+                    "matched_event_time": (
+                        float(matched_time) if np.isfinite(matched_time) else ""
+                    ),
+                    "matched": bool(np.isfinite(value)),
+                    "included": original_index in sorted_position,
+                    "sort_window_start": (
+                        ordered["sort_window"][0] if ordered["sort_window"] else ""
+                    ),
+                    "sort_window_end": (
+                        ordered["sort_window"][1] if ordered["sort_window"] else ""
+                    ),
+                    "direction": ordered["direction"],
+                    "unmatched_policy": unmatched,
+                }
+            )
+        if ordered["trials"].shape[0]:
+            save_matrix(
+                ordered["trials"],
+                output_dir
+                / (
+                    f"{session['mouse']}_{session['date']}_run{int(session['run']):03d}_"
+                    f"{results['event_key']}{response_suffix}_heatmap"
+                ),
+                (
+                    f"{session['mouse']} {session['date']} run {int(session['run'])}: "
+                    f"{_psth_description(results)}\nOrdered by {order_label}"
+                ),
+                "Trial",
+            )
+
+    mouse_names = list(results["mouse_names"])
+    mouse_values = []
+    for mouse in mouse_names:
+        values = np.concatenate(
+            [
+                ordering["values"]
+                for session, ordering in zip(
+                    results["session_results"], session_orderings, strict=True
+                )
+                if session["mouse"] == mouse
+            ]
+        )
+        mouse_values.append(float(np.nanmedian(values)) if np.any(np.isfinite(values)) else np.nan)
+    mouse_values = np.asarray(mouse_values, dtype=float)
+    mouse_matrix = np.asarray(results["mouse_matrix"], dtype=float)
+    if sort != "event_order":
+        finite = np.flatnonzero(np.isfinite(mouse_values))
+        missing = np.flatnonzero(~np.isfinite(mouse_values))
+        mouse_order = finite[np.argsort(mouse_values[finite], kind="stable")]
+        if session_orderings[0]["direction"] == "descending":
+            mouse_order = mouse_order[::-1]
+        if unmatched == "bottom":
+            mouse_order = np.concatenate((mouse_order, missing))
+        mouse_matrix = mouse_matrix[mouse_order]
+        mouse_names = [mouse_names[index] for index in mouse_order]
+    if mouse_matrix.shape[0] == 0:
+        raise ValueError("No heatmap rows matched the selected behavioral ordering.")
+    mouse_height = max(3.5, min(12.0, 2.0 + 0.3 * len(mouse_names)))
+    save_matrix(
+        mouse_matrix,
+        output_dir
+        / f"group_{results['event_key']}{response_suffix}_mouse_means_heatmap",
+        (
+            f"{context_prefix}{_psth_description(results)}\n"
+            f"Mouse-level means ordered by {order_label} "
+            "(one equally weighted row per mouse)"
+        ),
+        "Mouse",
+        row_labels=mouse_names,
+        figsize=(8, mouse_height),
+    )
+
+    pooled_trials = np.vstack([session["trials"] for session in results["session_results"]])
+    pooled_values = np.concatenate([ordering["values"] for ordering in session_orderings])
+    pooled_order = np.arange(len(pooled_values), dtype=int)
+    if sort != "event_order":
+        finite = np.flatnonzero(np.isfinite(pooled_values))
+        missing = np.flatnonzero(~np.isfinite(pooled_values))
+        pooled_order = finite[np.argsort(pooled_values[finite], kind="stable")]
+        if session_orderings[0]["direction"] == "descending":
+            pooled_order = pooled_order[::-1]
+        if unmatched == "bottom":
+            pooled_order = np.concatenate((pooled_order, missing))
+        pooled_trials = pooled_trials[pooled_order]
+    for sorted_index, original_index in enumerate(pooled_order, start=1):
+        metadata_rows[int(original_index)]["pooled_sorted_index"] = sorted_index
+    save_matrix(
+        pooled_trials,
+        output_dir / f"group_{results['event_key']}{response_suffix}_pooled_trials_heatmap",
+        (
+            f"{context_prefix}{_psth_description(results)}\n"
+            f"All pooled trials ordered by {order_label} "
+            "(descriptive; rows are not independent units)"
+        ),
+        "Pooled trial",
+        figsize=(8, 7),
+    )
+
+    metadata_path = output_dir / "heatmap_trial_order.csv"
+    with metadata_path.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=tuple(metadata_rows[0]))
+        writer.writeheader()
+        writer.writerows(metadata_rows)
+    saved.append(metadata_path)
+    return saved
+
+
+def save_null_diagnostics(
+    results,
+    output_dir,
+    *,
+    formats=("svg", "png"),
+    dpi=300,
+    font_family="Arial",
+    near_zero_ratio=0.01,
+    extreme_z=20.0,
+):
+    """Save an auditable report describing null locations and normalization."""
+    import matplotlib.pyplot as plt
+
+    from .publication_figures import configure_publication_style, save_figure_formats
+
+    if results.get("null_method") == "none":
+        raise ValueError("Null diagnostics require a random-onset or circular-shift run.")
+    output_dir = Path(output_dir) / "null_diagnostics"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    configure_publication_style(font_family=font_family)
+    summary_rows = []
+    all_real_std = []
+    all_null_std = []
+    distance_names = (
+        "alignment",
+        "cue_onset",
+        "solenoid_onset",
+        "lick_times",
+        "lick_bout_onset",
+    )
+    all_event_distances = defaultdict(list)
+    all_trial_max_z = []
+    amplitudes = {"none": [], "subtract": [], "zscore": []}
+
+    def finite(values):
+        values = np.asarray(values, dtype=float)
+        return values[np.isfinite(values)]
+
+    for session in results["session_results"]:
+        diagnostics = session["null_diagnostics"]
+        real_std = finite(diagnostics["real_baseline_std"])
+        null_std = finite(diagnostics["null_baseline_std"])
+        event_distances = {
+            name: finite(diagnostics["null_event_distances"].get(name, []))
+            for name in distance_names
+        }
+        distances = event_distances["alignment"]
+        trial_max_z = finite(diagnostics["null_trial_max_abs_z"])
+        positive_reference = real_std[real_std > 0]
+        reference_sd = (
+            float(np.median(positive_reference)) if positive_reference.size else np.nan
+        )
+        near_zero_threshold = (
+            max(np.finfo(float).eps, near_zero_ratio * reference_sd)
+            if np.isfinite(reference_sd)
+            else np.finfo(float).eps
+        )
+        near_zero_fraction = (
+            float(np.mean(null_std <= near_zero_threshold)) if null_std.size else np.nan
+        )
+        extreme_fraction = (
+            float(np.mean(trial_max_z >= extreme_z)) if trial_max_z.size else np.nan
+        )
+        summary_row = {
+                "mouse": session["mouse"],
+                "date": session["date"],
+                "run": int(session["run"]),
+                "channel": int(session["channel"]),
+                "n_real_events": int(session["n_events"]),
+                "n_null_trials": int(null_std.size),
+                "real_baseline_sd_median": (
+                    float(np.median(real_std)) if real_std.size else np.nan
+                ),
+                "null_baseline_sd_median": (
+                    float(np.median(null_std)) if null_std.size else np.nan
+                ),
+                "near_zero_sd_threshold": near_zero_threshold,
+                "near_zero_null_fraction": near_zero_fraction,
+                "extreme_z_threshold": extreme_z,
+                "extreme_null_fraction": extreme_fraction,
+                "null_distance_median_seconds": (
+                    float(np.median(distances)) if distances.size else np.nan
+                ),
+                "null_distance_min_seconds": (
+                    float(np.min(distances)) if distances.size else np.nan
+                ),
+                "warning_near_zero_baseline": bool(near_zero_fraction > 0.01),
+                "warning_extreme_z": bool(extreme_fraction > 0.01),
+            }
+        for name, values in event_distances.items():
+            summary_row[f"distance_to_{name}_median_seconds"] = (
+                float(np.median(values)) if values.size else np.nan
+            )
+            summary_row[f"distance_to_{name}_min_seconds"] = (
+                float(np.min(values)) if values.size else np.nan
+            )
+            all_event_distances[name].extend(values.tolist())
+        summary_rows.append(summary_row)
+        all_real_std.extend(real_std.tolist())
+        all_null_std.extend(null_std.tolist())
+        all_trial_max_z.extend(trial_max_z.tolist())
+        for method in amplitudes:
+            amplitudes[method].extend(
+                finite(diagnostics["max_abs_shuffle_mean"][method]).tolist()
+            )
+
+    summary_path = output_dir / "null_diagnostics_summary.csv"
+    with summary_path.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=tuple(summary_rows[0]))
+        writer.writeheader()
+        writer.writerows(summary_rows)
+
+    metadata = {
+        "null_method": results["null_method"],
+        "n_shuffles": int(results["n_shuffles"]),
+        "random_seed": int(results["random_seed"]),
+        "null_exclusion_seconds": float(results["null_exclusion"]),
+        "event_key": results["event_key"],
+        "normalization": results["normalization"],
+        "near_zero_definition": (
+            "null baseline SD <= 1% of that session's median positive real-trial "
+            "baseline SD"
+        ),
+        "near_zero_ratio": near_zero_ratio,
+        "extreme_z_threshold": extreme_z,
+        "warning_fraction_threshold": 0.01,
+    }
+    metadata_path = output_dir / "null_diagnostics_metadata.json"
+    metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    paths = [summary_path, metadata_path]
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    positive_real = np.asarray(all_real_std)[np.asarray(all_real_std) > 0]
+    positive_null = np.asarray(all_null_std)[np.asarray(all_null_std) > 0]
+    combined_positive = np.concatenate((positive_real, positive_null))
+    bins = 40
+    if combined_positive.size and np.min(combined_positive) < np.max(combined_positive):
+        bins = np.geomspace(
+            float(np.min(combined_positive)), float(np.max(combined_positive)), 41
+        )
+    if positive_real.size:
+        ax.hist(positive_real, bins=bins, alpha=0.6, label="Real trials")
+    if positive_null.size:
+        ax.hist(positive_null, bins=bins, alpha=0.5, label="Null trials")
+    ax.set(xlabel="Baseline SD", ylabel="Count", title="Baseline variability")
+    if positive_real.size or positive_null.size:
+        ax.set_xscale("log")
+        ax.legend()
+    fig.tight_layout()
+    paths.extend(
+        save_figure_formats(
+            fig, output_dir / "baseline_sd_distribution", formats=formats, dpi=dpi
+        )
+    )
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    finite_max_z = finite(all_trial_max_z)
+    if finite_max_z.size:
+        ax.hist(finite_max_z, bins=50)
+    ax.axvline(extreme_z, color="red", linestyle="--", label=f"Warning = {extreme_z:g}")
+    ax.set(xlabel="Maximum absolute trial z-score", ylabel="Count", title="Null extremes")
+    ax.legend()
+    fig.tight_layout()
+    paths.extend(
+        save_figure_formats(
+            fig, output_dir / "maximum_z_by_null_trial", formats=formats, dpi=dpi
+        )
+    )
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    for name in distance_names:
+        values = finite(all_event_distances[name])
+        if values.size:
+            ax.hist(
+                values,
+                bins=50,
+                histtype="step",
+                linewidth=1.5,
+                label=name.replace("_", " "),
+            )
+    ax.set(
+        xlabel="Distance to nearest real event (s)",
+        ylabel="Count",
+        title="Null-onset separation from recorded behavioral events",
+    )
+    if any(all_event_distances.values()):
+        ax.legend()
+    fig.tight_layout()
+    paths.extend(
+        save_figure_formats(
+            fig, output_dir / "null_event_distance", formats=formats, dpi=dpi
+        )
+    )
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    labels = [method for method in ("none", "subtract", "zscore") if amplitudes[method]]
+    if labels:
+        ax.boxplot([amplitudes[label] for label in labels], tick_labels=labels)
+    ax.set(
+        ylabel="Maximum absolute shuffled mean",
+        title="Effect of trial normalization on null amplitude",
+    )
+    fig.tight_layout()
+    paths.extend(
+        save_figure_formats(
+            fig, output_dir / "normalization_comparison", formats=formats, dpi=dpi
+        )
+    )
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    shown = 0
+    for session in results["session_results"]:
+        diagnostics = session["null_diagnostics"]
+        for _onset, trace in zip(
+            diagnostics["example_onsets"], diagnostics["example_trials"], strict=True
+        ):
+            ax.plot(diagnostics["peri_time"], trace, alpha=0.4, linewidth=0.8)
+            shown += 1
+            if shown >= 24:
+                break
+        if shown >= 24:
+            break
+    ax.axvline(0, color="black", linestyle="--", linewidth=1)
+    ax.set(
+        xlabel=f"Time from random {results['event_key']} (s)",
+        ylabel=_psth_ylabel(results["normalization"], results["signal_type"]),
+        title=f"Example null trials ({shown} shown)",
+    )
+    fig.tight_layout()
+    paths.extend(
+        save_figure_formats(
+            fig, output_dir / "example_null_trials", formats=formats, dpi=dpi
+        )
+    )
+    plt.close(fig)
+    return {"paths": paths, "summary_rows": summary_rows}
 
 
 def save_psth_figures(

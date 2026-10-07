@@ -29,6 +29,27 @@ def _signals(time, photometry=None, locomotion=None):
 
 
 class ForecastingTests(unittest.TestCase):
+    def test_zero_horizon_excludes_current_target_from_predictors(self):
+        time = np.arange(0.0, 20.0, 0.1)
+        signals = {
+            "time": time,
+            "photometry": np.sin(time),
+            "locomotion": np.cos(time),
+            "licking": np.zeros_like(time),
+            "cue": np.zeros_like(time),
+            "solenoid": np.zeros_like(time),
+        }
+        dataset = build_forecast_dataset(
+            signals,
+            target="photometry",
+            horizon=0.0,
+            history=0.5,
+            lag_step=0.1,
+        )
+        assert "photometry[t-0s]" not in dataset["feature_names"]
+        assert "photometry[t-0.1s]" in dataset["feature_names"]
+        assert "locomotion[t-0s]" in dataset["feature_names"]
+
     def test_dataset_uses_only_present_and_past_features(self):
         signals = _signals(np.arange(20, dtype=float))
         dataset = build_forecast_dataset(

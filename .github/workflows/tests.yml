@@ -33,12 +33,14 @@ jobs:
       - name: Install locked default analysis stack
         run: |
           python -m pip install "uv==0.12.21"
-          uv sync --frozen --package lutaslab-photometry --extra dev --extra forecasting --python 3.12
+          uv sync --frozen --all-packages --extra dev --extra events --extra forecasting --extra gui --python 3.12
       - name: Compile source and notebooks
         run: >-
           .venv/bin/python -m compileall -q
           packages/lutaslab-photometry/src
           packages/lutaslab-photometry/tests
+          packages/fluopulse-analysis/src
+          packages/iflip3-analysis/src
       - name: Validate maintained notebooks
         run: .venv/bin/lutaslab-validate-notebooks
       - name: Run conventional-photometry tests

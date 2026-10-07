@@ -22,6 +22,8 @@ Untitled*.ipynb
 # ============================================================
 
 .venv/
+.venv-gui/
+.gui-install-temp/
 venv/
 env/
 ENV/

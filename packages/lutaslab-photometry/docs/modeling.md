@@ -4,7 +4,7 @@
 
 The supported default for continuous photometry is the NumPy/SciPy ridge GLM
 in `lutaslab_core.glm`. The synthetic
-[`event_glm_and_transfer.py`](../examples/event_glm_and_transfer.py) example
+[`event_glm_and_transfer.py`](../../lutaslab-core/examples/event_glm_and_transfer.py) example
 builds a trial-reset raised-cosine design, performs grouped ridge selection,
 and fits a causal gamma transfer function without paper-specific data.
 

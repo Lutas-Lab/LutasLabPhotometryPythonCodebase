@@ -108,7 +108,7 @@ def build_forecast_dataset(
     if any(array.shape != time.shape for array in arrays.values()):
         raise ValueError("Every forecast signal must match signals['time'].")
 
-    lag_samples, lag_seconds = _lag_samples(dt, history, lag_step)
+    lag_samples, _ = _lag_samples(dt, history, lag_step)
     horizon_samples = int(np.ceil(horizon / dt))
     window_samples = max(1, int(np.ceil(target_window / dt)))
     target_extent = horizon_samples + (window_samples if target in LICK_TARGETS else 1)
@@ -119,12 +119,26 @@ def build_forecast_dataset(
     columns = []
     feature_names = []
     feature_groups = {}
+    target_group = {
+        "photometry": "photometry",
+        "locomotion": "locomotion",
+        "lick_binary": "licking",
+        "lick_count": "licking",
+    }[target]
     for name in names:
         group_indices = []
-        for lag_index, lag in enumerate(lag_samples):
+        group_lags = lag_samples
+        if horizon_samples == 0 and name == target_group:
+            group_lags = lag_samples[lag_samples > 0]
+            if group_lags.size == 0:
+                raise ValueError(
+                    "Zero-horizon models require enough history for at least one "
+                    "strictly past target sample."
+                )
+        for lag in group_lags:
             group_indices.append(len(columns))
             columns.append(arrays[name][anchors - lag])
-            feature_names.append(f"{name}[t-{lag_seconds[lag_index]:g}s]")
+            feature_names.append(f"{name}[t-{float(lag) * dt:g}s]")
         feature_groups[name] = np.asarray(group_indices, dtype=int)
     X = np.column_stack(columns)
 

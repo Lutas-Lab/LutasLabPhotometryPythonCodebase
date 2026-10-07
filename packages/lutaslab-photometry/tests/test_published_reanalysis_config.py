@@ -18,7 +18,9 @@ def test_packaged_default_config_loads():
 
 
 def test_repository_config_loads_and_resolves_below_root():
-    config = load_published_reanalysis_config("config/published_reanalysis.json")
+    config = load_published_reanalysis_config(
+        "packages/lutaslab-photometry/examples/config/published_reanalysis.json"
+    )
     paths = resolve_dataset_paths("C:/Depository Data", config["datasets"])
 
     assert "figure5_total" in paths
@@ -33,7 +35,7 @@ def test_config_rejects_parent_traversal():
         datasets = {
             key: "safe.mat"
             for key in load_published_reanalysis_config(
-                "config/published_reanalysis.json"
+                "packages/lutaslab-photometry/examples/config/published_reanalysis.json"
             )["datasets"]
         }
         datasets["figure5_total"] = "../outside.mat"

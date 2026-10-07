@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import csv
 import io
+import os
 import subprocess
 import sys
+import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 MANIFEST_COLUMNS = ("mouse", "date", "run", "group", "condition", "channel")
@@ -74,10 +77,29 @@ def manifest_csv_text(rows):
 
 
 def write_manifest(path, rows):
-    """Write validated rows to a manifest and return its resolved path."""
+    """Atomically write validated rows and return the resolved manifest path."""
     manifest_path = Path(path).expanduser().resolve()
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text(manifest_csv_text(rows), encoding="utf-8")
+    csv_text = manifest_csv_text(rows)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="",
+            dir=manifest_path.parent,
+            prefix=f".{manifest_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary_file:
+            temporary_file.write(csv_text)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+            temporary_path = Path(temporary_file.name)
+        os.replace(temporary_path, manifest_path)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
     return manifest_path
 
 
@@ -135,8 +157,15 @@ def build_psth_command(
     null_method="none",
     n_shuffles=500,
     seed=0,
+    null_exclusion=0.0,
     trial_class="all",
     post_cue_window=2.0,
+    heatmaps=False,
+    heatmap_sort="event_order",
+    heatmap_sort_window=None,
+    heatmap_sort_direction="auto",
+    heatmap_unmatched="bottom",
+    heatmap_cmap="coolwarm",
 ):
     """Build the maintained event-aligned analysis command."""
     command = _python_command(project_root, "run_psth.py")
@@ -170,6 +199,8 @@ def build_psth_command(
             str(int(n_shuffles)),
             "--seed",
             str(int(seed)),
+            "--null-exclusion",
+            str(float(null_exclusion)),
             "--trial-class",
             str(trial_class),
             "--post-cue-window",
@@ -177,6 +208,166 @@ def build_psth_command(
         ]
     )
     command.append("--stratify" if stratify else "--no-stratify")
+    if heatmaps:
+        command.extend(
+            [
+                "--heatmaps",
+                "--heatmap-sort",
+                str(heatmap_sort),
+                "--heatmap-sort-direction",
+                str(heatmap_sort_direction),
+                "--heatmap-unmatched",
+                str(heatmap_unmatched),
+                "--heatmap-cmap",
+                str(heatmap_cmap),
+            ]
+        )
+        if heatmap_sort_window is not None:
+            command.extend(
+                [
+                    "--heatmap-sort-window",
+                    str(float(heatmap_sort_window[0])),
+                    str(float(heatmap_sort_window[1])),
+                ]
+            )
+    return command
+
+
+def build_behavior_glm_command(
+    project_root,
+    manifest,
+    data_root,
+    output_dir,
+    *,
+    channel="manifest",
+    photometry_source="raw465",
+    history=5.0,
+    lag_step=0.5,
+    dt=0.1,
+    folds=5,
+    inner_folds=3,
+):
+    """Build a leakage-safe contemporaneous behavioral photometry GLM."""
+    command = _python_command(project_root, "run_forecasting.py")
+    command.extend(
+        [
+            "--manifest",
+            str(Path(manifest)),
+            "--data-root",
+            str(Path(data_root)),
+            "--output-dir",
+            str(Path(output_dir)),
+            "--target",
+            "photometry",
+            "--horizons",
+            "0.0",
+            "--history",
+            str(float(history)),
+            "--lag-step",
+            str(float(lag_step)),
+            "--dt",
+            str(float(dt)),
+            "--channel",
+            str(channel),
+            "--photometry-source",
+            str(photometry_source),
+            "--folds",
+            str(int(folds)),
+            "--inner-folds",
+            str(int(inner_folds)),
+        ]
+    )
+    return command
+
+
+def build_lifetime_command(
+    project_root,
+    action,
+    workflow,
+    manifest,
+    data_root,
+    output_dir,
+    *,
+    signal=None,
+    event=None,
+    window=(-5.0, 20.0),
+    dt=0.1,
+    normalization="zscore",
+    baseline=(-5.0, 0.0),
+    heatmaps=True,
+    heatmap_sort="event_order",
+    heatmap_sort_window=None,
+    heatmap_sort_direction="auto",
+    heatmap_unmatched="bottom",
+    heatmap_cmap="coolwarm",
+    lick_kernel_seconds=10.0,
+    ensure_kernel_seconds=20.0,
+):
+    """Build a FluoPulse or iFLiP3 workflow command."""
+
+    if action not in {"preprocess", "psth", "glm"}:
+        raise ValueError("action must be preprocess, psth, or glm")
+    if workflow not in {"fluopulse", "iflip3"}:
+        raise ValueError("workflow must be fluopulse or iflip3")
+    command = _python_command(project_root, "run_lifetime_workflow.py")
+    command.extend(
+        [
+            action,
+            "--workflow",
+            workflow,
+            "--manifest",
+            str(Path(manifest)),
+            "--data-root",
+            str(Path(data_root)),
+            "--output-dir",
+            str(Path(output_dir)),
+        ]
+    )
+    if signal is not None:
+        command.extend(["--signal", str(signal)])
+    if action == "psth":
+        command.extend(
+            [
+                "--event",
+                str(event),
+                "--window",
+                str(float(window[0])),
+                str(float(window[1])),
+                "--dt",
+                str(float(dt)),
+                "--normalization",
+                str(normalization),
+                "--baseline",
+                str(float(baseline[0])),
+                str(float(baseline[1])),
+                "--heatmap-sort",
+                str(heatmap_sort),
+                "--heatmap-sort-direction",
+                str(heatmap_sort_direction),
+                "--heatmap-unmatched",
+                str(heatmap_unmatched),
+                "--heatmap-cmap",
+                str(heatmap_cmap),
+            ]
+        )
+        command.append("--heatmaps" if heatmaps else "--no-heatmaps")
+        if heatmap_sort_window is not None:
+            command.extend(
+                [
+                    "--heatmap-sort-window",
+                    str(float(heatmap_sort_window[0])),
+                    str(float(heatmap_sort_window[1])),
+                ]
+            )
+    if action == "glm":
+        command.extend(
+            [
+                "--lick-kernel-seconds",
+                str(float(lick_kernel_seconds)),
+                "--ensure-kernel-seconds",
+                str(float(ensure_kernel_seconds)),
+            ]
+        )
     return command
 
 
@@ -185,14 +376,31 @@ def display_command(command):
     return subprocess.list2cmdline([str(part) for part in command])
 
 
-def run_command(command, project_root):
-    """Run one maintained workflow and capture combined output."""
-    result = subprocess.run(
+def run_command(
+    command,
+    project_root,
+    on_output: Callable[[str], None] | None = None,
+):
+    """Run one maintained workflow, streaming and capturing combined output."""
+    environment = os.environ.copy()
+    environment["PYTHONUNBUFFERED"] = "1"
+    output_parts = []
+    process = subprocess.Popen(
         [str(part) for part in command],
         cwd=Path(project_root),
-        check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+        env=environment,
     )
-    return result.returncode, result.stdout
+    if process.stdout is None:  # pragma: no cover - guaranteed by stdout=PIPE
+        raise RuntimeError("Workflow output could not be captured.")
+    with process.stdout:
+        for line in process.stdout:
+            output_parts.append(line)
+            if on_output is not None:
+                on_output(line)
+    return process.wait(), "".join(output_parts)

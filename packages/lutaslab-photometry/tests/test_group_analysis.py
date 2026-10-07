@@ -11,6 +11,8 @@ from lutaslab_photometry.group_analysis import (
     extract_perievent_trials,
     generate_null_onsets,
     normalize_trials,
+    save_null_diagnostics,
+    save_psth_heatmaps,
 )
 from lutaslab_photometry.session_manifest import processed_session_path
 
@@ -107,6 +109,7 @@ class GroupAnalysisTests(unittest.TestCase):
             {"mouse": "M2", "date": "260101", "run": 1},
         ]
         data_root = Path("tests/_group_analysis_data")
+        diagnostic_root = Path("tests/_null_diagnostics")
         try:
             for info, value in zip(sessions, (1.0, 3.0, 5.0), strict=True):
                 _write_processed_session(data_root, info, value)
@@ -121,8 +124,14 @@ class GroupAnalysisTests(unittest.TestCase):
                 n_shuffles=12,
                 random_seed=7,
             )
+            report = save_null_diagnostics(
+                results,
+                diagnostic_root,
+                formats=("png",),
+            )
         finally:
             shutil.rmtree(data_root, ignore_errors=True)
+            shutil.rmtree(diagnostic_root, ignore_errors=True)
 
         np.testing.assert_allclose(results["mouse_results"]["M1"]["mean"], 2.0)
         np.testing.assert_allclose(results["mouse_results"]["M2"]["mean"], 5.0)
@@ -131,6 +140,9 @@ class GroupAnalysisTests(unittest.TestCase):
         np.testing.assert_allclose(results["group_null_mean"], 3.5)
         self.assertEqual(results["group_null_matrix"].shape[0], 12)
         self.assertEqual(results["n_mice"], 2)
+        self.assertEqual(len(report["summary_rows"]), 3)
+        self.assertEqual(len(report["paths"]), 7)
+        self.assertIn("near_zero_null_fraction", report["summary_rows"][0])
 
     def test_manifest_selects_photoreceiver_channel_per_session(self):
         sessions = [
@@ -176,6 +188,41 @@ class GroupAnalysisTests(unittest.TestCase):
         np.testing.assert_allclose(results["group_mean"], [2.0, 0.0, 2.0, 2.0])
         self.assertEqual(results["signal_key"], "lick_times")
         self.assertEqual(results["signal_type"], "licking")
+
+    def test_saves_session_trial_heatmap(self):
+        sessions = [{"mouse": "M1", "date": "260101", "run": 1}]
+        data_root = Path("tests/_group_analysis_data")
+        output_root = Path("tests/_group_analysis_heatmaps")
+        try:
+            _write_processed_session(data_root, sessions[0], 1.0)
+            results = compute_manifest_psth(
+                sessions,
+                data_root,
+                window=(-1.0, 1.0),
+                dt=0.1,
+                normalization="none",
+            )
+            paths = save_psth_heatmaps(
+                results,
+                output_root,
+                sort="response_mean",
+                formats=("png",),
+            )
+            self.assertEqual(len(paths), 4)
+            self.assertTrue(all(path.is_file() for path in paths))
+            self.assertEqual(
+                {path.stem for path in paths},
+                {
+                    "M1_260101_run001_cue_onset_heatmap",
+                    "group_cue_onset_mouse_means_heatmap",
+                    "group_cue_onset_pooled_trials_heatmap",
+                    "heatmap_trial_order",
+                },
+            )
+            self.assertEqual(results["session_results"][0]["trials"].shape[0], 1)
+        finally:
+            shutil.rmtree(data_root, ignore_errors=True)
+            shutil.rmtree(output_root, ignore_errors=True)
 
     def test_manifest_reclassifies_cue_trials_for_selected_window(self):
         sessions = [{"mouse": "M1", "date": "260101", "run": 1}]

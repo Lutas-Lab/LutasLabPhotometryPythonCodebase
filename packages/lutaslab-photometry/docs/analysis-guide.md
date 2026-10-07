@@ -3,7 +3,7 @@
 This guide describes the data layout, preprocessing outputs, manifest-driven
 analysis, notebooks, and platform assumptions for the conventional photometry
 package. Command options and additional examples are documented in
-[`cli.md`](cli.md).
+the monorepo [command-line reference](../../../docs/cli.md).
 
 ## Raw-data layout
 
@@ -51,7 +51,8 @@ the exact processing configuration.
 
 ## Session manifests and batch analysis
 
-Copy `config/sessions.example.csv` to the Git-ignored `analysis/` directory and
+Copy `packages/lutaslab-photometry/examples/config/sessions.example.csv` to the
+Git-ignored `analysis/` directory and
 edit it for the cohort:
 
 ```csv
@@ -103,7 +104,7 @@ Thus, a mouse with more sessions or trials does not receive greater weight in
 the group result. PSTH outputs include editable figures, numeric arrays, and
 event/session counts. Statistical workflows export trial-, session-, mouse-,
 and group-level tables plus Prism-ready wide tables. See
-[`statistical-analysis-policy.md`](statistical-analysis-policy.md) for the
+[statistical analysis policy](../../../docs/statistical-analysis-policy.md) for the
 reporting policy.
 
 Equal-weight mouse summaries are the primary inferential analysis. A
@@ -123,7 +124,8 @@ cosmetic editing.
 
 ## Notebooks and local work
 
-Maintained notebooks under `notebooks/` are clean templates:
+Maintained notebooks under `packages/lutaslab-photometry/examples/notebooks/`
+are clean templates:
 
 - `01_explore_session.ipynb`: inspect one processed session;
 - `02_event_aligned_photometry.ipynb`: event-aligned visualization;
@@ -134,7 +136,7 @@ Maintained notebooks under `notebooks/` are clean templates:
 Copy templates into the Git-ignored `analysis/` directory for mouse-specific
 work. Keep reusable code in
 `packages/lutaslab-photometry/src/lutaslab_photometry/` and keep maintained notebook
-outputs cleared. See [`../notebooks/README.md`](../notebooks/README.md).
+outputs cleared. See the [notebook guide](../examples/notebooks/README.md).
 
 ## Paper-specific workflows
 

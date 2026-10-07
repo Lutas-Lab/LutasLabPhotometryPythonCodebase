@@ -12,8 +12,11 @@ from lutaslab_photometry.group_analysis import (
     compute_manifest_psth,
     compute_manifest_psth_strata,
     save_condition_comparison_figures,
+    save_null_diagnostics,
     save_psth_figures,
+    save_psth_heatmaps,
 )
+from lutaslab_photometry.heatmap_ordering import HEATMAP_SORT_METHODS
 from lutaslab_photometry.session_manifest import load_session_manifest
 from lutaslab_photometry.trial_classification import TRIAL_CLASS_KEYS
 
@@ -94,6 +97,29 @@ def parse_arguments():
         default=("svg", "png"),
     )
     parser.add_argument("--font-family", default="Arial")
+    parser.add_argument(
+        "--heatmaps",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Save session, mouse-level, and descriptive pooled-trial heatmaps.",
+    )
+    parser.add_argument(
+        "--heatmap-sort",
+        choices=HEATMAP_SORT_METHODS,
+        default="event_order",
+    )
+    parser.add_argument("--heatmap-sort-window", type=float, nargs=2, default=None)
+    parser.add_argument(
+        "--heatmap-sort-direction",
+        choices=("auto", "ascending", "descending"),
+        default="auto",
+    )
+    parser.add_argument(
+        "--heatmap-unmatched",
+        choices=("bottom", "exclude"),
+        default="bottom",
+    )
+    parser.add_argument("--heatmap-cmap", default="coolwarm")
     return parser.parse_args()
 
 
@@ -213,14 +239,52 @@ def main():
                 dpi=args.dpi,
                 font_family=args.font_family,
             )
+            heatmap_paths = (
+                save_psth_heatmaps(
+                    results,
+                    stratum_dir,
+                    sort=args.heatmap_sort,
+                    sort_window=args.heatmap_sort_window,
+                    direction=args.heatmap_sort_direction,
+                    unmatched=args.heatmap_unmatched,
+                    cmap=args.heatmap_cmap,
+                    formats=args.formats,
+                    dpi=args.dpi,
+                    font_family=args.font_family,
+                )
+                if args.heatmaps
+                else []
+            )
+            diagnostic_report = (
+                save_null_diagnostics(
+                    results,
+                    stratum_dir,
+                    formats=args.formats,
+                    dpi=args.dpi,
+                    font_family=args.font_family,
+                )
+                if args.null_method != "none"
+                else {"paths": [], "summary_rows": []}
+            )
             result_path, summary_path = _save_numeric_results(results, stratum_dir)
-            saved_figures.extend(figure_paths)
+            saved_figures.extend(
+                figure_paths + heatmap_paths + diagnostic_report["paths"]
+            )
             print(
                 f"{group} / {condition}: {len(results['session_results'])} sessions, "
                 f"{results['n_mice']} mice."
             )
             print(f"Saved numeric results: {result_path}")
             print(f"Saved summary: {summary_path}")
+            warning_count = sum(
+                row["warning_near_zero_baseline"] or row["warning_extreme_z"]
+                for row in diagnostic_report["summary_rows"]
+            )
+            if warning_count:
+                print(
+                    f"WARNING: null diagnostics flagged {warning_count} session(s); "
+                    f"review {stratum_dir / 'null_diagnostics'}."
+                )
         comparison_paths = save_condition_comparison_figures(
             stratum_results,
             args.output_dir / "comparisons",
@@ -229,7 +293,7 @@ def main():
             font_family=args.font_family,
         )
         for path in saved_figures + comparison_paths:
-            print(f"Saved figure: {path}")
+            print(f"Saved output: {path}")
         return
 
     results = compute_manifest_psth(sessions, args.data_root, **analysis_options)
@@ -242,6 +306,33 @@ def main():
         dpi=args.dpi,
         font_family=args.font_family,
     )
+    if args.heatmaps:
+        figure_paths.extend(
+            save_psth_heatmaps(
+                results,
+                args.output_dir,
+                sort=args.heatmap_sort,
+                sort_window=args.heatmap_sort_window,
+                direction=args.heatmap_sort_direction,
+                unmatched=args.heatmap_unmatched,
+                cmap=args.heatmap_cmap,
+                formats=args.formats,
+                dpi=args.dpi,
+                font_family=args.font_family,
+            )
+        )
+    diagnostic_report = (
+        save_null_diagnostics(
+            results,
+            args.output_dir,
+            formats=args.formats,
+            dpi=args.dpi,
+            font_family=args.font_family,
+        )
+        if args.null_method != "none"
+        else {"paths": [], "summary_rows": []}
+    )
+    figure_paths.extend(diagnostic_report["paths"])
     result_path, summary_path = _save_numeric_results(results, args.output_dir)
 
     print(f"Analyzed {len(results['session_results'])} sessions.")
@@ -252,7 +343,16 @@ def main():
             f"{results['n_shuffles']} shuffles, seed {results['random_seed']}."
         )
     for path in figure_paths:
-        print(f"Saved figure: {path}")
+        print(f"Saved output: {path}")
+    warning_count = sum(
+        row["warning_near_zero_baseline"] or row["warning_extreme_z"]
+        for row in diagnostic_report["summary_rows"]
+    )
+    if warning_count:
+        print(
+            f"WARNING: null diagnostics flagged {warning_count} session(s); "
+            f"review {args.output_dir / 'null_diagnostics'}."
+        )
     print(f"Saved numeric results: {result_path}")
     print(f"Saved summary: {summary_path}")
 

@@ -6,6 +6,16 @@ The purpose of keeping these functions in `lutaslab_photometry` is to separate t
 
 The package name matches the installed import namespace.
 
+Package-owned supporting material is colocated here:
+
+- [`docs/`](docs/) contains the conventional analysis, modeling, and
+  experiment-specific workflow guides.
+- [`examples/notebooks/`](examples/notebooks/) contains the maintained,
+  output-free conventional photometry notebook templates.
+- [`examples/config/`](examples/config/) contains copyable manifest and
+  deposited-data path examples. Runtime defaults remain packaged under
+  `src/lutaslab_photometry/data/`.
+
 ---
 
 # Directory Contents

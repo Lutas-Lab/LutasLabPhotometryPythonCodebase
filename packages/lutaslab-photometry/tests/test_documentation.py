@@ -5,7 +5,6 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 DOCUMENTATION_ROOTS = (
     REPOSITORY_ROOT / "README.md",
     REPOSITORY_ROOT / "docs",
-    REPOSITORY_ROOT / "notebooks" / "README.md",
     REPOSITORY_ROOT / "packages",
 )
 

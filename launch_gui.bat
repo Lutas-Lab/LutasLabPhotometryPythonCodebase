@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 
-set "GUI_PYTHON=%~dp0.venv\Scripts\python.exe"
+set "GUI_PYTHON=%~dp0.venv-gui\Scripts\python.exe"
 if not exist "%GUI_PYTHON%" (
     echo The GUI environment has not been installed yet.
     echo Double-click install_gui.bat first.
@@ -12,7 +12,7 @@ if not exist "%GUI_PYTHON%" (
 )
 
 echo Starting Lutas Lab Photometry...
-"%GUI_PYTHON%" -m streamlit run "%~dp0streamlit_app.py" --browser.gatherUsageStats false
+"%GUI_PYTHON%" -m streamlit run "%~dp0streamlit_app.py" --server.address 127.0.0.1 --browser.gatherUsageStats false
 set "LAUNCH_RESULT=%ERRORLEVEL%"
 
 if not "%LAUNCH_RESULT%"=="0" (

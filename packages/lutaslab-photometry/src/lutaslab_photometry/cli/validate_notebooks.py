@@ -8,10 +8,11 @@ import json
 import sys
 from pathlib import Path
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
 DEFAULT_FOLDERS = (
-    Path("notebooks"),
-    Path("packages/fluopulse-analysis/examples/notebooks"),
-    Path("packages/iflip3-analysis/examples/notebooks"),
+    REPOSITORY_ROOT / "packages/lutaslab-photometry/examples/notebooks",
+    REPOSITORY_ROOT / "packages/fluopulse-analysis/examples/notebooks",
+    REPOSITORY_ROOT / "packages/iflip3-analysis/examples/notebooks",
 )
 FORBIDDEN_SOURCE_MARKERS = (
     "C:\\Users\\",

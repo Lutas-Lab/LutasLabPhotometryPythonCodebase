@@ -25,7 +25,8 @@ Copy the example session manifest and edit it for the cohort:
 
 ```powershell
 New-Item -ItemType Directory -Force analysis
-Copy-Item config\sessions.example.csv analysis\sessions.csv
+Copy-Item packages\lutaslab-photometry\examples\config\sessions.example.csv `
+  analysis\sessions.csv
 ```
 
 The manifest identifies each session and may include grouping and channel
@@ -64,7 +65,7 @@ explicitly requested.
 Raw sessions are expected below the data root as
 `MOUSE\MOUSE_YYMMDD\MOUSE-YYMMDD-RUN-nidaq.mat`, with a matching
 `-running.mat` file. See the
-[conventional analysis guide](docs/analysis-guide.md) for the complete input
+[conventional analysis guide](packages/lutaslab-photometry/docs/analysis-guide.md) for the complete input
 contract, channel map, processing details, trial classes, null controls,
 statistics, and notebook workflow.
 
@@ -73,9 +74,13 @@ statistics, and notebook workflow.
 - Jupyter: install the notebook tools with
   `uv sync --frozen --all-packages --extra notebooks`, then run
   `uv run jupyter lab` and open
-  [`notebooks/05_batch_workflow.ipynb`](notebooks/05_batch_workflow.ipynb).
-- Browser GUI: use `install_gui.bat` and `launch_gui.bat`, or install the `gui`
-  extra and launch `streamlit_app.py`. See the [GUI guide](docs/gui.md).
+  [`05_batch_workflow.ipynb`](packages/lutaslab-photometry/examples/notebooks/05_batch_workflow.ipynb).
+- Browser GUI: use `install_gui.bat` and `launch_gui.bat`, or install the `gui`,
+  `forecasting`, and `events` extras and launch `streamlit_app.py`. A selector
+  opens conventional photometry, FluoPulse, or iFLIP3 workflows with their own
+  manifests, preprocessing/alignment, PSTHs, heatmaps, and GLMs. The
+  double-click installer uses a separate locked `.venv-gui`; see the
+  [GUI guide](docs/gui.md).
 - Individual commands: see the [command-line reference](docs/cli.md) and run
   any `lutaslab-*` command with `--help`.
 
@@ -84,17 +89,16 @@ statistics, and notebook workflow.
 ```text
 LutasLabPhotometryPythonCodebase/
 ├── packages/
-│   ├── lutaslab-core/         shared events, synchronization, GLM, provenance
-│   ├── lutaslab-photometry/   conventional package, commands, and tests
+│   ├── lutaslab-core/         shared code, documentation, and examples
+│   ├── lutaslab-photometry/   conventional package, docs, config, and notebooks
+│   │   ├── docs/              conventional analysis and modeling guides
+│   │   ├── examples/          notebook templates and example configuration
 │   │   └── src/lutaslab_photometry/
 │   │       ├── cli/           installed workflow implementations
 │   │       └── data/          packaged default analysis configuration
 │   ├── fluopulse-analysis/    FluoPulse package, tests, and examples
 │   └── iflip3-analysis/       iFLiP3 package, tests, and examples
-├── config/                    session-manifest example and reanalysis paths
-├── docs/                      focused user, analysis, and maintainer guides
-├── examples/                  standalone API examples
-├── notebooks/                 maintained interactive workflow templates
+├── docs/                      monorepo-wide user and maintainer guides
 ├── analysis/                  local ignored notebooks and results
 ├── outputs/                   generated ignored outputs
 ├── streamlit_app.py           browser interface
@@ -117,22 +121,23 @@ the current working directory.
 | Guide | Contents |
 | --- | --- |
 | [Environment](docs/environment.md) | Installation, optional dependencies, Conda fallback, and dependency updates |
-| [Conventional analysis](docs/analysis-guide.md) | Raw-data layout, preprocessing, manifests, PSTHs, figures, notebooks, and platforms |
+| [Conventional analysis](packages/lutaslab-photometry/docs/analysis-guide.md) | Raw-data layout, preprocessing, manifests, PSTHs, figures, notebooks, and platforms |
 | [Command-line workflows](docs/cli.md) | Commands, options, outputs, trial filters, and null controls |
-| [GUI](docs/gui.md) | Windows installer, Streamlit launch, and preview safeguards |
-| [Modeling and forecasting](docs/modeling.md) | Ridge GLMs, temporal models, validation, regularization, and forecasting |
+| [GUI](docs/gui.md) | Isolated Windows installer, Streamlit workflows, and run safeguards |
+| [Modeling and forecasting](packages/lutaslab-photometry/docs/modeling.md) | Ridge GLMs, temporal models, validation, regularization, and forecasting |
 | [Architecture](docs/architecture.md) | Package ownership, API policy, and compatibility |
 | [Statistical policy](docs/statistical-analysis-policy.md) | Biological units, deposited-data tests, and interpretation |
-| [Publication bundles](docs/publication-bundles.md) | Compact source-data export format |
-| [Figure 5 reanalysis](docs/figure5-reanalysis.md) | Smooth-basis deposited-data reanalysis |
-| [Figure 5 bout analysis](docs/figure5-bout-analysis.md) | Lick-bout structure follow-up |
-| [Multitastant analysis](docs/multitastant-analysis.md) | Matched delivery-kernel analysis |
+| [Publication bundles](packages/lutaslab-core/docs/publication-bundles.md) | Compact source-data export format |
+| [Figure 5 reanalysis](packages/lutaslab-photometry/docs/figure5-reanalysis.md) | Smooth-basis deposited-data reanalysis |
+| [Figure 5 bout analysis](packages/lutaslab-photometry/docs/figure5-bout-analysis.md) | Lick-bout structure follow-up |
+| [Multitastant analysis](packages/lutaslab-photometry/docs/multitastant-analysis.md) | Matched delivery-kernel analysis |
 | [Legacy repository audit](docs/legacy-repository-audit.md) | FluoPulse and iFLiP3 migration record |
 | [Release hardening](docs/release-hardening.md) | Remaining validation and release checklist |
 
 Package-specific documentation is also available in
 [`packages/lutaslab-photometry/README.md`](packages/lutaslab-photometry/README.md),
-[`notebooks/README.md`](notebooks/README.md), and each workspace package.
+its [`notebook guide`](packages/lutaslab-photometry/examples/notebooks/README.md),
+and each workspace package.
 
 ## Development
 

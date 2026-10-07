@@ -9,7 +9,7 @@ The general distinction is:
 ```text
 packages/lutaslab-photometry/src/lutaslab_photometry/      = reusable implementation
 packages/lutaslab-photometry/src/lutaslab_photometry/cli/  = command workflows
-notebooks/  = clean interactive examples and templates
+packages/lutaslab-photometry/examples/notebooks/ = clean interactive templates
 analysis/   = local mouse/session-specific working notebooks
 ```
 
@@ -167,7 +167,8 @@ If a mouse contributes multiple sessions, those sessions are first summarized wi
 
 Sessions are loaded from the same `mouse,date,run` CSV manifest accepted by
 `lutaslab-run-preprocess-batch` and `lutaslab-run-psth`. Copy
-`config/sessions.example.csv` to `analysis/sessions.csv` and edit that local
+`packages/lutaslab-photometry/examples/config/sessions.example.csv` to
+`analysis/sessions.csv` and edit that local
 copy. The corresponding processed-session paths are constructed automatically.
 
 ### Current Group Analyses
@@ -248,7 +249,7 @@ and copy the desired notebook template there.
 For example:
 
 ```text
-notebooks/02_event_aligned_photometry.ipynb
+packages/lutaslab-photometry/examples/notebooks/02_event_aligned_photometry.ipynb
                     |
                     v
 analysis/DK21_230704_002_events.ipynb
@@ -257,7 +258,7 @@ analysis/DK21_230704_002_events.ipynb
 or:
 
 ```text
-notebooks/03_trial_analysis.ipynb
+packages/lutaslab-photometry/examples/notebooks/03_trial_analysis.ipynb
                     |
                     v
 analysis/DK21_230704_002_trials.ipynb
@@ -273,7 +274,7 @@ photometry-analysis/
 │       └── src/lutaslab_photometry/
 │           └── cli/
 │
-├── notebooks/
+├── packages/lutaslab-photometry/examples/notebooks/
 │   ├── 01_explore_session.ipynb
 │   ├── 02_event_aligned_photometry.ipynb
 │   ├── 03_trial_analysis.ipynb
@@ -349,5 +350,5 @@ Example notebooks committed to GitHub should preferably:
 # Modeling workflows
 
 The supported ridge-GLM and forecasting workflows are documented in
-[`../docs/modeling.md`](../docs/modeling.md). NeMoS remains an optional
+[`../../docs/modeling.md`](../../docs/modeling.md). NeMoS remains an optional
 compatibility backend rather than the default notebook path.

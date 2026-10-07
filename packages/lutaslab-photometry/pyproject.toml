@@ -48,6 +48,7 @@ lutaslab-run-figure5-bout-analysis = "lutaslab_photometry.cli.run_figure5_bout_a
 lutaslab-run-figure5-reanalysis = "lutaslab_photometry.cli.run_figure5_reanalysis:main"
 lutaslab-run-forecasting = "lutaslab_photometry.cli.run_forecasting:main"
 lutaslab-run-lickbout-delivery-analysis = "lutaslab_photometry.cli.run_lickbout_delivery_analysis:main"
+lutaslab-run-lifetime-workflow = "lutaslab_photometry.cli.run_lifetime_workflow:main"
 lutaslab-run-multitastant-analysis = "lutaslab_photometry.cli.run_multitastant_analysis:main"
 lutaslab-run-preprocess = "lutaslab_photometry.cli.run_preprocess:main"
 lutaslab-run-preprocess-batch = "lutaslab_photometry.cli.run_preprocess_batch:main"
