@@ -66,7 +66,7 @@ repository can be installed:
 ```powershell
 conda create -n photometry python=3.12 pip jupyterlab ipykernel -y
 conda activate photometry
-python -m pip install -e packages/lutaslab-core -e . `
+python -m pip install -e packages/lutaslab-core -e packages/lutaslab-photometry `
   -e packages/fluopulse-analysis -e packages/iflip3-analysis
 lutaslab-check-install
 ```
@@ -98,7 +98,8 @@ non-NeMoS test suite with:
 ```powershell
 uv sync --frozen --all-packages --extra dev --extra forecasting
 uv run python -m pytest
-uv run ruff check lutaslab_photometry tests streamlit_app.py
+uv run ruff check packages/lutaslab-photometry/src `
+  packages/lutaslab-photometry/tests streamlit_app.py
 uv run ruff check packages/lutaslab-core/src packages/lutaslab-core/tests
 uv run mypy
 ```
@@ -108,7 +109,7 @@ hide failures in the standard analysis stack:
 
 ```powershell
 uv sync --frozen --all-packages --extra dev --extra nemos
-uv run python -m pytest tests/test_nemos_analysis.py
+uv run python -m pytest packages/lutaslab-photometry/tests/test_nemos_analysis.py
 ```
 
 GitHub Actions remains the authoritative full validation matrix. It tests the

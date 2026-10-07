@@ -360,7 +360,7 @@ def main() -> None:
             args.output / "multitastant_delivery_kernels.png",
             args.output / "multitastant_delivery_kernels.svg",
         ],
-        repository_root=Path(__file__).resolve().parents[2],
+        repository_root=Path(__file__).resolve().parents[5],
         started_at=started_at,
     )
 

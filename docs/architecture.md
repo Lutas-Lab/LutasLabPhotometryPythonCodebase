@@ -49,7 +49,8 @@ is not part of the package migration itself.
 - Shared dataclasses, event utilities, synchronization, peri-event functions,
   and GLM primitives exported by `lutaslab_core` are the intended public API.
 - Acquisition-specific preprocessing APIs are supported within their packages.
-- Modules under `lutaslab_photometry/cli/` are reproducible workflows exposed as
+- Modules under `packages/lutaslab-photometry/src/lutaslab_photometry/cli/` are
+  reproducible workflows exposed as
   console commands and may provide additional
   experiment-specific options.
 - Notebook code and `lutaslab_photometry.nemos_analysis` are compatibility interfaces and are

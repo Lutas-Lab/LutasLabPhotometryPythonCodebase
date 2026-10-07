@@ -132,7 +132,8 @@ Maintained notebooks under `notebooks/` are clean templates:
 - `05_batch_workflow.ipynb`: manifest creation, preprocessing, and PSTHs.
 
 Copy templates into the Git-ignored `analysis/` directory for mouse-specific
-work. Keep reusable code in `lutaslab_photometry/` and keep maintained notebook
+work. Keep reusable code in
+`packages/lutaslab-photometry/src/lutaslab_photometry/` and keep maintained notebook
 outputs cleared. See [`../notebooks/README.md`](../notebooks/README.md).
 
 ## Paper-specific workflows

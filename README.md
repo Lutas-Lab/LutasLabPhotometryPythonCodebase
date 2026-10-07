@@ -83,33 +83,30 @@ statistics, and notebook workflow.
 
 ```text
 LutasLabPhotometryPythonCodebase/
-├── lutaslab_photometry/       conventional reusable package
-│   ├── cli/
-│   │   ├── run_preprocess_batch.py
-│   │   ├── run_psth.py
-│   │   ├── run_psth_statistics.py
-│   │   └── ...                forecasting and reanalysis commands
-│   └── data/                  packaged default analysis configuration
 ├── packages/
 │   ├── lutaslab-core/         shared events, synchronization, GLM, provenance
+│   ├── lutaslab-photometry/   conventional package, commands, and tests
+│   │   └── src/lutaslab_photometry/
+│   │       ├── cli/           installed workflow implementations
+│   │       └── data/          packaged default analysis configuration
 │   ├── fluopulse-analysis/    FluoPulse package, tests, and examples
 │   └── iflip3-analysis/       iFLiP3 package, tests, and examples
 ├── config/                    session-manifest example and reanalysis paths
 ├── docs/                      focused user, analysis, and maintainer guides
 ├── examples/                  standalone API examples
 ├── notebooks/                 maintained interactive workflow templates
-├── tests/                     conventional-photometry test suite
 ├── analysis/                  local ignored notebooks and results
 ├── outputs/                   generated ignored outputs
 ├── streamlit_app.py           browser interface
 ├── install_gui.bat            double-clickable Windows installer
 ├── install_gui.ps1            GUI installation implementation
 ├── launch_gui.bat             double-clickable GUI launcher
-├── pyproject.toml             root package, entry points, and workspace config
+├── pyproject.toml             workspace and repository-wide tool configuration
 └── uv.lock                    reproducible workspace dependency lock
 ```
 
-Command implementations live inside `lutaslab_photometry/cli/` and are exposed
+Command implementations live inside
+`packages/lutaslab-photometry/src/lutaslab_photometry/cli/` and are exposed
 as installed `[project.scripts]` entry points such as
 `lutaslab-run-preprocess-batch`, `lutaslab-run-psth`, and
 `lutaslab-run-psth-statistics`. They do not require the repository root to be
@@ -134,7 +131,7 @@ the current working directory.
 | [Release hardening](docs/release-hardening.md) | Remaining validation and release checklist |
 
 Package-specific documentation is also available in
-[`lutaslab_photometry/README.md`](lutaslab_photometry/README.md),
+[`packages/lutaslab-photometry/README.md`](packages/lutaslab-photometry/README.md),
 [`notebooks/README.md`](notebooks/README.md), and each workspace package.
 
 ## Development
@@ -143,7 +140,8 @@ Run the conventional test and lint checks with:
 
 ```powershell
 uv run python -m pytest
-uv run ruff check lutaslab_photometry tests streamlit_app.py
+uv run ruff check packages/lutaslab-photometry/src `
+  packages/lutaslab-photometry/tests streamlit_app.py
 uv run ruff check packages/lutaslab-core/src packages/lutaslab-core/tests
 uv run mypy
 uv run lutaslab-validate-notebooks

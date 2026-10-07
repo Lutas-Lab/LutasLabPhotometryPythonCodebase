@@ -991,18 +991,21 @@ They generally do not need to be uploaded to a Git repository.
 
 # Repository Notes
 
-The maintained conventional source package contains files such as:
+The maintained conventional project uses a standard `src` layout:
 
 ```text
-lutaslab_photometry/
-    __init__.py
-    cli/
-    load_data.py
-    preprocess.py
-    plotting.py
-    pynapple_utils.py
-    save_sessiondata.py
-    nemos_analysis.py
+packages/lutaslab-photometry/
+    pyproject.toml
+    src/lutaslab_photometry/
+        __init__.py
+        cli/
+        load_data.py
+        preprocess.py
+        plotting.py
+        pynapple_utils.py
+        save_sessiondata.py
+        nemos_analysis.py
+    tests/
 ```
 
 Do not upload:

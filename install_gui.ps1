@@ -63,14 +63,15 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Installing the photometry application and GUI dependencies..."
-$guiTarget = "${projectRoot}[gui]"
-& $environmentPython -m pip install -e $guiTarget
+$coreTarget = Join-Path $projectRoot "packages\lutaslab-core"
+$guiTarget = Join-Path $projectRoot "packages\lutaslab-photometry[gui]"
+& $environmentPython -m pip install -e $coreTarget -e $guiTarget
 if ($LASTEXITCODE -ne 0) {
     throw "The photometry GUI dependencies could not be installed."
 }
 
 Write-Host "Checking the installation..."
-& $environmentPython -c "import pandas, streamlit, src; print('GUI dependencies imported successfully.')"
+& $environmentPython -c "import pandas, streamlit, lutaslab_photometry; print('GUI dependencies imported successfully.')"
 if ($LASTEXITCODE -ne 0) {
     throw "The installation completed, but its import check failed."
 }

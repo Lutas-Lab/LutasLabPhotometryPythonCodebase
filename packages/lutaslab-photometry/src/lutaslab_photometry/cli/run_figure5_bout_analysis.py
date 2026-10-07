@@ -229,7 +229,7 @@ def main() -> None:
             args.output / "bout_structure_summary.png",
             args.output / "bout_structure_summary.svg",
         ],
-        repository_root=Path(__file__).resolve().parents[2],
+        repository_root=Path(__file__).resolve().parents[5],
         started_at=started_at,
     )
 

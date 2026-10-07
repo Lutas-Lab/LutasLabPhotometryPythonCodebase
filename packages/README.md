@@ -27,7 +27,7 @@ If an existing environment must be used, install all local packages together
 with ordinary pip from the monorepo root:
 
 ```powershell
-python -m pip install -e packages/lutaslab-core -e . `
+python -m pip install -e packages/lutaslab-core -e packages/lutaslab-photometry `
   -e packages/fluopulse-analysis -e packages/iflip3-analysis
 ```
 

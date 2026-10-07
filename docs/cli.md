@@ -1,14 +1,14 @@
 # Command-Line Workflows
 
 The installed `lutaslab-*` commands run routine analysis workflows using the
-reusable functions in `lutaslab_photometry/`. Their implementations live in
-`lutaslab_photometry/cli/`.
+reusable functions in the `lutaslab_photometry` import package. Their source
+implementations live under `packages/lutaslab-photometry/src/lutaslab_photometry/`.
 
 The distinction between the two directories is:
 
 ```text
-lutaslab_photometry/      = how an analysis works
-lutaslab_photometry/cli/  = run the analysis
+packages/lutaslab-photometry/src/lutaslab_photometry/      = how an analysis works
+packages/lutaslab-photometry/src/lutaslab_photometry/cli/  = run the analysis
 ```
 
 Scripts should generally remain relatively short. The underlying analysis logic should live in `lutaslab_photometry` rather than being duplicated here.
@@ -46,9 +46,9 @@ save processed .npz
 The actual preprocessing functions are implemented in:
 
 ```text
-lutaslab_photometry/load_data.py
-lutaslab_photometry/preprocess.py
-lutaslab_photometry/save_sessiondata.py
+packages/lutaslab-photometry/src/lutaslab_photometry/load_data.py
+packages/lutaslab-photometry/src/lutaslab_photometry/preprocess.py
+packages/lutaslab-photometry/src/lutaslab_photometry/save_sessiondata.py
 ```
 
 On the current Windows setup, raw photometry data are stored under a mapped photometry drive such as:
@@ -222,6 +222,7 @@ Commands import the reusable analysis functions from `lutaslab_photometry`.
 
 ## What Does Not Belong Here
 
-Avoid placing large analysis implementations in `lutaslab_photometry/cli/`.
+Avoid placing large analysis implementations in
+`packages/lutaslab-photometry/src/lutaslab_photometry/cli/`.
 
 If a script starts accumulating substantial preprocessing, modeling, or plotting logic, that logic should generally be moved into an appropriate module under `lutaslab_photometry`.

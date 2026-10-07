@@ -7,8 +7,8 @@ The notebooks provide a high-level interface to the reusable functions implement
 The general distinction is:
 
 ```text
-lutaslab_photometry/      = reusable analysis implementation
-lutaslab_photometry/cli/  = command-line workflow implementations
+packages/lutaslab-photometry/src/lutaslab_photometry/      = reusable implementation
+packages/lutaslab-photometry/src/lutaslab_photometry/cli/  = command workflows
 notebooks/  = clean interactive examples and templates
 analysis/   = local mouse/session-specific working notebooks
 ```
@@ -268,8 +268,10 @@ The repository should therefore look something like:
 ```text
 photometry-analysis/
 │
-├── lutaslab_photometry/
-│   └── cli/
+├── packages/
+│   └── lutaslab-photometry/
+│       └── src/lutaslab_photometry/
+│           └── cli/
 │
 ├── notebooks/
 │   ├── 01_explore_session.ipynb
@@ -302,7 +304,10 @@ This allows working notebooks to contain:
 
 without cluttering the GitHub repository.
 
-Reusable improvements discovered while working in `analysis/` should be moved into the appropriate `lutaslab_photometry/` module or incorporated into one of the clean notebook templates.
+Reusable improvements discovered while working in `analysis/` should be moved
+into the appropriate module under
+`packages/lutaslab-photometry/src/lutaslab_photometry/` or incorporated into
+one of the clean notebook templates.
 
 ---
 

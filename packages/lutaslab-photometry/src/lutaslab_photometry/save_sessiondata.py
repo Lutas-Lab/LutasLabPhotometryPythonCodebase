@@ -41,7 +41,7 @@ def _package_version(package):
 
 
 def _git_commit():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = Path(__file__).resolve().parents[4]
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],

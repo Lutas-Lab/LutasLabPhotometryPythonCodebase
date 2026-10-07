@@ -332,7 +332,7 @@ def main() -> None:
             args.output / "summary.json",
             args.output / "reanalysis_summary.png",
         ],
-        repository_root=Path(__file__).resolve().parents[2],
+        repository_root=Path(__file__).resolve().parents[5],
         started_at=started_at,
     )
 
