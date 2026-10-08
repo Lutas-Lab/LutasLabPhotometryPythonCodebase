@@ -36,12 +36,12 @@ def test_fluopulse_manifest_allows_convention_based_path_discovery():
     )
 
 
-def test_iflip3_manifest_requires_explicit_matched_background():
-    with pytest.raises(ValueError, match="matched background_path"):
-        normalize_lifetime_manifest_rows(
-            "iflip3",
-            [{"mouse": "AL164", "date": "260923", "run": 4}],
-        )
+def test_iflip3_manifest_allows_missing_background():
+    rows = normalize_lifetime_manifest_rows(
+        "iflip3",
+        [{"mouse": "AL164", "date": "260923", "run": 4}],
+    )
+    assert rows[0]["background_path"] == ""
 
 
 def test_write_iflip3_manifest_preserves_background_provenance(tmp_path):
@@ -99,6 +99,40 @@ def test_discover_iflip_paths_returns_recording_and_background_choices(tmp_path)
     assert choices["iflip_path"] == [recording]
     assert choices["background_path"] == [background]
     assert other_run not in choices["iflip_path"]
+
+
+@pytest.mark.parametrize(
+    ("workflow", "recording_field", "recording_name", "background"),
+    [
+        ("fluopulse", "doric_path", "recording.doric", ""),
+        ("iflip3", "iflip_path", "recording.iFLiP3", ""),
+    ],
+)
+def test_lifetime_paths_leave_missing_nidaq_optional(
+    workflow,
+    recording_field,
+    recording_name,
+    background,
+    tmp_path,
+):
+    recording = _touch(tmp_path / recording_name)
+    row = {
+        "mouse": "M1",
+        "date": "260101",
+        "run": 1,
+        recording_field: str(recording),
+        "nidaq_path": "",
+        "running_path": "",
+        "background_path": background,
+    }
+    if workflow == "iflip3":
+        resolved = workflows._iflip3_paths(row, tmp_path)
+        assert resolved["background_path"] is None
+    else:
+        resolved = workflows._fluopulse_paths(row, tmp_path)
+
+    assert resolved["nidaq_path"] is None
+    assert resolved["running_path"] is None
 
 
 def test_lifetime_preprocessing_saves_beside_raw_and_roundtrips(monkeypatch, tmp_path):

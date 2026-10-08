@@ -31,7 +31,7 @@ from .synchronization import ClockAlignment, external_marker_mask, fit_clock_ali
 
 @dataclass(frozen=True)
 class AlignedSession:
-    """Lifetime and behavioral data represented on the NI-DAQ clock."""
+    """Lifetime data on the NI-DAQ clock or native iFLiP clock."""
 
     lifetime_time_nidaq: np.ndarray
     lifetime_time_iflip: np.ndarray
@@ -41,7 +41,8 @@ class AlignedSession:
     visual_cue_pulses: TTLPulses
     ensure_pulses: TTLPulses
     sync_pulses: TTLPulses
-    alignment: ClockAlignment
+    alignment: ClockAlignment | None
+    measured_background_applied: bool = True
     running_time_nidaq: np.ndarray | None = None
     running_speed: np.ndarray | None = None
 
@@ -97,8 +98,17 @@ class AlignedSession:
             },
             metadata={
                 "sensor": "iflip3",
-                "clock_drift_ppm": self.alignment.drift_ppm,
-                "clock_rms_residual_seconds": self.alignment.rms_residual_seconds,
+                "timebase": "nidaq_aligned" if self.alignment is not None else "iflip_native",
+                "nidaq_aligned": self.alignment is not None,
+                "measured_background_applied": self.measured_background_applied,
+                "clock_drift_ppm": (
+                    self.alignment.drift_ppm if self.alignment is not None else None
+                ),
+                "clock_rms_residual_seconds": (
+                    self.alignment.rms_residual_seconds
+                    if self.alignment is not None
+                    else None
+                ),
             },
         )
 
@@ -167,8 +177,8 @@ class AlignedSession:
 
 def process_aligned_session(
     iflip_path: str | Path,
-    nidaq_path: str | Path,
-    background_path: str | Path,
+    nidaq_path: str | Path | None,
+    background_path: str | Path | None = None,
     *,
     running_path: str | Path | None = None,
     spc_range: tuple[float, float] = (0.4, 12.3),
@@ -178,17 +188,18 @@ def process_aligned_session(
     iflip_sync_start_index: int = 0,
     nidaq_sync_start_index: int = 0,
 ) -> AlignedSession:
-    """Process MPET, align clocks, and extract NI-DAQ behavior events."""
+    """Process MPET and optionally align it with NI-DAQ behavior events."""
 
     iflip = read_iflip3(iflip_path)
-    background = read_iflip3(background_path)
-    nidaq: NIDAQRecording = read_nidaq(nidaq_path)
-
+    measured_background = None
+    if background_path is not None:
+        background = read_iflip3(background_path)
+        measured_background = average_background([background])
     mpet, _ = calculate_mpet(
         iflip,
         spc_range,
         t0=float(iflip.header.get_path("state.t0.Value")),
-        measured_background=average_background([background]),
+        measured_background=measured_background,
         afterpulse_ratio=afterpulse_ratio,
     )
     mpet_values = np.asarray(mpet[:, 0] if mpet.ndim == 2 else mpet, dtype=float)
@@ -196,6 +207,32 @@ def process_aligned_session(
 
     marker_mask = external_marker_mask(iflip.marks, marker=1)
     iflip_marker_times = iflip.sample_time[marker_mask]
+
+    if nidaq_path is None:
+        if running_path is not None:
+            raise ValueError("A running file cannot be aligned without an NI-DAQ file")
+        marker_indices = np.flatnonzero(marker_mask)
+        native_sync = TTLPulses(
+            iflip_marker_times,
+            iflip_marker_times.copy(),
+            marker_indices,
+            marker_indices.copy(),
+        )
+        empty = TTLPulses.empty()
+        return AlignedSession(
+            lifetime_time_nidaq=iflip.sample_time.copy(),
+            lifetime_time_iflip=iflip.sample_time.copy(),
+            mpet_ns=mpet_values,
+            raw_intensity_counts=raw_intensity,
+            lick_times_nidaq=np.array([], dtype=float),
+            visual_cue_pulses=empty,
+            ensure_pulses=empty,
+            sync_pulses=native_sync,
+            alignment=None,
+            measured_background_applied=measured_background is not None,
+        )
+
+    nidaq: NIDAQRecording = read_nidaq(nidaq_path)
     sync_pulses = find_ttl_pulses(
         nidaq.signal("sync"),
         nidaq.timestamps,
@@ -243,6 +280,7 @@ def process_aligned_session(
         ensure_pulses=ensure_pulses,
         sync_pulses=sync_pulses,
         alignment=alignment,
+        measured_background_applied=measured_background is not None,
         running_time_nidaq=running_time,
         running_speed=running_speed,
     )

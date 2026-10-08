@@ -38,8 +38,8 @@ def _resample_uniform(timestamps: np.ndarray, values: np.ndarray) -> tuple[np.nd
 @dataclass(frozen=True)
 class AlignedSession:
     doric: FluoPulseRecording
-    nidaq: NIDAQRecording
-    alignment: ClockAlignment
+    nidaq: NIDAQRecording | None
+    alignment: ClockAlignment | None
     lifetime_time_nidaq: np.ndarray
     doric_licks: TTLPulses
     nidaq_licks: TTLPulses
@@ -53,14 +53,18 @@ class AlignedSession:
     def nidaq_coverage_mask(self) -> np.ndarray:
         """Lifetime samples that fall inside the recorded NI-DAQ interval."""
 
+        if self.nidaq is None:
+            return np.zeros(self.lifetime_time_nidaq.size, dtype=bool)
         start = float(self.nidaq.timestamps[0])
         stop = float(self.nidaq.timestamps[-1])
         return (self.lifetime_time_nidaq >= start) & (self.lifetime_time_nidaq <= stop)
 
     @property
-    def nidaq_coverage_fraction(self) -> float:
+    def nidaq_coverage_fraction(self) -> float | None:
         """Fraction of the Doric lifetime series covered by NI-DAQ behavior."""
 
+        if self.nidaq is None:
+            return None
         return float(np.mean(self.nidaq_coverage_mask))
 
     def to_core_session(self, session_id: str | None = None) -> CoreAlignedSession:
@@ -124,8 +128,16 @@ class AlignedSession:
             metadata={
                 "sensor": "fluopulse",
                 "source_path": str(self.doric.path),
-                "clock_drift_ppm": self.alignment.drift_ppm,
-                "clock_rms_residual_seconds": self.alignment.rms_residual_seconds,
+                "timebase": "nidaq_aligned" if self.alignment is not None else "doric_native",
+                "nidaq_aligned": self.alignment is not None,
+                "clock_drift_ppm": (
+                    self.alignment.drift_ppm if self.alignment is not None else None
+                ),
+                "clock_rms_residual_seconds": (
+                    self.alignment.rms_residual_seconds
+                    if self.alignment is not None
+                    else None
+                ),
                 "nidaq_coverage_fraction": self.nidaq_coverage_fraction,
             },
         )
@@ -193,16 +205,35 @@ class AlignedSession:
 
 def process_aligned_session(
     doric_path: str | Path,
-    nidaq_path: str | Path,
+    nidaq_path: str | Path | None,
     *,
     running_path: str | Path | None = None,
     nidaq_threshold: float = 1.5,
     doric_sync_start_index: int = 0,
     nidaq_sync_start_index: int = 0,
 ) -> AlignedSession:
-    """Load one paired session and align Doric time to the NI-DAQ clock."""
+    """Load a Doric session, aligning it to NI-DAQ when one is available."""
 
     doric = read_doric(doric_path, extract_digital=True)
+    empty = TTLPulses.empty()
+    doric_licks_native = doric.digital_pulses.get("licking", empty)
+    doric_ensure_native = doric.digital_pulses.get("ensure")
+
+    if nidaq_path is None:
+        if running_path is not None:
+            raise ValueError("A running file cannot be aligned without an NI-DAQ file")
+        return AlignedSession(
+            doric=doric,
+            nidaq=None,
+            alignment=None,
+            lifetime_time_nidaq=doric.time.copy(),
+            doric_licks=doric_licks_native,
+            nidaq_licks=empty,
+            ensure_pulses=doric_ensure_native or empty,
+            visual_cue_pulses=empty,
+            doric_ensure_pulses=doric_ensure_native,
+        )
+
     nidaq = read_nidaq(nidaq_path)
     if "sync" not in doric.digital_pulses:
         raise ValueError("Doric recording has no configured CAM/sync pulse channel")
@@ -215,20 +246,12 @@ def process_aligned_session(
         target_start_index=nidaq_sync_start_index,
     )
 
-    empty = TTLPulses(
-        np.array([], dtype=float),
-        np.array([], dtype=float),
-        np.array([], dtype=int),
-        np.array([], dtype=int),
-    )
-    doric_licks_native = doric.digital_pulses.get("licking", empty)
     doric_licks = TTLPulses(
         alignment.source_to_target(doric_licks_native.onset_times),
         alignment.source_to_target(doric_licks_native.offset_times),
         doric_licks_native.rising_indices,
         doric_licks_native.falling_indices,
     )
-    doric_ensure_native = doric.digital_pulses.get("ensure")
     doric_ensure = None
     if doric_ensure_native is not None:
         doric_ensure = TTLPulses(

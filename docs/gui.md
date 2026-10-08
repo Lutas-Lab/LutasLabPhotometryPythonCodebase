@@ -61,10 +61,9 @@ Each acquisition system retains a separate manifest and output directory:
   `Z:\Photometry`. The session path assistant presents matching Doric, NI-DAQ,
   and optional running files before adding the row.
 - **iFLIP3** uses the same identity fields to find the iFLIP3, NI-DAQ, running,
-  and likely background files. The user must choose the matched background;
-  the app presents candidates but does not silently decide which background is
-  scientifically appropriate. Its data root defaults to `Z:\`, which contains
-  both `FLIM FLIP` and `Photometry`.
+  and likely background files. A matched background can be selected when one
+  exists, but older recordings can leave it blank. Its data root defaults to
+  `Z:\`, which contains both `FLIM FLIP` and `Photometry`.
 
 The path assistant accepts descriptive text appended to a standard lifetime
 filename. When more than one file matches, it provides a dropdown. Choose
@@ -75,7 +74,11 @@ the assistant remains directly editable.
 
 Explicit relative paths are resolved from the selected data root. Absolute
 paths override discovery. Running files remain optional for lifetime analyses;
-the recording, synchronization, and NI-DAQ behavior inputs are required.
+the recording inputs are required. NI-DAQ is optional for both lifetime sensors:
+when no corresponding file exists, preprocessing keeps the sensor-native clock
+and omits NI-DAQ-only behavior. An iFLIP3 matched background is also optional;
+when absent, measured-background subtraction is skipped and that choice is
+recorded in the processed metadata.
 
 ## Conventional photometry coverage
 
@@ -165,7 +168,8 @@ replacement for every installed command.
 The two lifetime modes share the sensor-independent session representation in
 `lutaslab-core`, but retain sensor-specific loading and correction:
 
-- **Preprocess and align** fits the sensor-to-NI-DAQ clock transform, then saves
+- **Preprocess and align** fits the sensor-to-NI-DAQ clock transform when an
+  NI-DAQ file is available; otherwise it retains the native sensor clock. It saves
   an analysis-ready compressed `-processed.npz` file beside the primary raw
   lifetime recording. FluoPulse stores vendor tau, amplitude, and fit R-square;
   iFLIP3 stores background-corrected MPET and raw intensity for QC. Source paths,

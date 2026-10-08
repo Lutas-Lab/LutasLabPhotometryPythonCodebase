@@ -3,7 +3,7 @@ import types
 
 import numpy as np
 from iflip3.nidaq import TTLPulses
-from iflip3.session import AlignedSession
+from iflip3.session import AlignedSession, process_aligned_session
 from iflip3.synchronization import ClockAlignment
 
 
@@ -72,3 +72,40 @@ def test_aligned_session_builds_pynapple_objects(monkeypatch):
     assert set(common.continuous) == {"mpet", "raw_intensity", "running_speed"}
     assert set(common.events) == {"licks", "visual_cue", "ensure", "sync"}
     assert common.metadata["sensor"] == "iflip3"
+
+
+def test_process_session_without_nidaq_uses_iflip_clock(monkeypatch):
+    recording = types.SimpleNamespace(
+        sample_time=np.array([0.1, 0.2, 0.3]),
+        marks=np.array([0, 4, 0], dtype=np.uint32),
+        data=np.ones((2, 3, 1), dtype=float),
+        header=types.SimpleNamespace(get_path=lambda path: 1.0),
+    )
+    monkeypatch.setattr("iflip3.session.read_iflip3", lambda *a, **k: recording)
+    monkeypatch.setattr(
+        "iflip3.session.average_background",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("background loaded")),
+    )
+    observed = {}
+
+    def fake_calculate_mpet(*args, **kwargs):
+        observed["measured_background"] = kwargs["measured_background"]
+        return np.array([1.1, 1.2, 1.3]), None
+
+    monkeypatch.setattr(
+        "iflip3.session.calculate_mpet",
+        fake_calculate_mpet,
+    )
+
+    session = process_aligned_session("recording.iFLiP3", None, None)
+    common = session.to_core_session()
+
+    assert session.alignment is None
+    np.testing.assert_allclose(common.continuous["mpet"].timestamps, recording.sample_time)
+    assert common.events["licks"].timestamps.size == 0
+    assert common.events["ensure"].timestamps.size == 0
+    np.testing.assert_allclose(common.events["sync"].timestamps, [0.2])
+    assert common.metadata["timebase"] == "iflip_native"
+    assert common.metadata["nidaq_aligned"] is False
+    assert common.metadata["measured_background_applied"] is False
+    assert observed["measured_background"] is None

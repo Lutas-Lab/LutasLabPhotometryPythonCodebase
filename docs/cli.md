@@ -225,8 +225,9 @@ or past cross-modal predictors remain available.
 Runs the same FluoPulse and iFLIP3 alignment, event-aligned, heatmap, and GLM
 workflows exposed by the GUI. The manifest schema depends on `--workflow`.
 FluoPulse accepts optional `doric_path`, `nidaq_path`, and `running_path`
-columns; iFLIP3 accepts `iflip_path`, `nidaq_path`, and `running_path` and
-requires `background_path` for every row.
+columns; iFLIP3 accepts `iflip_path`, optional `nidaq_path` and `running_path`, and
+an optional `background_path`. Without a background, measured-background
+subtraction is skipped while the configured afterpulse correction is retained.
 
 The GUI's session path assistant can generate these path fields from mouse,
 date, and run. In Python or a notebook, the same candidate search is available

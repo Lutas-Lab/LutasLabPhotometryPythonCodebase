@@ -247,8 +247,11 @@ def _lifetime_gui(workflow: str) -> None:
             key=f"{workflow}_manifest_path",
         )
         st.caption(
-            "Blank recording and NI-DAQ paths use the laboratory mouse/date/run "
-            "conventions under the data root. Explicit paths override discovery."
+            "Blank recording paths use the laboratory mouse/date/run conventions "
+            "under the data root. NI-DAQ is optional; when its path is blank, the "
+            "workflow uses a conventionally named file if one exists and otherwise "
+            "keeps the recording on its native sensor clock. Explicit paths override "
+            "discovery."
         )
 
     sessions_tab, align_tab, psth_tab, glm_tab = st.tabs(
@@ -264,8 +267,9 @@ def _lifetime_gui(workflow: str) -> None:
         if workflow == "iflip3":
             st.info(
                 "The path assistant finds session and background candidates from mouse, "
-                "date, and run. You still choose the matched iFLIP3 background used for "
-                "background and afterpulse correction."
+                "date, and run. A matched iFLIP3 background improves background "
+                "correction when available, but older recordings can be processed "
+                "without one."
             )
         else:
             st.info(
@@ -352,9 +356,10 @@ def _lifetime_gui(workflow: str) -> None:
                 nidaq_path = _path_picker(
                     workflow,
                     "nidaq_path",
-                    "NI-DAQ file",
+                    "NI-DAQ file (optional)",
                     choices["nidaq_path"],
                     data_root,
+                    optional=True,
                 )
                 running_path = _path_picker(
                     workflow,
@@ -372,16 +377,17 @@ def _lifetime_gui(workflow: str) -> None:
                         if _relative_path_text(path, data_root) != recording_path
                     ]
                     if not background_candidates:
-                        st.warning(
-                            "No likely background was found. Enter the matched background "
-                            "filename or path below."
+                        st.info(
+                            "No likely background was found. You can leave the background "
+                            "blank or enter one manually."
                         )
                     background_path = _path_picker(
                         workflow,
                         "background_path",
-                        "Matched background",
+                        "Matched background (optional)",
                         background_candidates,
                         data_root,
+                        optional=True,
                     )
 
                 if st.button(
@@ -391,10 +397,6 @@ def _lifetime_gui(workflow: str) -> None:
                 ):
                     if not recording_path:
                         st.error(f"Choose or enter the {recording_label} path.")
-                    elif not nidaq_path:
-                        st.error("Choose or enter the NI-DAQ path.")
-                    elif workflow == "iflip3" and not background_path:
-                        st.error("Choose or enter the matched background path.")
                     else:
                         new_row = {
                             "mouse": discovery_mouse.strip(),
@@ -461,7 +463,7 @@ def _lifetime_gui(workflow: str) -> None:
                 "group": st.column_config.TextColumn("Group"),
                 "condition": st.column_config.TextColumn("Condition"),
                 "background_path": st.column_config.TextColumn(
-                    "Matched background path", required=workflow == "iflip3"
+                    "Matched background path (optional)"
                 ),
             },
             width="stretch",
@@ -512,9 +514,11 @@ def _lifetime_gui(workflow: str) -> None:
     with align_tab:
         st.subheader("Preprocess and align lifetime recordings")
         st.write(
-            "Loads each lifetime recording, aligns it to NI-DAQ synchronization pulses, "
-            "and saves an analysis-ready compressed NPZ file beside the primary raw "
-            "recording. PSTH, heatmap, and GLM analyses use this processed file."
+            "Loads each lifetime recording and saves an analysis-ready compressed NPZ "
+            "file beside the primary raw recording. When NI-DAQ is available, clocks "
+            "are synchronized and NI-DAQ behavior is included; otherwise the native "
+            "sensor clock and available embedded events are retained. PSTH, heatmap, "
+            "and GLM analyses use this processed file."
         )
         overwrite_processed = st.checkbox(
             "Overwrite existing processed files",

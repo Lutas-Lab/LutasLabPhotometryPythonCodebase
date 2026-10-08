@@ -90,3 +90,33 @@ def test_process_aligned_session(monkeypatch):
     }
     assert set(common.events) == {"licks", "nidaq_licks", "ensure", "visual_cue"}
     assert common.metadata["sensor"] == "fluopulse"
+
+
+def test_process_session_without_nidaq_uses_doric_clock_and_events(monkeypatch):
+    doric = FluoPulseRecording(
+        path=Path("baseline.doric"),
+        time=np.array([0.1, 0.2, 0.3]),
+        tau_ns=np.array([2.5, 2.6, 2.7]),
+        amplitude=np.array([80.0, 81.0, 82.0]),
+        chi_square=np.array([0.01, 0.01, 0.01]),
+        r_square=np.array([0.99, 0.99, 0.99]),
+        irf_time_ns=np.arange(4),
+        irf_raw=np.ones(4),
+        irf_values=np.ones(4),
+        digital_channels={"licking": "DIO04", "ensure": "DIO05"},
+        digital_pulses={"licking": _pulses([0.2]), "ensure": _pulses([0.25])},
+        waveform_points=4,
+    )
+    monkeypatch.setattr("fluopulse_analysis.session.read_doric", lambda *a, **k: doric)
+
+    session = process_aligned_session("baseline.doric", None)
+    common = session.to_core_session()
+
+    assert session.nidaq is None
+    assert session.alignment is None
+    assert session.nidaq_coverage_fraction is None
+    np.testing.assert_allclose(common.continuous["tau"].timestamps, doric.time)
+    np.testing.assert_allclose(common.events["licks"].timestamps, [0.2])
+    np.testing.assert_allclose(common.events["ensure"].timestamps, [0.25])
+    assert common.metadata["timebase"] == "doric_native"
+    assert common.metadata["nidaq_aligned"] is False

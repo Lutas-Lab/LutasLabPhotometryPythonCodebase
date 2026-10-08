@@ -135,6 +135,16 @@ clock conversion, which corrects both the acquisition offset and clock drift.
 The resulting MPET samples and behavior events are all expressed on the NI-DAQ
 clock.
 
+NI-DAQ is optional per recording. Passing `None` preserves MPET and raw
+intensity on the native iFLiP clock. Because iFLiP files do not contain the
+NI-DAQ behavioral channels, licking, cue, Ensure, and running data are empty or
+unavailable for such recordings.
+
+The matched background is also optional. Pass `None` for older recordings that
+do not have one; measured-background subtraction is then skipped, while the
+configured afterpulse correction is still applied. Processed metadata records
+whether a measured background was used.
+
 Because a uniform 5 Hz train does not encode pulse identity, the default clock
 fit assumes that the first saved iFLiP marker and first saved NI-DAQ pulse are
 the same physical pulse. This is appropriate when both pulse trains are already
@@ -181,8 +191,9 @@ print(paths.iflip)
 ```
 
 The root can be overridden with `data_root` for copied data or another mapped
-drive. Background selection remains explicit because one matched background
-may be reused across several sessions or stored outside either session folder.
+drive. When a background is used, its selection remains explicit because one
+matched background may be reused across several sessions or stored outside
+either session folder. Leave it blank when no suitable background exists.
 The underscore between date and run is the preferred convention. When that
 file is absent, `paths.iflip` automatically falls back to the legacy filename
 without the underscore, such as `AL164_260923004.iFLiP3`.
@@ -194,10 +205,10 @@ uv sync --frozen --all-packages --extra events
 ```
 
 Run a complete aligned analysis through the Python API with an iFLiP file, its
-NI-DAQ file, and a laser-power-matched background file. The background can be
-anywhere on disk. The lifetime measurement is sampled at 10 Hz, so event timing
-can be aligned to the sub-millisecond clock fit while the lifetime response
-itself still has 0.1-second sample resolution:
+NI-DAQ file, and, when available, a laser-power-matched background file. The
+background can be anywhere on disk or passed as `None`. The lifetime measurement
+is sampled at 10 Hz, so event timing can be aligned to the sub-millisecond clock
+fit while the lifetime response itself still has 0.1-second sample resolution:
 
 ```python
 import pynapple as nap

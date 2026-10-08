@@ -86,6 +86,11 @@ pass explicit paths to `process_aligned_session`, as shown below. The aligned
 event-analysis workflow is demonstrated in
 `packages/fluopulse-analysis/examples/notebooks/03_aligned_event_analysis.ipynb`.
 
+NI-DAQ is optional per recording. Pass `None` when a corresponding NI-DAQ file
+does not exist; the lifetime trace then remains on the native Doric clock, and
+embedded Doric licking and Ensure events are retained when present. NI-DAQ-only
+behavior and running data are unavailable for that recording.
+
 Running timestamps are taken directly from the running MAT file when present.
 Otherwise, speed is attached to CAM pulses when the lengths match; if they do
 not, a uniform running time base is inferred from the NI-DAQ recording duration

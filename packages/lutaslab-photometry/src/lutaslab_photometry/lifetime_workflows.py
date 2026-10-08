@@ -236,10 +236,6 @@ def normalize_lifetime_manifest_rows(workflow: str, rows) -> list[dict]:
         clean.update(
             {column: str(row[column] or "").strip() for column in LIFETIME_PATH_COLUMNS[workflow]}
         )
-        if workflow == "iflip3" and not clean["background_path"]:
-            raise ValueError(
-                f"Row {index} needs a matched background_path for iFLiP3 analysis."
-            )
         normalized.append(clean)
     if not normalized:
         raise ValueError("Add at least one session to the manifest.")
@@ -319,9 +315,10 @@ def _fluopulse_paths(row: dict, data_root: Path) -> dict[str, Path | None]:
         row["run"],
         photometry_root=data_root / "Photometry",
     )
-    nidaq = _optional_path(row["nidaq_path"], data_root) or inferred.nidaq
+    explicit_nidaq = _optional_path(row["nidaq_path"], data_root)
+    nidaq = explicit_nidaq or (inferred.nidaq if inferred.nidaq.is_file() else None)
     running = _optional_path(row["running_path"], data_root)
-    if running is None and inferred.running.is_file():
+    if running is None and nidaq is not None and inferred.running.is_file():
         running = inferred.running
     return {"source_path": doric, "nidaq_path": nidaq, "running_path": running}
 
@@ -342,13 +339,12 @@ def _iflip3_paths(row: dict, data_root: Path) -> dict[str, Path | None]:
 
     inferred = session_paths(row["mouse"], row["date"], row["run"], data_root=data_root)
     iflip = _optional_path(row["iflip_path"], data_root) or inferred.iflip
-    nidaq = _optional_path(row["nidaq_path"], data_root) or inferred.nidaq
+    explicit_nidaq = _optional_path(row["nidaq_path"], data_root)
+    nidaq = explicit_nidaq or (inferred.nidaq if inferred.nidaq.is_file() else None)
     running = _optional_path(row["running_path"], data_root)
-    if running is None and inferred.running.is_file():
+    if running is None and nidaq is not None and inferred.running.is_file():
         running = inferred.running
     background = _optional_path(row["background_path"], data_root)
-    if background is None:  # guarded by manifest validation
-        raise ValueError("background_path is required")
     return {
         "source_path": iflip,
         "nidaq_path": nidaq,
