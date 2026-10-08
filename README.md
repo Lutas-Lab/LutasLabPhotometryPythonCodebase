@@ -12,9 +12,18 @@ provenance, event-aligned analysis, mouse-level statistics, and temporal GLMs.
 
 ### 1. Install Python
 
-Install **64-bit Python 3.12** from
-[python.org](https://www.python.org/downloads/). During installation, select
-**Add python.exe to PATH**.
+Download the official
+[Python 3.12.10 Windows installer (64-bit)](https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe).
+Do not download a ZIP, `.tgz`, or `.tar.xz` source package. On the installer's
+first screen:
+
+1. Leave **Use admin privileges when installing py.exe** unchecked.
+2. Select **Add python.exe to PATH**.
+3. Click **Install Now**.
+
+Python 3.12.10 is specified because it was the final Python 3.12 release with
+an official Windows installer. Newer 3.12 security releases are source-only
+and are not intended for routine installation on a Windows lab computer.
 
 Open a new PowerShell window and verify:
 
