@@ -17,7 +17,10 @@ from lutaslab_photometry.group_analysis import (
     save_psth_heatmaps,
 )
 from lutaslab_photometry.heatmap_ordering import HEATMAP_SORT_METHODS
-from lutaslab_photometry.session_manifest import load_session_manifest
+from lutaslab_photometry.session_manifest import (
+    filter_manifest_sessions,
+    load_session_manifest,
+)
 from lutaslab_photometry.trial_classification import TRIAL_CLASS_KEYS
 
 
@@ -31,6 +34,8 @@ def parse_arguments():
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--group", help="Analyze only this manifest group.")
+    parser.add_argument("--condition", help="Analyze only this manifest condition.")
     parser.add_argument("--event-key", default="cue_onset")
     parser.add_argument(
         "--first-event-only",
@@ -211,6 +216,11 @@ def _safe_path_component(value):
 def main():
     args = parse_arguments()
     sessions = load_session_manifest(args.manifest)
+    sessions = filter_manifest_sessions(
+        sessions,
+        group=args.group,
+        condition=args.condition,
+    )
     analysis_options = dict(
         event_key=args.event_key,
         signal_type=args.signal,

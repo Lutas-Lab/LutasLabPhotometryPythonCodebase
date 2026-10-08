@@ -110,6 +110,8 @@ stratum receives its own numeric results and individual/group figures. A
 comparison figure for each experimental group overlays condition PSTHs and
 shows paired within-mouse difference traces in a second panel. Use
 `--no-stratify` to intentionally combine conditions.
+Use `--group LABEL` and/or `--condition LABEL` to analyze only matching manifest
+rows without creating a second manifest.
 
 Optional null comparisons are available with `--null-method random_onsets` or
 `--null-method circular_shift`. Both operate independently within every session,
@@ -220,6 +222,9 @@ the target signal's current value is automatically removed from its own history
 features to prevent response leakage; strictly past target samples and current
 or past cross-modal predictors remain available.
 
+Use `--group LABEL` and/or `--condition LABEL` to restrict forecasting or a
+zero-horizon behavioral GLM to a manifest subset.
+
 ## `lutaslab-run-lifetime-workflow`
 
 Runs the same FluoPulse and iFLIP3 alignment, event-aligned, heatmap, and GLM
@@ -234,6 +239,10 @@ date, and run. In Python or a notebook, the same candidate search is available
 through `lutaslab_photometry.lifetime_workflows.discover_lifetime_paths(...)`;
 it returns lists so ambiguous recordings and iFLIP3 backgrounds remain an
 explicit user choice.
+
+For the `psth` and `glm` actions, `--group LABEL` and `--condition LABEL`
+select a subset of the lifetime manifest. The original manifest and processed
+files are unchanged.
 
 ```powershell
 lutaslab-run-lifetime-workflow psth `

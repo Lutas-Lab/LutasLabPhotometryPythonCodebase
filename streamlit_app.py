@@ -113,6 +113,43 @@ def _records(editor_value):
     return list(editor_value)
 
 
+def _manifest_label_options(rows, field):
+    """Return distinct nonblank manifest labels with stable display casing."""
+
+    values = {}
+    for row in rows:
+        raw = row.get(field, "")
+        if raw is None or pd.isna(raw):
+            continue
+        value = str(raw).strip()
+        if value:
+            values.setdefault(value.casefold(), value)
+    return [values[key] for key in sorted(values)]
+
+
+def _analysis_subset_controls(rows, key_prefix):
+    """Render optional group and condition filters derived from manifest rows."""
+
+    group_options = _manifest_label_options(rows, "group")
+    condition_options = _manifest_label_options(rows, "condition")
+    left, right = st.columns(2)
+    with left:
+        group_filter = st.selectbox(
+            "Group to analyze",
+            [None, *group_options],
+            format_func=lambda value: "All groups" if value is None else value,
+            key=f"{key_prefix}_group_filter",
+        )
+    with right:
+        condition_filter = st.selectbox(
+            "Condition to analyze",
+            [None, *condition_options],
+            format_func=lambda value: "All conditions" if value is None else value,
+            key=f"{key_prefix}_condition_filter",
+        )
+    return group_filter, condition_filter
+
+
 def _relative_path_text(path: Path, data_root: str | Path) -> str:
     """Prefer portable manifest paths relative to the selected data root."""
 
@@ -548,6 +585,9 @@ def _lifetime_gui(workflow: str) -> None:
 
     with psth_tab:
         st.subheader("Event-aligned lifetime timecourses")
+        psth_group_filter, psth_condition_filter = _analysis_subset_controls(
+            rows, f"{workflow}_psth"
+        )
         first, second, third = st.columns(3)
         with first:
             signal = st.selectbox(
@@ -655,6 +695,8 @@ def _lifetime_gui(workflow: str) -> None:
             heatmap_sort_window=sort_window,
             first_event_only=first_event_only,
             allow_partial_windows=allow_partial_windows,
+            group_filter=psth_group_filter,
+            condition_filter=psth_condition_filter,
         )
         if st.button(
             "Run PSTH and heatmaps",
@@ -678,6 +720,9 @@ def _lifetime_gui(workflow: str) -> None:
         st.caption(
             "Ridge strength is selected with leave-one-session-out validation. At least "
             "three sessions are required. Results describe predictive association, not causality."
+        )
+        glm_group_filter, glm_condition_filter = _analysis_subset_controls(
+            rows, f"{workflow}_glm"
         )
         glm_signal = st.selectbox(
             "GLM response", LIFETIME_SIGNALS[workflow], key=f"{workflow}_glm_signal"
@@ -712,6 +757,8 @@ def _lifetime_gui(workflow: str) -> None:
             signal=glm_signal,
             lick_kernel_seconds=lick_kernel,
             ensure_kernel_seconds=ensure_kernel,
+            group_filter=glm_group_filter,
+            condition_filter=glm_condition_filter,
         )
         if st.button(
             "Run lifetime GLM",
@@ -866,6 +913,9 @@ with preprocess_tab:
 
 with psth_tab:
     st.subheader("Event-aligned timecourses")
+    psth_group_filter, psth_condition_filter = _analysis_subset_controls(
+        editor_rows, "conventional_psth"
+    )
     first, second, third = st.columns(3)
     with first:
         event_key = st.selectbox(
@@ -1070,6 +1120,8 @@ with psth_tab:
         heatmap_cmap=heatmap_cmap,
         first_event_only=first_event_only,
         allow_partial_windows=allow_partial_windows,
+        group_filter=psth_group_filter,
+        condition_filter=psth_condition_filter,
     )
     if st.button("Run PSTH and plots", type="primary", width="stretch"):
         _run_workflow(
@@ -1093,6 +1145,9 @@ with glm_tab:
     st.caption(
         "This is a predictive model comparison. It does not establish that a "
         "behavior causes the photometry response."
+    )
+    glm_group_filter, glm_condition_filter = _analysis_subset_controls(
+        editor_rows, "conventional_glm"
     )
     glm_first, glm_second, glm_third = st.columns(3)
     with glm_first:
@@ -1142,6 +1197,8 @@ with glm_tab:
         dt=glm_dt,
         folds=glm_folds,
         inner_folds=glm_inner_folds,
+        group_filter=glm_group_filter,
+        condition_filter=glm_condition_filter,
     )
     if st.button("Run behavioral GLM", type="primary", width="stretch"):
         _run_workflow(

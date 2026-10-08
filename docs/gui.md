@@ -72,6 +72,12 @@ chosen paths are copied into the manifest as paths relative to the data root
 when possible, so the saved CSV remains readable and portable. The table below
 the assistant remains directly editable.
 
+The PSTH and GLM tabs provide **Group to analyze** and **Condition to analyze**
+menus populated from the active manifest. They default to all rows. Selecting a
+label filters only that analysis run; it does not alter the master manifest or
+reprocess the recordings. These selectors are available for conventional
+photometry, FluoPulse, and iFLIP3.
+
 Explicit relative paths are resolved from the selected data root. Absolute
 paths override discovery. Running files remain optional for lifetime analyses;
 the recording inputs are required. NI-DAQ is optional for both lifetime sensors:

@@ -168,6 +168,8 @@ def build_psth_command(
     heatmap_cmap="coolwarm",
     first_event_only=False,
     allow_partial_windows=False,
+    group_filter=None,
+    condition_filter=None,
 ):
     """Build the maintained event-aligned analysis command."""
     command = _python_command(project_root, "run_psth.py")
@@ -210,6 +212,10 @@ def build_psth_command(
         ]
     )
     command.append("--stratify" if stratify else "--no-stratify")
+    if group_filter is not None:
+        command.extend(["--group", str(group_filter)])
+    if condition_filter is not None:
+        command.extend(["--condition", str(condition_filter)])
     if first_event_only:
         command.append("--first-event-only")
     if allow_partial_windows:
@@ -252,6 +258,8 @@ def build_behavior_glm_command(
     dt=0.1,
     folds=5,
     inner_folds=3,
+    group_filter=None,
+    condition_filter=None,
 ):
     """Build a leakage-safe contemporaneous behavioral photometry GLM."""
     command = _python_command(project_root, "run_forecasting.py")
@@ -283,6 +291,10 @@ def build_behavior_glm_command(
             str(int(inner_folds)),
         ]
     )
+    if group_filter is not None:
+        command.extend(["--group", str(group_filter)])
+    if condition_filter is not None:
+        command.extend(["--condition", str(condition_filter)])
     return command
 
 
@@ -311,6 +323,8 @@ def build_lifetime_command(
     first_event_only=False,
     allow_partial_windows=False,
     overwrite=False,
+    group_filter=None,
+    condition_filter=None,
 ):
     """Build a FluoPulse or iFLiP3 workflow command."""
 
@@ -332,6 +346,10 @@ def build_lifetime_command(
     )
     if output_dir is not None:
         command.extend(["--output-dir", str(Path(output_dir))])
+    if group_filter is not None:
+        command.extend(["--group", str(group_filter)])
+    if condition_filter is not None:
+        command.extend(["--condition", str(condition_filter)])
     if action == "preprocess" and overwrite:
         command.append("--overwrite")
     if signal is not None:

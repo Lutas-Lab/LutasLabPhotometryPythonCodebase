@@ -19,7 +19,10 @@ from lutaslab_photometry.forecasting import (
     summarize_forecasts,
 )
 from lutaslab_photometry.publication_figures import configure_publication_style, save_figure_formats
-from lutaslab_photometry.session_manifest import load_session_manifest
+from lutaslab_photometry.session_manifest import (
+    filter_manifest_sessions,
+    load_session_manifest,
+)
 
 
 def parse_arguments():
@@ -29,6 +32,8 @@ def parse_arguments():
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--group", help="Analyze only this manifest group.")
+    parser.add_argument("--condition", help="Analyze only this manifest condition.")
     parser.add_argument("--target", choices=sorted(VALID_TARGETS), required=True)
     parser.add_argument("--horizons", type=float, nargs="+", default=(0.5, 1.0, 2.0, 5.0))
     parser.add_argument("--history", type=float, default=5.0)
@@ -150,6 +155,11 @@ def _plot_group_performance(group_rows, target, metric, output_base, formats, dp
 def main():
     args = parse_arguments()
     sessions = load_session_manifest(args.manifest)
+    sessions = filter_manifest_sessions(
+        sessions,
+        group=args.group,
+        condition=args.condition,
+    )
     rows = forecast_manifest(
         sessions,
         args.data_root,
@@ -192,6 +202,8 @@ def main():
 
     metadata = {
         "manifest": str(args.manifest),
+        "group_filter": args.group,
+        "condition_filter": args.condition,
         "data_root": str(args.data_root),
         "target": args.target,
         "horizons": args.horizons,

@@ -30,6 +30,39 @@ def resolve_session_channel(session, channel="manifest"):
     return selected
 
 
+def filter_manifest_sessions(sessions, *, group=None, condition=None):
+    """Select manifest rows by exact, case-insensitive group and condition labels."""
+
+    selected_group = None if group is None else str(group).strip().casefold()
+    selected_condition = (
+        None if condition is None else str(condition).strip().casefold()
+    )
+    filtered = [
+        session
+        for session in sessions
+        if (
+            selected_group is None
+            or str(session.get("group", "") or "").strip().casefold()
+            == selected_group
+        )
+        and (
+            selected_condition is None
+            or str(session.get("condition", "") or "").strip().casefold()
+            == selected_condition
+        )
+    ]
+    if not filtered:
+        criteria = []
+        if group is not None:
+            criteria.append(f"group={group!r}")
+        if condition is not None:
+            criteria.append(f"condition={condition!r}")
+        raise ValueError(
+            "No manifest sessions match " + " and ".join(criteria) + "."
+        )
+    return filtered
+
+
 def processed_session_path(data_root, session):
     """Return the conventional processed-session path for one manifest row."""
     mouse = str(session["mouse"])
@@ -45,6 +78,7 @@ def processed_session_path(data_root, session):
 
 __all__ = [
     "REQUIRED_COLUMNS",
+    "filter_manifest_sessions",
     "load_session_manifest",
     "processed_session_path",
     "resolve_session_channel",

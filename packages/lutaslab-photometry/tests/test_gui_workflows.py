@@ -116,6 +116,8 @@ def test_build_psth_command_includes_gui_choices():
         heatmap_cmap="viridis",
         first_event_only=True,
         allow_partial_windows=True,
+        group_filter="Control",
+        condition_filter="Ensure",
     )
     assert command[command.index("--event-key") + 1] == "cue_onset"
     assert command[command.index("--signal") + 1] == "licking"
@@ -133,6 +135,8 @@ def test_build_psth_command_includes_gui_choices():
     assert command[command.index("--heatmap-cmap") + 1] == "viridis"
     assert "--first-event-only" in command
     assert "--allow-partial-windows" in command
+    assert command[command.index("--group") + 1] == "Control"
+    assert command[command.index("--condition") + 1] == "Ensure"
 
 
 def test_build_behavior_glm_command_uses_zero_horizon_nested_model():
@@ -147,6 +151,8 @@ def test_build_behavior_glm_command_uses_zero_horizon_nested_model():
         lag_step=1,
         folds=4,
         inner_folds=2,
+        group_filter="Control",
+        condition_filter="Ensure",
     )
     assert command[:3] == [
         command[0],
@@ -158,6 +164,8 @@ def test_build_behavior_glm_command_uses_zero_horizon_nested_model():
     assert command[command.index("--history") + 1] == "8.0"
     assert command[command.index("--photometry-source") + 1] == "dff"
     assert command[command.index("--inner-folds") + 1] == "2"
+    assert command[command.index("--group") + 1] == "Control"
+    assert command[command.index("--condition") + 1] == "Ensure"
 
 
 def test_build_lifetime_command_includes_sensor_specific_options():
@@ -174,6 +182,8 @@ def test_build_lifetime_command_includes_sensor_specific_options():
         heatmap_sort_window=(0, 12),
         first_event_only=True,
         allow_partial_windows=True,
+        group_filter="Experimental",
+        condition_filter="PostEnsure",
     )
     assert command[:3] == [
         command[0],
@@ -190,6 +200,8 @@ def test_build_lifetime_command_includes_sensor_specific_options():
     ]
     assert "--first-event-only" in command
     assert "--allow-partial-windows" in command
+    assert command[command.index("--group") + 1] == "Experimental"
+    assert command[command.index("--condition") + 1] == "PostEnsure"
 
 
 def test_build_lifetime_preprocess_command_writes_beside_raw_data():

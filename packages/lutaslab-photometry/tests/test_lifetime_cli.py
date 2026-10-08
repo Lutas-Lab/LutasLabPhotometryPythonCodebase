@@ -6,7 +6,22 @@ import lutaslab_photometry.cli.run_lifetime_workflow as cli
 @pytest.fixture
 def workflow_stubs(monkeypatch):
     calls = []
-    rows = [{"mouse": "M1", "date": "260101", "run": 1}]
+    rows = [
+        {
+            "mouse": "M1",
+            "date": "260101",
+            "run": 1,
+            "group": "Control",
+            "condition": "Baseline",
+        },
+        {
+            "mouse": "M1",
+            "date": "260101",
+            "run": 2,
+            "group": "Control",
+            "condition": "Ensure",
+        },
+    ]
     output = "result.npz"
 
     monkeypatch.setattr(cli, "read_lifetime_manifest", lambda workflow, manifest: rows)
@@ -112,6 +127,24 @@ def test_lifetime_cli_dispatches_glm_options(workflow_stubs):
         "lick_kernel_seconds": 8.0,
         "ensure_kernel_seconds": 16.0,
     }
+
+
+def test_lifetime_cli_filters_manifest_rows(workflow_stubs):
+    calls, rows, _ = workflow_stubs
+    arguments = _common_args("glm") + [
+        "--signal",
+        "mpet",
+        "--group",
+        "control",
+        "--condition",
+        "ensure",
+    ]
+
+    assert cli.main(arguments) == 0
+
+    name, args, _ = calls.pop()
+    assert name == "glm"
+    assert args[1] == [rows[1]]
 
 
 @pytest.mark.parametrize(

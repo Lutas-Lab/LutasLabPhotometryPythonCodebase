@@ -10,6 +10,7 @@ from lutaslab_photometry.lifetime_workflows import (
     run_lifetime_glm,
     run_lifetime_psth,
 )
+from lutaslab_photometry.session_manifest import filter_manifest_sessions
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -19,6 +20,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--data-root", required=True)
     parser.add_argument("--output-dir")
+    parser.add_argument("--group", help="Analyze only this manifest group.")
+    parser.add_argument("--condition", help="Analyze only this manifest condition.")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--signal")
     parser.add_argument("--event", choices=(
@@ -46,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     rows = read_lifetime_manifest(args.workflow, args.manifest)
+    rows = filter_manifest_sessions(rows, group=args.group, condition=args.condition)
     if args.action == "preprocess":
         outputs = preprocess_lifetime_sessions(
             args.workflow,

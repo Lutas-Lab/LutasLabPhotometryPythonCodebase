@@ -2,6 +2,7 @@ import unittest
 from pathlib import Path
 
 from lutaslab_photometry.session_manifest import (
+    filter_manifest_sessions,
     load_session_manifest,
     processed_session_path,
     resolve_session_channel,
@@ -62,6 +63,26 @@ class SessionManifestTests(unittest.TestCase):
             path,
             Path("data/M1/M1_260101/M1-260101-002-processed.npz"),
         )
+
+    def test_manifest_filter_selects_group_and_condition_case_insensitively(self):
+        sessions = [
+            {"mouse": "M1", "group": "Control", "condition": "Baseline"},
+            {"mouse": "M1", "group": "Control", "condition": "Ensure"},
+            {"mouse": "M2", "group": "Experimental", "condition": "Ensure"},
+        ]
+        selected = filter_manifest_sessions(
+            sessions,
+            group="control",
+            condition="ensure",
+        )
+        self.assertEqual([row["mouse"] for row in selected], ["M1"])
+
+    def test_manifest_filter_rejects_empty_selection(self):
+        with self.assertRaisesRegex(ValueError, "No manifest sessions match"):
+            filter_manifest_sessions(
+                [{"mouse": "M1", "condition": "Baseline"}],
+                condition="Ensure",
+            )
 
     def test_channel_uses_manifest_value_with_channel_one_fallback(self):
         self.assertEqual(resolve_session_channel({"mouse": "M1", "channel": "2"}), 2)
