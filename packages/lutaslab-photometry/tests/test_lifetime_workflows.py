@@ -8,7 +8,10 @@ import lutaslab_photometry.lifetime_workflows as workflows
 from lutaslab_photometry.lifetime_workflows import (
     discover_lifetime_paths,
     lifetime_manifest_columns,
+    lifetime_processed_path,
+    load_processed_lifetime_session,
     normalize_lifetime_manifest_rows,
+    preprocess_lifetime_sessions,
     write_lifetime_manifest,
 )
 
@@ -98,6 +101,85 @@ def test_discover_iflip_paths_returns_recording_and_background_choices(tmp_path)
     assert other_run not in choices["iflip_path"]
 
 
+def test_lifetime_preprocessing_saves_beside_raw_and_roundtrips(monkeypatch, tmp_path):
+    raw = _touch(tmp_path / "FLIM FLIP" / "M1" / "M1_260101" / "recording.doric")
+    nidaq = _touch(tmp_path / "Photometry" / "M1" / "M1_260101" / "nidaq.mat")
+    row = {
+        "mouse": "M1",
+        "date": "260101",
+        "run": 1,
+        "doric_path": str(raw),
+        "nidaq_path": str(nidaq),
+        "running_path": "",
+    }
+    time = np.arange(0.0, 3.0, 0.1)
+    session = AlignedSession(
+        session_id="M1_260101_run001",
+        continuous={"tau": ContinuousSignal(time, np.sin(time), "ns")},
+        events={
+            "licks": EventSeries(np.array([1.0, 1.2])),
+            "ensure": EventSeries(np.array([1.5])),
+            "visual_cue": EventSeries(np.array([0.5])),
+        },
+        metadata={"clock_drift_ppm": np.float64(2.5)},
+    )
+    monkeypatch.setattr(
+        workflows,
+        "load_lifetime_session",
+        lambda workflow, manifest_row, data_root: (
+            session,
+            {"source_path": str(raw), "nidaq_path": str(nidaq), "running_path": ""},
+        ),
+    )
+
+    outputs = preprocess_lifetime_sessions("fluopulse", [row], tmp_path)
+    expected = raw.with_name("recording-processed.npz")
+    assert outputs == [expected]
+    assert lifetime_processed_path("fluopulse", row, tmp_path) == expected
+
+    loaded, paths = load_processed_lifetime_session("fluopulse", row, tmp_path)
+    assert loaded.session_id == session.session_id
+    assert loaded.continuous["tau"].units == "ns"
+    np.testing.assert_allclose(loaded.continuous["tau"].values, np.sin(time))
+    np.testing.assert_allclose(loaded.events["ensure"].timestamps, [1.5])
+    assert loaded.metadata["clock_drift_ppm"] == 2.5
+    assert paths["processed_path"] == str(expected)
+
+    monkeypatch.setattr(
+        workflows,
+        "load_lifetime_session",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("raw reload")),
+    )
+    assert preprocess_lifetime_sessions("fluopulse", [row], tmp_path) == [expected]
+    psth_outputs = workflows.run_lifetime_psth(
+        "fluopulse",
+        [row],
+        tmp_path,
+        tmp_path / "psth",
+        signal="tau",
+        event="ensure",
+        window=(-0.2, 0.2),
+        dt=0.1,
+        normalization="none",
+        heatmaps=False,
+    )
+    assert any(path.name == "fluopulse_tau_ensure_psth.png" for path in psth_outputs)
+
+
+def test_processed_lifetime_file_is_required_for_downstream_analysis(tmp_path):
+    raw = _touch(tmp_path / "FLIM FLIP" / "M1" / "M1_260101" / "recording.doric")
+    row = {
+        "mouse": "M1",
+        "date": "260101",
+        "run": 1,
+        "doric_path": str(raw),
+        "nidaq_path": "nidaq.mat",
+        "running_path": "",
+    }
+    with pytest.raises(FileNotFoundError, match="Run lifetime preprocessing"):
+        load_processed_lifetime_session("fluopulse", row, tmp_path)
+
+
 def test_lifetime_psth_writes_mouse_and_pooled_heatmaps(monkeypatch, tmp_path):
     time = np.arange(0.0, 40.0, 0.1)
 
@@ -116,7 +198,7 @@ def test_lifetime_psth_writes_mouse_and_pooled_heatmaps(monkeypatch, tmp_path):
         )
         return session, {"source_path": "synthetic.doric"}
 
-    monkeypatch.setattr(workflows, "load_lifetime_session", fake_load)
+    monkeypatch.setattr(workflows, "load_processed_lifetime_session", fake_load)
     outputs = workflows.run_lifetime_psth(
         "fluopulse",
         [
@@ -169,7 +251,7 @@ def test_lifetime_bout_offset_first_event_keeps_partial_tail(monkeypatch, tmp_pa
         )
         return session, {"source_path": "synthetic.doric"}
 
-    monkeypatch.setattr(workflows, "load_lifetime_session", fake_load)
+    monkeypatch.setattr(workflows, "load_processed_lifetime_session", fake_load)
     outputs = workflows.run_lifetime_psth(
         "fluopulse",
         [{"mouse": "M1", "date": "260101", "run": 1}],

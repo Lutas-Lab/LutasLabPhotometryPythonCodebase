@@ -18,7 +18,7 @@ def workflow_stubs(monkeypatch):
 
         return fake
 
-    monkeypatch.setattr(cli, "export_aligned_sessions", record("preprocess"))
+    monkeypatch.setattr(cli, "preprocess_lifetime_sessions", record("preprocess"))
     monkeypatch.setattr(cli, "run_lifetime_psth", record("psth"))
     monkeypatch.setattr(cli, "run_lifetime_glm", record("glm"))
     return calls, rows, output
@@ -41,12 +41,22 @@ def _common_args(action, workflow="iflip3"):
 def test_lifetime_cli_dispatches_preprocess(workflow_stubs, capsys):
     calls, rows, output = workflow_stubs
 
-    assert cli.main(_common_args("preprocess")) == 0
+    arguments = [
+        "preprocess",
+        "--workflow",
+        "iflip3",
+        "--manifest",
+        "sessions.csv",
+        "--data-root",
+        "data",
+        "--overwrite",
+    ]
+    assert cli.main(arguments) == 0
 
     name, args, kwargs = calls.pop()
     assert name == "preprocess"
-    assert args == ("iflip3", rows, "data", "output")
-    assert kwargs == {}
+    assert args == ("iflip3", rows, "data")
+    assert kwargs == {"overwrite": True}
     assert str(output) in capsys.readouterr().out
 
 

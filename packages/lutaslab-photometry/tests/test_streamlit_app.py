@@ -45,7 +45,7 @@ def test_streamlit_lifetime_modes_load(workflow, expected_signal):
     assert not app.exception
     assert [tab.label for tab in app.tabs] == [
         "1. Sessions",
-        "2. Align and export",
+        "2. Preprocess and align",
         "3. Event-aligned PSTH",
         "4. Lifetime GLM",
     ]
@@ -53,7 +53,7 @@ def test_streamlit_lifetime_modes_load(workflow, expected_signal):
     assert {button.label for button in app.button} >= {
         "Validate sessions",
         "Save manifest",
-        "Run alignment and export",
+        "Run preprocessing",
         "Run PSTH and heatmaps",
         "Run lifetime GLM",
     }

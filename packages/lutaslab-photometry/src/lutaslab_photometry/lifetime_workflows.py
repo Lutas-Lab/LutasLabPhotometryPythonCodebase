@@ -9,6 +9,7 @@ import re
 import tempfile
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from lutaslab_core.events import find_lick_bouts
@@ -18,6 +19,7 @@ from lutaslab_core.perievent import (
     normalize_trials,
     summarize_trials,
 )
+from lutaslab_core.session import AlignedSession, ContinuousSignal, EventSeries
 
 from .group_analysis import save_psth_heatmaps
 
@@ -37,6 +39,7 @@ LIFETIME_EVENTS = (
     "lick_bout_onset",
     "lick_bout_offset",
 )
+LIFETIME_PROCESSED_SCHEMA_VERSION = "1.0"
 
 
 def _files_with_suffix(folders, suffix: str) -> list[Path]:
@@ -287,12 +290,11 @@ def _optional_path(value: str, data_root: Path) -> Path | None:
     return path if path.is_absolute() else data_root / path
 
 
-def _load_fluopulse(row: dict, data_root: Path):
+def _fluopulse_paths(row: dict, data_root: Path) -> dict[str, Path | None]:
     from fluopulse_analysis import (
         find_doric_files,
         infer_session_identity,
         nidaq_paths,
-        process_aligned_session,
     )
 
     doric = _optional_path(row["doric_path"], data_root)
@@ -321,16 +323,22 @@ def _load_fluopulse(row: dict, data_root: Path):
     running = _optional_path(row["running_path"], data_root)
     if running is None and inferred.running.is_file():
         running = inferred.running
+    return {"source_path": doric, "nidaq_path": nidaq, "running_path": running}
+
+
+def _load_fluopulse(row: dict, data_root: Path):
+    from fluopulse_analysis import process_aligned_session
+
+    resolved = _fluopulse_paths(row, data_root)
+    doric = resolved["source_path"]
+    nidaq = resolved["nidaq_path"]
+    running = resolved["running_path"]
     session = process_aligned_session(doric, nidaq, running_path=running)
-    return session.to_core_session(_session_id(row)), {
-        "source_path": str(doric),
-        "nidaq_path": str(nidaq),
-        "running_path": "" if running is None else str(running),
-    }
+    return session.to_core_session(_session_id(row)), _stringify_paths(resolved)
 
 
-def _load_iflip3(row: dict, data_root: Path):
-    from iflip3 import process_aligned_session, session_paths
+def _iflip3_paths(row: dict, data_root: Path) -> dict[str, Path | None]:
+    from iflip3 import session_paths
 
     inferred = session_paths(row["mouse"], row["date"], row["run"], data_root=data_root)
     iflip = _optional_path(row["iflip_path"], data_root) or inferred.iflip
@@ -341,17 +349,35 @@ def _load_iflip3(row: dict, data_root: Path):
     background = _optional_path(row["background_path"], data_root)
     if background is None:  # guarded by manifest validation
         raise ValueError("background_path is required")
+    return {
+        "source_path": iflip,
+        "nidaq_path": nidaq,
+        "running_path": running,
+        "background_path": background,
+    }
+
+
+def _load_iflip3(row: dict, data_root: Path):
+    from iflip3 import process_aligned_session
+
+    resolved = _iflip3_paths(row, data_root)
+    iflip = resolved["source_path"]
+    nidaq = resolved["nidaq_path"]
+    running = resolved["running_path"]
+    background = resolved["background_path"]
     session = process_aligned_session(
         iflip,
         nidaq,
         background,
         running_path=running,
     )
-    return session.to_core_session(_session_id(row)), {
-        "source_path": str(iflip),
-        "nidaq_path": str(nidaq),
-        "running_path": "" if running is None else str(running),
-        "background_path": str(background),
+    return session.to_core_session(_session_id(row)), _stringify_paths(resolved)
+
+
+def _stringify_paths(paths: dict[str, Path | None]) -> dict[str, str]:
+    return {
+        name: "" if path is None else str(path)
+        for name, path in paths.items()
     }
 
 
@@ -370,29 +396,140 @@ def load_lifetime_session(workflow: str, row: dict, data_root: str | Path):
     raise ValueError("workflow must be 'fluopulse' or 'iflip3'")
 
 
-def export_aligned_sessions(workflow, rows, data_root, output_dir) -> list[Path]:
-    """Export aligned continuous/event arrays and provenance as compressed NPZ files."""
+def lifetime_processed_path(workflow: str, row: dict, data_root: str | Path) -> Path:
+    """Return the processed lifetime file beside the primary raw recording."""
 
-    destination = Path(output_dir)
-    destination.mkdir(parents=True, exist_ok=True)
+    root = Path(data_root).expanduser()
+    if workflow == "fluopulse":
+        source = _fluopulse_paths(row, root)["source_path"]
+    elif workflow == "iflip3":
+        source = _iflip3_paths(row, root)["source_path"]
+    else:
+        raise ValueError("workflow must be 'fluopulse' or 'iflip3'")
+    if source is None:  # pragma: no cover - resolvers always provide a source
+        raise FileNotFoundError("The primary lifetime recording could not be resolved.")
+    return source.with_name(f"{source.stem}-processed.npz")
+
+
+def _json_default(value):
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, Path):
+        return str(value)
+    raise TypeError(f"Cannot serialize {type(value).__name__}")
+
+
+def _save_processed_lifetime_session(
+    workflow: str,
+    session: AlignedSession,
+    paths: dict[str, str],
+    destination: Path,
+) -> None:
+    arrays: dict[str, Any] = {
+        "processed_schema_version": np.asarray(LIFETIME_PROCESSED_SCHEMA_VERSION),
+        "workflow": np.asarray(workflow),
+        "session_id": np.asarray(session.session_id),
+        "metadata_json": np.asarray(json.dumps(session.metadata, default=_json_default)),
+        "source_paths_json": np.asarray(json.dumps(paths)),
+    }
+    for name, signal in session.continuous.items():
+        arrays[f"continuous_{name}_time"] = signal.timestamps
+        arrays[f"continuous_{name}_values"] = signal.values
+        arrays[f"continuous_{name}_units"] = np.asarray(signal.units)
+    for name, events in session.events.items():
+        arrays[f"events_{name}"] = events.timestamps
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=destination.parent,
+            prefix=f".{destination.stem}.",
+            suffix=".npz",
+            delete=False,
+        ) as stream:
+            temporary_path = Path(stream.name)
+        np.savez_compressed(temporary_path, **arrays)
+        os.replace(temporary_path, destination)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
+
+
+def preprocess_lifetime_sessions(
+    workflow,
+    rows,
+    data_root,
+    *,
+    overwrite=False,
+) -> list[Path]:
+    """Process raw lifetime sessions and save each result beside its recording."""
+
     outputs = []
-    summary = []
     for row in rows:
+        output = lifetime_processed_path(workflow, row, data_root)
+        if output.exists() and not overwrite:
+            outputs.append(output)
+            continue
         session, paths = load_lifetime_session(workflow, row, data_root)
-        arrays = {}
-        for name, signal in session.continuous.items():
-            arrays[f"continuous_{name}_time"] = signal.timestamps
-            arrays[f"continuous_{name}_values"] = signal.values
-        for name, events in session.events.items():
-            arrays[f"events_{name}"] = events.timestamps
-        output = destination / f"{session.session_id}_aligned.npz"
-        np.savez_compressed(output, **arrays)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        _save_processed_lifetime_session(workflow, session, paths, output)
         outputs.append(output)
-        summary.append({**row, **paths, "output_path": str(output), **session.metadata})
-    summary_path = destination / "aligned_sessions.csv"
-    _write_dict_rows(summary_path, summary)
-    outputs.append(summary_path)
     return outputs
+
+
+def load_processed_lifetime_session(
+    workflow: str,
+    row: dict,
+    data_root: str | Path,
+) -> tuple[AlignedSession, dict[str, str]]:
+    """Load the required processed lifetime artifact for downstream analysis."""
+
+    path = lifetime_processed_path(workflow, row, data_root)
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"Processed lifetime file not found: {path}. Run lifetime preprocessing "
+            "for this session before running PSTH or GLM analysis."
+        )
+    with np.load(path, allow_pickle=False) as data:
+        schema = str(data["processed_schema_version"].item())
+        stored_workflow = str(data["workflow"].item())
+        if schema != LIFETIME_PROCESSED_SCHEMA_VERSION:
+            raise ValueError(
+                f"Unsupported processed lifetime schema {schema!r} in {path}; "
+                "rerun preprocessing."
+            )
+        if stored_workflow != workflow:
+            raise ValueError(
+                f"Processed file {path} contains {stored_workflow}, not {workflow}."
+            )
+        continuous = {}
+        for key in data.files:
+            if not key.startswith("continuous_") or not key.endswith("_values"):
+                continue
+            name = key[len("continuous_") : -len("_values")]
+            continuous[name] = ContinuousSignal(
+                data[f"continuous_{name}_time"],
+                data[key],
+                str(data[f"continuous_{name}_units"].item()),
+            )
+        events = {
+            key[len("events_") :]: EventSeries(data[key], key[len("events_") :])
+            for key in data.files
+            if key.startswith("events_")
+        }
+        metadata = json.loads(str(data["metadata_json"].item()))
+        paths = json.loads(str(data["source_paths_json"].item()))
+        session_id = str(data["session_id"].item())
+    return (
+        AlignedSession(
+            session_id=session_id,
+            continuous=continuous,
+            events=events,
+            metadata=metadata,
+        ),
+        {**paths, "processed_path": str(path)},
+    )
 
 
 def _behavioral_events(session) -> dict[str, np.ndarray]:
@@ -455,7 +592,7 @@ def run_lifetime_psth(
     destination.mkdir(parents=True, exist_ok=True)
     results = []
     for row in rows:
-        session, paths = load_lifetime_session(workflow, row, data_root)
+        session, paths = load_processed_lifetime_session(workflow, row, data_root)
         continuous = session.continuous[signal]
         alignment_times = _lifetime_event_times(session, event)
         if first_event_only:
@@ -569,7 +706,7 @@ def run_lifetime_glm(
     outcomes = []
     labels = []
     for row in rows:
-        session, _ = load_lifetime_session(workflow, row, data_root)
+        session, _ = load_processed_lifetime_session(workflow, row, data_root)
         response = session.continuous[signal]
         uniform_time = np.linspace(
             response.timestamps[0], response.timestamps[-1], response.timestamps.size

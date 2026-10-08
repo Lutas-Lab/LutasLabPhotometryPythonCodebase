@@ -292,7 +292,7 @@ def build_lifetime_command(
     workflow,
     manifest,
     data_root,
-    output_dir,
+    output_dir=None,
     *,
     signal=None,
     event=None,
@@ -310,6 +310,7 @@ def build_lifetime_command(
     ensure_kernel_seconds=20.0,
     first_event_only=False,
     allow_partial_windows=False,
+    overwrite=False,
 ):
     """Build a FluoPulse or iFLiP3 workflow command."""
 
@@ -327,10 +328,12 @@ def build_lifetime_command(
             str(Path(manifest)),
             "--data-root",
             str(Path(data_root)),
-            "--output-dir",
-            str(Path(output_dir)),
         ]
     )
+    if output_dir is not None:
+        command.extend(["--output-dir", str(Path(output_dir))])
+    if action == "preprocess" and overwrite:
+        command.append("--overwrite")
     if signal is not None:
         command.extend(["--signal", str(signal)])
     if action == "psth":

@@ -209,7 +209,7 @@ def _lifetime_gui(workflow: str) -> None:
     sessions_tab, align_tab, psth_tab, glm_tab = st.tabs(
         [
             "1. Sessions",
-            "2. Align and export",
+            "2. Preprocess and align",
             "3. Event-aligned PSTH",
             "4. Lifetime GLM",
         ]
@@ -465,15 +465,16 @@ def _lifetime_gui(workflow: str) -> None:
             )
 
     with align_tab:
-        st.subheader("Align sensor and behavior clocks")
+        st.subheader("Preprocess and align lifetime recordings")
         st.write(
             "Loads each lifetime recording, aligns it to NI-DAQ synchronization pulses, "
-            "and exports continuous signals, events, and provenance as compressed NPZ files."
+            "and saves an analysis-ready compressed NPZ file beside the primary raw "
+            "recording. PSTH, heatmap, and GLM analyses use this processed file."
         )
-        aligned_output = st.text_input(
-            "Aligned-session output directory",
-            value=str(PROJECT_ROOT / "analysis" / workflow / "aligned"),
-            key=f"{workflow}_aligned_output",
+        overwrite_processed = st.checkbox(
+            "Overwrite existing processed files",
+            value=False,
+            key=f"{workflow}_overwrite_processed",
         )
         command = build_lifetime_command(
             PROJECT_ROOT,
@@ -481,19 +482,19 @@ def _lifetime_gui(workflow: str) -> None:
             workflow,
             manifest_path,
             data_root,
-            aligned_output,
+            overwrite=overwrite_processed,
         )
         if st.button(
-            "Run alignment and export",
+            "Run preprocessing",
             type="primary",
             width="stretch",
             key=f"{workflow}_run_align",
         ):
             _run_lifetime_workflow(
-                command, workflow, rows, manifest_path, data_root, "Alignment/export"
+                command, workflow, rows, manifest_path, data_root, "Preprocessing"
             )
         with st.expander("Advanced: inspect or copy command"):
-            if st.button("Preview alignment command", key=f"{workflow}_preview_align"):
+            if st.button("Preview preprocessing command", key=f"{workflow}_preview_align"):
                 _preview_command(command)
 
     with psth_tab:

@@ -165,10 +165,12 @@ replacement for every installed command.
 The two lifetime modes share the sensor-independent session representation in
 `lutaslab-core`, but retain sensor-specific loading and correction:
 
-- **Align and export** fits the sensor-to-NI-DAQ clock transform, then exports
-  aligned continuous signals, events, and source-path provenance to compressed
-  NPZ files. FluoPulse exposes vendor tau, amplitude, and fit R-square. iFLIP3
-  calculates background-corrected MPET and exposes raw intensity for QC.
+- **Preprocess and align** fits the sensor-to-NI-DAQ clock transform, then saves
+  an analysis-ready compressed `-processed.npz` file beside the primary raw
+  lifetime recording. FluoPulse stores vendor tau, amplitude, and fit R-square;
+  iFLIP3 stores background-corrected MPET and raw intensity for QC. Source paths,
+  processing metadata, and behavior events are retained in the processed file.
+  Existing processed files are reused unless overwrite is selected.
 - **Event-aligned PSTH** aligns a selected lifetime/QC signal to Ensure, visual
   cue, individual lick, lick-bout onset, or lick-bout offset events. It can use
   every event or only the first event in each session. Long windows can retain
@@ -178,6 +180,8 @@ The two lifetime modes share the sensor-independent session representation in
   weighted mouse-level, and descriptive pooled-trial heatmaps. Lifetime
   heatmaps support recorded order, response magnitude, Ensure latency,
   first-lick latency, post-event lick count, and pre-event lick rate.
+- **PSTH, heatmap, and GLM analyses** require and load the processed lifetime
+  files. They do not reopen or recompute the raw sensor recordings.
 - **Lifetime GLM** estimates forward-time lick and Ensure kernels, a separate first
   Ensure response, and adaptation across subsequent deliveries. Ridge strength
   is selected inside each outer leave-one-session-out fold; performance is

@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 
 from lutaslab_photometry.lifetime_workflows import (
-    export_aligned_sessions,
+    preprocess_lifetime_sessions,
     read_lifetime_manifest,
     run_lifetime_glm,
     run_lifetime_psth,
@@ -18,7 +18,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workflow", required=True, choices=("fluopulse", "iflip3"))
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--data-root", required=True)
-    parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--output-dir")
+    parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--signal")
     parser.add_argument("--event", choices=(
         "ensure", "visual_cue", "licks", "lick_bout_onset", "lick_bout_offset"
@@ -46,12 +47,15 @@ def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     rows = read_lifetime_manifest(args.workflow, args.manifest)
     if args.action == "preprocess":
-        outputs = export_aligned_sessions(
-            args.workflow, rows, args.data_root, args.output_dir
+        outputs = preprocess_lifetime_sessions(
+            args.workflow,
+            rows,
+            args.data_root,
+            overwrite=args.overwrite,
         )
     elif args.action == "psth":
-        if not args.signal or not args.event:
-            raise ValueError("PSTH requires --signal and --event")
+        if not args.signal or not args.event or not args.output_dir:
+            raise ValueError("PSTH requires --signal, --event, and --output-dir")
         outputs = run_lifetime_psth(
             args.workflow,
             rows,
@@ -77,8 +81,8 @@ def main(argv=None) -> int:
             allow_partial_windows=args.allow_partial_windows,
         )
     else:
-        if not args.signal:
-            raise ValueError("GLM requires --signal")
+        if not args.signal or not args.output_dir:
+            raise ValueError("GLM requires --signal and --output-dir")
         outputs = run_lifetime_glm(
             args.workflow,
             rows,

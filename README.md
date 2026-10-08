@@ -107,6 +107,8 @@ statistics, and notebook workflow.
   `forecasting`, and `events` extras and launch `streamlit_app.py`. A selector
   opens conventional photometry, FluoPulse, or iFLIP3 workflows with their own
   manifests, preprocessing/alignment, PSTHs, heatmaps, and GLMs. The
+  lifetime preprocessors save analysis-ready `-processed.npz` files beside the
+  backed-up raw recordings, and later analyses reuse those files. The
   double-click installer uses a separate locked `.venv-gui`; see the
   [GUI guide](docs/gui.md).
 - Individual commands: see the [command-line reference](docs/cli.md) and run

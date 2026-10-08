@@ -245,7 +245,10 @@ lutaslab-run-lifetime-workflow psth `
     --heatmaps
 ```
 
-Use the `preprocess` action to export aligned NPZ files and `glm` to fit nested
+Use the `preprocess` action first. It writes one compressed `-processed.npz`
+file beside each primary `.doric` or `.iFLiP3` recording; use `--overwrite` to
+replace an existing processed file. PSTH and GLM actions require these files and
+never recompute the raw lifetime inputs. Use `glm` to fit nested
 session-validated lick/Ensure lifetime kernels. Run
 `lutaslab-run-lifetime-workflow --help` for all signal, window, normalization,
 and heatmap options.

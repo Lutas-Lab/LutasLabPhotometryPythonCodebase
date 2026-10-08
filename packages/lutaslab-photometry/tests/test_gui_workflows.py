@@ -192,6 +192,19 @@ def test_build_lifetime_command_includes_sensor_specific_options():
     assert "--allow-partial-windows" in command
 
 
+def test_build_lifetime_preprocess_command_writes_beside_raw_data():
+    command = build_lifetime_command(
+        ".",
+        "preprocess",
+        "fluopulse",
+        "sessions.csv",
+        "Z:/",
+        overwrite=True,
+    )
+    assert "--output-dir" not in command
+    assert "--overwrite" in command
+
+
 def test_run_command_streams_and_captures_output(tmp_path):
     streamed = []
     return_code, output = run_command(
