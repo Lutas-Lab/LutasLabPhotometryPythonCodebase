@@ -27,13 +27,19 @@ class LifetimeFitResult:
     parameter_standard_errors: dict[str, float]
 
 
-def _default_decay_initial(time: np.ndarray, intensity: np.ndarray, n_components: int) -> dict[str, float]:
+def _default_decay_initial(
+    time: np.ndarray, intensity: np.ndarray, n_components: int
+) -> dict[str, float]:
     peak = int(np.nanargmax(intensity))
     t0 = float(time[peak] - 0.5)
     total = float(np.sum(np.clip(intensity, 0, None)))
     amplitude = max(float(np.nanmax(intensity)), 1.0) / n_components
     initial: dict[str, float] = {"t0": t0, "sigma": 0.13, "background": 0.0}
-    guesses = [0.6, 2.5] if n_components == 2 else [max(total and np.sum(time * np.clip(intensity, 0, None)) / total - t0, 0.2)]
+    guesses = (
+        [0.6, 2.5]
+        if n_components == 2
+        else [max(total and np.sum(time * np.clip(intensity, 0, None)) / total - t0, 0.2)]
+    )
     for index in range(n_components):
         initial[f"amplitude{index + 1}"] = amplitude
         initial[f"tau{index + 1}"] = float(guesses[index])
@@ -80,7 +86,10 @@ def fit_decay(
     x0 = np.array([params[name] for name in free])
     lower = np.array([lower_map[name] for name in free])
     upper = np.array([upper_map[name] for name in free])
-    x0 = np.maximum(np.minimum(x0, np.where(np.isfinite(upper), upper - 1e-9, x0)), np.where(np.isfinite(lower), lower + 1e-9, x0))
+    x0 = np.maximum(
+        np.minimum(x0, np.where(np.isfinite(upper), upper - 1e-9, x0)),
+        np.where(np.isfinite(lower), lower + 1e-9, x0),
+    )
 
     if weighting == "poisson":
         if np.any(intensity < 0):
@@ -134,7 +143,10 @@ def fit_decay(
         standard_errors[name] = 0.0
 
     components = sorted(
-        [(fitted_params[f"tau{i + 1}"], fitted_params[f"amplitude{i + 1}"]) for i in range(n_components)]
+        [
+            (fitted_params[f"tau{i + 1}"], fitted_params[f"amplitude{i + 1}"])
+            for i in range(n_components)
+        ]
     )
     return LifetimeFitResult(
         lifetimes=np.array([item[0] for item in components]),
@@ -208,7 +220,9 @@ def _solve_local(
             if nonnegative:
                 coefficients[column] = nnls(weighted_basis, weighted_curve)[0]
             else:
-                coefficients[column] = np.linalg.lstsq(weighted_basis, weighted_curve, rcond=None)[0]
+                coefficients[column] = np.linalg.lstsq(weighted_basis, weighted_curve, rcond=None)[
+                    0
+                ]
     fitted = basis @ coefficients.T
     return coefficients, (fitted - curves) * weights
 

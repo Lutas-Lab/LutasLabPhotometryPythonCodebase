@@ -1,6 +1,6 @@
 import subprocess
 import warnings
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
@@ -154,7 +154,7 @@ def save_session(
             save_dict[key] = value
 
     save_dict["processed_schema_version"] = schema
-    save_dict["processing_utc"] = datetime.now(timezone.utc).isoformat()
+    save_dict["processing_utc"] = datetime.now(UTC).isoformat()
     save_dict["code_commit"] = _git_commit()
     save_dict["numpy_version"] = _package_version("numpy")
     save_dict["scipy_version"] = _package_version("scipy")

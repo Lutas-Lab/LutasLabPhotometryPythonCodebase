@@ -1,5 +1,4 @@
 import numpy as np
-
 from iflip3.models import design_matrix
 from iflip3.target import fit_target, lifetime_window
 

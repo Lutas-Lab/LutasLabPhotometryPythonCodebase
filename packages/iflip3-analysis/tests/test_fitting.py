@@ -1,5 +1,4 @@
 import numpy as np
-
 from iflip3.fitting import fit_decay, fit_global
 from iflip3.models import design_matrix, periodic_exgaussian_basis
 
@@ -7,9 +6,11 @@ from iflip3.models import design_matrix, periodic_exgaussian_basis
 def test_single_decay_recovers_lifetime():
     time = np.arange(126) * 0.1
     truth = dict(tau=2.2, t0=1.0, sigma=0.15, amplitude=5000.0, background=2.0)
-    curve = truth["amplitude"] * periodic_exgaussian_basis(
-        time, truth["tau"], truth["t0"], truth["sigma"], 12.5
-    ) + truth["background"]
+    curve = (
+        truth["amplitude"]
+        * periodic_exgaussian_basis(time, truth["tau"], truth["t0"], truth["sigma"], 12.5)
+        + truth["background"]
+    )
     result = fit_decay(
         time,
         curve,
@@ -28,9 +29,7 @@ def test_global_fit_recovers_shared_lifetimes():
     time = np.arange(126) * 0.1
     lifetimes = np.array([0.7, 2.6])
     basis = design_matrix(time, lifetimes, 1.0, 0.14, 12.5, normalize="area")
-    coefficients = np.column_stack(
-        [rng.uniform(500, 1500, 18), rng.uniform(1500, 3500, 18)]
-    )
+    coefficients = np.column_stack([rng.uniform(500, 1500, 18), rng.uniform(1500, 3500, 18)])
     curves = rng.poisson(np.maximum(basis @ coefficients.T, 0.0))
     result = fit_global(
         time,

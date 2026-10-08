@@ -1,5 +1,4 @@
 import numpy as np
-
 from fluopulse_analysis.events import (
     extract_perievent,
     find_lick_bouts,

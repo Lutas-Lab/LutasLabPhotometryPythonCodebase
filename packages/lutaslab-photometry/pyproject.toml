@@ -7,7 +7,7 @@ name = "lutaslab-photometry"
 version = "0.1.0"
 description = "Fiber photometry preprocessing, visualization, and behavioral modeling"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "lutaslab-core>=0.1,<0.2",
     "numpy>=1.26,<3",
@@ -29,12 +29,13 @@ notebooks = [
     "jupyterlab>=4,<5",
 ]
 nemos = [
-    "nemos>=0.2.9,<0.3; python_version >= '3.12'",
-    "jax>=0.11,<0.12; python_version >= '3.12'",
+    "nemos>=0.2.9,<0.3",
+    "jax>=0.11,<0.12",
 ]
 dev = [
     "mypy>=1.14,<2",
     "pytest>=8,<9",
+    "pytest-cov>=6,<8",
     "ruff>=0.8,<1",
 ]
 

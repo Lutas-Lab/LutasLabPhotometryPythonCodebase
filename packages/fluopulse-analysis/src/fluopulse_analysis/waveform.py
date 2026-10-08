@@ -9,9 +9,7 @@ from scipy.optimize import least_squares
 from scipy.signal import fftconvolve
 
 
-def subtract_terminal_baseline(
-    values: np.ndarray, *, fraction: float = 0.1
-) -> np.ndarray:
+def subtract_terminal_baseline(values: np.ndarray, *, fraction: float = 0.1) -> np.ndarray:
     """Subtract the median of the terminal waveform segment."""
 
     values = np.asarray(values, dtype=float)
@@ -141,9 +139,7 @@ def fit_irf_convolved_single_exponential(
 
     result = least_squares(
         residuals,
-        x0=np.array(
-            [np.log(initial_tau), np.log(initial_amplitude), initial_offset, 0.0]
-        ),
+        x0=np.array([np.log(initial_tau), np.log(initial_amplitude), initial_offset, 0.0]),
         bounds=(
             [np.log(tau_bounds_ns[0]), -30.0, -np.inf, shift_bounds_ns[0]],
             [np.log(tau_bounds_ns[1]), 30.0, np.inf, shift_bounds_ns[1]],
@@ -153,9 +149,7 @@ def fit_irf_convolved_single_exponential(
     residual = observed - fitted
     centered = observed[use] - np.mean(observed[use])
     denominator = float(np.sum(centered**2))
-    r_square = (
-        1.0 - float(np.sum(residual[use] ** 2)) / denominator if denominator else np.nan
-    )
+    r_square = 1.0 - float(np.sum(residual[use] ** 2)) / denominator if denominator else np.nan
     return WaveformFitResult(
         tau_ns=float(np.exp(result.x[0])),
         amplitude=float(np.exp(result.x[1])),
@@ -242,11 +236,7 @@ def fit_irf_convolved_double_exponential(
     residuals = observed - fitted
     centered = observed[use] - np.mean(observed[use])
     denominator = float(np.sum(centered**2))
-    r_square = (
-        1.0 - float(np.sum(residuals[use] ** 2)) / denominator
-        if denominator
-        else np.nan
-    )
+    r_square = 1.0 - float(np.sum(residuals[use] ** 2)) / denominator if denominator else np.nan
     tau_short, tau_long, long_fraction = unpack(result.x)
     return WaveformDoubleFitResult(
         tau_short_ns=tau_short,

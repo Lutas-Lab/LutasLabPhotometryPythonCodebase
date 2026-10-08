@@ -11,9 +11,7 @@ from .waveform import WaveformFitResult
 
 
 def plot_recording_qc(recording: FluoPulseRecording):
-    figure, axes = plt.subplots(
-        4, 1, figsize=(11, 9), sharex=True, constrained_layout=True
-    )
+    figure, axes = plt.subplots(4, 1, figsize=(11, 9), sharex=True, constrained_layout=True)
     axes[0].plot(recording.time, recording.tau_ns, color="tab:blue")
     axes[0].set_ylabel("Vendor tau (ns)")
     axes[1].plot(recording.time, recording.amplitude, color="0.35")
@@ -26,17 +24,13 @@ def plot_recording_qc(recording: FluoPulseRecording):
 
 
 def plot_aligned_session(session: AlignedSession):
-    figure, axes = plt.subplots(
-        3, 1, figsize=(11, 8), sharex=True, constrained_layout=True
-    )
+    figure, axes = plt.subplots(3, 1, figsize=(11, 8), sharex=True, constrained_layout=True)
     axes[0].plot(session.lifetime_time_nidaq, session.doric.tau_ns, color="tab:blue")
     axes[0].set_ylabel("Vendor tau (ns)")
     axes[1].eventplot(session.doric_licks.onset_times, colors="black")
     axes[1].set_ylabel("Doric licks")
     if session.running_time_nidaq is not None:
-        axes[2].plot(
-            session.running_time_nidaq, session.running_speed, color="tab:green"
-        )
+        axes[2].plot(session.running_time_nidaq, session.running_speed, color="tab:green")
     axes[2].set(xlabel="NI-DAQ time (s)", ylabel="Running speed")
     for onset, offset in zip(
         session.ensure_pulses.onset_times,
@@ -53,9 +47,7 @@ def plot_waveform_fit(
     waveform: np.ndarray,
     result: WaveformFitResult,
 ):
-    figure, axes = plt.subplots(
-        2, 1, figsize=(9, 6), sharex=True, constrained_layout=True
-    )
+    figure, axes = plt.subplots(2, 1, figsize=(9, 6), sharex=True, constrained_layout=True)
     axes[0].plot(time_ns, waveform, ".", ms=2, label="Raw waveform")
     axes[0].plot(time_ns, result.fitted, color="tab:red", label="Independent fit")
     axes[0].legend()

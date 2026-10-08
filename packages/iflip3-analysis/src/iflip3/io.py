@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-import re
 from typing import Any
 
 import numpy as np
-
 
 _ASSIGNMENT = re.compile(
     r"^header\.([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*=\s*(.*?)\s*$",
@@ -45,7 +44,11 @@ def _parse_value(raw: str) -> Any:
         return raw[1:-1].replace("''", "'")
     if _NUMBER.fullmatch(raw):
         value = float(raw)
-        return int(value) if value.is_integer() and "." not in raw and "e" not in raw.lower() else value
+        return (
+            int(value)
+            if value.is_integer() and "." not in raw and "e" not in raw.lower()
+            else value
+        )
     if raw.startswith("[") and raw.endswith("]"):
         items = [item for item in re.split(r"[\s,]+", raw[1:-1].strip()) if item]
         if all(_NUMBER.fullmatch(item) for item in items):
@@ -148,7 +151,7 @@ def read_iflip3_bytes(
     """Decode iFLiP2/iFLiP3 bytes without executing the MATLAB header."""
 
     path = Path(source)
-    marker = re.search(br"(?m)^header_end\r?\n", raw)
+    marker = re.search(rb"(?m)^header_end\r?\n", raw)
     if marker is None:
         raise ValueError(f"{path} has no header_end marker")
 

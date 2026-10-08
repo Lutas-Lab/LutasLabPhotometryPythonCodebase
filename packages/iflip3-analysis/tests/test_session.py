@@ -2,7 +2,6 @@ import sys
 import types
 
 import numpy as np
-
 from iflip3.nidaq import TTLPulses
 from iflip3.session import AlignedSession
 from iflip3.synchronization import ClockAlignment
@@ -66,12 +65,8 @@ def test_aligned_session_builds_pynapple_objects(monkeypatch):
         "running_speed",
     }
     np.testing.assert_allclose(objects["mpet"].kwargs["d"], session.mpet_ns)
-    np.testing.assert_allclose(
-        objects["ensure"].kwargs["t"], session.ensure_pulses.onset_times
-    )
-    np.testing.assert_allclose(
-        objects["running_speed"].kwargs["d"], session.running_speed
-    )
+    np.testing.assert_allclose(objects["ensure"].kwargs["t"], session.ensure_pulses.onset_times)
+    np.testing.assert_allclose(objects["running_speed"].kwargs["d"], session.running_speed)
     common = session.to_core_session("mouse-date-run")
     assert common.session_id == "mouse-date-run"
     assert set(common.continuous) == {"mpet", "raw_intensity", "running_speed"}

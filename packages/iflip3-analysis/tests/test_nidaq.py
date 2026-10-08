@@ -1,5 +1,4 @@
 import numpy as np
-
 from iflip3.nidaq import find_ttl_pulses, read_nidaq, read_running
 
 

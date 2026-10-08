@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from lutaslab_core.transfer import (
     apply_gamma_transfer,
@@ -30,3 +31,15 @@ def test_nonnegative_gamma_grid_recovers_synthetic_transfer():
     assert fit.tau_seconds == 5.0
     np.testing.assert_allclose(fit.gain, 2.5)
     assert fit.r2 > 0.999
+
+
+def test_nonnegative_gamma_grid_rejects_fit_window_outside_time():
+    time = np.arange(10.0)
+    with pytest.raises(ValueError, match="fit_window does not overlap time"):
+        fit_nonnegative_gamma_transfer(
+            time,
+            np.ones(time.size),
+            np.ones(time.size),
+            [1.0],
+            fit_window=(20.0, 30.0),
+        )

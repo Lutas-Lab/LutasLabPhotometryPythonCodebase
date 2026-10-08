@@ -2,7 +2,6 @@ import io
 
 import h5py
 import numpy as np
-
 from fluopulse_analysis.io import read_doric
 
 
@@ -33,9 +32,7 @@ def _synthetic_doric_bytes() -> bytes:
         digital = file.create_group(f"{base}/DigitalIO")
         digital.create_dataset("Time", data=np.arange(20) / 1000)
         digital.create_dataset("DIO02", data=np.tile([0, 1], 10))
-        digital.create_dataset(
-            "DIO04", data=np.r_[np.zeros(5), np.ones(2), np.zeros(13)]
-        )
+        digital.create_dataset("DIO04", data=np.r_[np.zeros(5), np.ones(2), np.zeros(13)])
         for name, username in {"DIO02": "CAMpulse", "DIO04": "lick_event"}.items():
             settings = file.create_group(f"/Configurations/FluoPulse/{name}/Settings")
             settings.attrs["Username"] = username
@@ -58,18 +55,14 @@ def _synthetic_legacy_doric_bytes() -> bytes:
             calculation.create_dataset(name, data=values)
         analog = file.create_group(f"{base}/AnalogIn")
         relative = np.arange(4) * 0.1e-9
-        analog.create_dataset(
-            "Time", data=np.concatenate([sample + relative for sample in time])
-        )
+        analog.create_dataset("Time", data=np.concatenate([sample + relative for sample in time]))
         analog.create_dataset("Detector01", data=np.arange(12, dtype=float))
         irf = file.create_group("/Configurations/FluoPulse/IRF")
         irf.create_dataset("Time", data=relative)
         irf.create_dataset("Values", data=[0, 1, 0.5, 0])
         digital = file.create_group(f"{base}/DigitalIO")
         digital.create_dataset("Time", data=np.arange(20) / 1000)
-        digital.create_dataset(
-            "DIO04", data=np.r_[np.zeros(5), np.ones(2), np.zeros(13)]
-        )
+        digital.create_dataset("DIO04", data=np.r_[np.zeros(5), np.ones(2), np.zeros(13)])
         settings = file.create_group("/Configurations/FluoPulse/DIO04/Settings")
         settings.attrs["Username"] = "Lick"
     return buffer.getvalue()

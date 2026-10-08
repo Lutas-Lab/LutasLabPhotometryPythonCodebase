@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import numpy as np
-
 from fluopulse_analysis.events import TTLPulses
 from fluopulse_analysis.io import FluoPulseRecording
 from fluopulse_analysis.nidaq import NIDAQRecording, RunningData

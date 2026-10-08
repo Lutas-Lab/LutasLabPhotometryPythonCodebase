@@ -1,5 +1,4 @@
 import numpy as np
-
 from fluopulse_analysis.synchronization import fit_clock_alignment
 
 

@@ -1,5 +1,4 @@
 import numpy as np
-
 from iflip3.preprocessing import bin_curves, correct_lifetime_data, mpet_from_corrected
 
 

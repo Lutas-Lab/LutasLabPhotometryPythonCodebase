@@ -1,8 +1,10 @@
 from pathlib import Path
 
+import pytest
 from fluopulse_analysis.paths import (
     find_doric_files,
     infer_session_identity,
+    nidaq_paths,
     nidaq_paths_for_doric,
 )
 
@@ -12,12 +14,8 @@ def test_infer_identity_and_nidaq_paths():
     identity = infer_session_identity(source)
     assert (identity.mouse, identity.date, identity.run) == ("SC81", "260923", 6)
     paths = nidaq_paths_for_doric(source)
-    assert paths.nidaq == Path(
-        "Z:/Photometry/SC81/SC81_260923/SC81-260923-006-nidaq.mat"
-    )
-    assert paths.running == Path(
-        "Z:/Photometry/SC81/SC81_260923/SC81-260923-006-running.mat"
-    )
+    assert paths.nidaq == Path("Z:/Photometry/SC81/SC81_260923/SC81-260923-006-nidaq.mat")
+    assert paths.running == Path("Z:/Photometry/SC81/SC81_260923/SC81-260923-006-running.mat")
 
 
 def test_infer_identity_allows_descriptive_suffix():
@@ -39,3 +37,9 @@ def test_find_doric_files_sorts_runs_and_ignores_other_files(monkeypatch):
         run2,
         description,
     ]
+
+
+@pytest.mark.parametrize("run", [True, -1, 1.5, "not-a-run"])
+def test_nidaq_paths_reject_invalid_run(run):
+    with pytest.raises(ValueError, match="run must be a nonnegative integer"):
+        nidaq_paths("M1", "260101", run)

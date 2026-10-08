@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 import numpy as np
-
 from lutaslab_core.glm import (
     RidgeCVResult,
     TemporalBasis,
@@ -56,9 +55,7 @@ def build_adaptive_ensure_design(
         raise ValueError("event counts must be finite")
 
     lick_basis = raised_cosine_basis((0.0, lick_kernel_seconds), lick_basis_count, dt)
-    ensure_basis = raised_cosine_basis(
-        (0.0, ensure_kernel_seconds), ensure_basis_count, dt
-    )
+    ensure_basis = raised_cosine_basis((0.0, ensure_kernel_seconds), ensure_basis_count, dt)
     event_indices = np.flatnonzero(ensures > 0)
     first_ensure = np.zeros_like(ensures)
     progress = np.zeros_like(ensures)

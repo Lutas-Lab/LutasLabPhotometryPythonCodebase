@@ -98,6 +98,10 @@ analysis_output*/
 .pytest_cache/
 pytest-cache-files-*/
 .mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
 
 # ============================================================
 # Personal / working analysis notebooks

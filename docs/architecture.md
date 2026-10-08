@@ -30,11 +30,9 @@ required by preprocessing, plotting, Pynapple integration, or the supported
 continuous-photometry GLM workflow. New analyses should use
 `lutaslab_core.glm` unless a documented NeMoS-only capability is needed.
 
-The base `lutaslab-photometry` package supports Python 3.10–3.12, matching the
-other workspace packages. The single `nemos` extra is enabled only on Python
-3.12 and constrains JAX to the tested 0.11 release series. The repository's
-recommended environment remains Python 3.12 so it can run every optional
-workflow, while base preprocessing and analysis do not require NeMoS or JAX.
+All workspace packages support Python 3.12. The single `nemos` extra constrains
+JAX to the tested 0.11 release series. Base preprocessing and analysis do not
+require NeMoS or JAX.
 
 ## Repository lifecycle
 

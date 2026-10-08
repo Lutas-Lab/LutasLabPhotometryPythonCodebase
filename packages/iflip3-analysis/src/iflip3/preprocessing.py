@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import numpy as np
 
-from .io import IFLiP3Header, IFLiP3Recording
+from .io import IFLiP3Recording
 
 
 def _as_cube(data: np.ndarray) -> tuple[np.ndarray, bool]:
@@ -67,9 +67,7 @@ def correct_lifetime_data(
         if bg.ndim == 1:
             bg = bg[:, None]
         if bg.shape != (n_bins, n_channels):
-            raise ValueError(
-                f"Background shape {bg.shape} does not match {(n_bins, n_channels)}"
-            )
+            raise ValueError(f"Background shape {bg.shape} does not match {(n_bins, n_channels)}")
 
     background_efficiency = 1.0 - bg.sum(axis=0) * sampling_frequency * dead_time_seconds
     if np.any(background_efficiency <= 0):
@@ -84,9 +82,7 @@ def correct_lifetime_data(
     effective_bg = true_background[:, None, :] * count_efficiency[None, :, :]
     effective_bg_rate = true_background.sum(axis=0)[None, :] * count_efficiency * sampling_frequency
     afterpulse_per_bin = (
-        (raw_rate - effective_bg_rate)
-        * afterpulse_ratio
-        / (sampling_frequency * n_bins)
+        (raw_rate - effective_bg_rate) * afterpulse_ratio / (sampling_frequency * n_bins)
     )
     afterpulse_bg = np.broadcast_to(afterpulse_per_bin[None, :, :], cube.shape).copy()
     total_bg = effective_bg + afterpulse_bg

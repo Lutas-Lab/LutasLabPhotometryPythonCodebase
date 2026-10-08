@@ -1,8 +1,8 @@
 # Reproducible Python environment
 
-The base workspace packages support Python 3.10–3.12. The recommended complete
-environment uses Python 3.12 so it can also install the optional NeMoS/JAX
-backend. `uv.lock` contains the compatible resolution, source artifacts, and
+All workspace packages use Python 3.12. A single supported interpreter keeps
+the locked analysis environment, optional NeMoS/JAX backend, GUI, and CI in
+sync. `uv.lock` contains the compatible resolution, source artifacts, and
 hashes; do not hand-edit it.
 
 ## Recommended lab-user environment

@@ -9,6 +9,8 @@ from typing import Any
 import numpy as np
 from lutaslab_core.session import (
     AlignedSession as CoreAlignedSession,
+)
+from lutaslab_core.session import (
     ContinuousSignal,
     EventSeries,
     IntervalSeries,
@@ -227,9 +229,7 @@ def process_aligned_session(
     if running_path is not None:
         running: RunningData = read_running(running_path)
         if running.speed.size != sync_pulses.onset_times.size:
-            raise ValueError(
-                "Running speed length does not match the number of NI-DAQ sync pulses"
-            )
+            raise ValueError("Running speed length does not match the number of NI-DAQ sync pulses")
         running_time = sync_pulses.onset_times.copy()
         running_speed = running.speed.copy()
 

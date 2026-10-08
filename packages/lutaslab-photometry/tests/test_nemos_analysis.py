@@ -1,12 +1,27 @@
 import unittest
 
 import numpy as np
+import pytest
 
 from lutaslab_photometry.nemos_analysis import (
     _apply_temporal_basis,
+    fit_gaussian_glm,
     make_gapped_folds,
     make_time_gapped_folds,
 )
+
+
+def test_actual_nemos_gaussian_ridge_fit_when_backend_is_installed():
+    pytest.importorskip("nemos")
+    design = np.column_stack([np.ones(40), np.linspace(-1.0, 1.0, 40)])
+    response = 0.25 + 0.8 * design[:, 1]
+
+    prediction = np.asarray(
+        fit_gaussian_glm(design, response, regularizer_strength=0.1).predict(design)
+    )
+
+    assert prediction.shape == (40,)
+    assert np.all(np.isfinite(prediction))
 
 
 class TemporalDesignTests(unittest.TestCase):

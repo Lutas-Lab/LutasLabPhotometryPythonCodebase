@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
-import re
 
 import h5py
 import numpy as np
@@ -60,9 +60,7 @@ def _digital_channel_map(file: h5py.File) -> dict[str, str]:
         settings_path = f"{CONFIGURATION}/{dataset_name}/Settings"
         username = dataset_name
         if settings_path in file:
-            username = _decode_attribute(
-                file[settings_path].attrs.get("Username", dataset_name)
-            )
+            username = _decode_attribute(file[settings_path].attrs.get("Username", dataset_name))
         semantic = _semantic_channel(username, dataset_name)
         if semantic in mapping:
             semantic = dataset_name
@@ -99,9 +97,7 @@ class FluoPulseRecording:
     def sampling_frequency(self) -> float:
         return float(1.0 / np.median(np.diff(self.time)))
 
-    def load_waveforms(
-        self, indices: np.ndarray | list[int] | None = None
-    ) -> WaveformBatch:
+    def load_waveforms(self, indices: np.ndarray | list[int] | None = None) -> WaveformBatch:
         """Load selected raw waveforms; all waveforms are loaded only if requested."""
 
         if indices is None:
@@ -143,16 +139,8 @@ class FluoPulseRecording:
             if dataset_path not in file:
                 raise KeyError(f"Unknown digital channel: {channel!r}")
             time = np.asarray(file[f"{DIGITAL}/Time"], dtype=float)
-            start = (
-                0
-                if start_seconds is None
-                else int(np.searchsorted(time, start_seconds))
-            )
-            stop = (
-                time.size
-                if stop_seconds is None
-                else int(np.searchsorted(time, stop_seconds))
-            )
+            start = 0 if start_seconds is None else int(np.searchsorted(time, start_seconds))
+            stop = time.size if stop_seconds is None else int(np.searchsorted(time, stop_seconds))
             values = np.asarray(file[dataset_path][start:stop], dtype=float)
         return time[start:stop], values
 
@@ -224,11 +212,7 @@ def read_doric(
         irf_time_ns = (irf_time - irf_time[0]) * 1e9
         irf_values = np.asarray(file[f"{irf_group}/Values"], dtype=float)
         raw_path = f"{irf_group}/Raw"
-        irf_raw = (
-            np.asarray(file[raw_path], dtype=float)
-            if raw_path in file
-            else irf_values.copy()
-        )
+        irf_raw = np.asarray(file[raw_path], dtype=float) if raw_path in file else irf_values.copy()
         if not (irf_time.shape == irf_raw.shape == irf_values.shape):
             raise ValueError("Doric IRF datasets do not have matching shapes")
 

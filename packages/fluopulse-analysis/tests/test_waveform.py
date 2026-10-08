@@ -1,5 +1,4 @@
 import numpy as np
-
 from fluopulse_analysis.waveform import (
     _convolved_basis,
     fit_irf_convolved_double_exponential,

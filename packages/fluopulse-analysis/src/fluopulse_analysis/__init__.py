@@ -7,13 +7,13 @@ from .events import (
     find_lick_bouts,
     find_ttl_pulses,
 )
-from .io import FluoPulseRecording, WaveformBatch, read_doric
 from .glm import (
     AdaptiveEnsureDesign,
     build_adaptive_ensure_design,
     fit_adaptive_ensure_glm,
     reconstruct_adaptive_kernels,
 )
+from .io import FluoPulseRecording, WaveformBatch, read_doric
 from .nidaq import DEFAULT_CHANNEL_ROWS, NIDAQRecording, read_nidaq, read_running
 from .paths import (
     DEFAULT_DORIC_ROOT,

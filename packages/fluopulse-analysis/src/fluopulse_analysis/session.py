@@ -9,6 +9,8 @@ from typing import Any
 import numpy as np
 from lutaslab_core.session import (
     AlignedSession as CoreAlignedSession,
+)
+from lutaslab_core.session import (
     ContinuousSignal,
     EventSeries,
     IntervalSeries,
@@ -20,17 +22,13 @@ from .nidaq import NIDAQRecording, read_nidaq, read_running
 from .synchronization import ClockAlignment, fit_clock_alignment
 
 
-def _resample_uniform(
-    timestamps: np.ndarray, values: np.ndarray
-) -> tuple[np.ndarray, np.ndarray]:
+def _resample_uniform(timestamps: np.ndarray, values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Interpolate samples onto a strictly uniform grid for Pynapple."""
 
     timestamps = np.asarray(timestamps, dtype=float)
     values = np.asarray(values, dtype=float)
     if timestamps.ndim != 1 or values.ndim != 1 or timestamps.size != values.size:
-        raise ValueError(
-            "Timestamps and values must be matching one-dimensional arrays"
-        )
+        raise ValueError("Timestamps and values must be matching one-dimensional arrays")
     if timestamps.size < 2 or np.any(np.diff(timestamps) <= 0):
         raise ValueError("At least two strictly increasing timestamps are required")
     uniform_time = np.linspace(timestamps[0], timestamps[-1], timestamps.size)
@@ -140,13 +138,9 @@ class AlignedSession:
                 'Install the event-analysis extra with: pip install -e ".[events]"'
             ) from exc
 
-        lifetime_time, tau = _resample_uniform(
-            self.lifetime_time_nidaq, self.doric.tau_ns
-        )
+        lifetime_time, tau = _resample_uniform(self.lifetime_time_nidaq, self.doric.tau_ns)
         _, amplitude = _resample_uniform(self.lifetime_time_nidaq, self.doric.amplitude)
-        _, fit_r_square = _resample_uniform(
-            self.lifetime_time_nidaq, self.doric.r_square
-        )
+        _, fit_r_square = _resample_uniform(self.lifetime_time_nidaq, self.doric.r_square)
         support = nap.IntervalSet(
             start=float(lifetime_time[0]),
             end=float(lifetime_time[-1]),
@@ -255,9 +249,7 @@ def process_aligned_session(
         else:
             duration = nidaq.timestamps[-1] - nidaq.timestamps[0]
             inferred_rate = running.speed.size / duration
-            running_time = (
-                nidaq.timestamps[0] + np.arange(running.speed.size) / inferred_rate
-            )
+            running_time = nidaq.timestamps[0] + np.arange(running.speed.size) / inferred_rate
         running_speed = running.speed.copy()
 
     return AlignedSession(

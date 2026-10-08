@@ -10,9 +10,8 @@ provenance, event-aligned analysis, mouse-level statistics, and temporal GLMs.
 
 ## Quickstart
 
-The base packages support Python 3.10–3.12. Python 3.12 is recommended because
-it can also run the optional NeMoS/JAX backend. From PowerShell in the
-repository root:
+All workspace packages standardize on Python 3.12, including the optional
+NeMoS/JAX backend. From PowerShell in the repository root:
 
 ```powershell
 python -m pip install "uv==0.12.21"
@@ -141,16 +140,22 @@ and each workspace package.
 
 ## Development
 
-Run the conventional test and lint checks with:
+Run all package tests and repository quality checks with:
 
 ```powershell
 uv run python -m pytest
 uv run ruff check packages/lutaslab-photometry/src `
   packages/lutaslab-photometry/tests streamlit_app.py
 uv run ruff check packages/lutaslab-core/src packages/lutaslab-core/tests
+uv run ruff check packages/fluopulse-analysis/src packages/fluopulse-analysis/tests
+uv run ruff check packages/iflip3-analysis/src packages/iflip3-analysis/tests
 uv run mypy
 uv run lutaslab-validate-notebooks
 ```
+
+CI reports line coverage separately for each package and enforces conservative
+package-specific minimums. Optional NeMoS coverage is measured in its dedicated
+environment rather than being counted as missing from the base installation.
 
 GitHub Actions tests the conventional package, shared core, FluoPulse, iFLiP3,
 and optional NeMoS compatibility in separate jobs. The codebase is under active

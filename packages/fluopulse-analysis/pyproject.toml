@@ -7,19 +7,19 @@ name = "fluopulse-analysis"
 version = "0.1.0"
 description = "Doric FluoPulse lifetime photometry loading, waveform analysis, and NI-DAQ alignment"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12,<3.13"
 dependencies = [
-  "h5py>=3.10",
+  "h5py>=3.10,<4",
   "lutaslab-core>=0.1,<0.2",
-  "numpy>=1.26",
-  "scipy>=1.12",
-  "matplotlib>=3.8",
-  "openpyxl>=3.1",
+  "numpy>=1.26,<3",
+  "scipy>=1.12,<2",
+  "matplotlib>=3.8,<4",
+  "openpyxl>=3.1,<4",
 ]
 
 [project.optional-dependencies]
 events = ["pynapple>=0.11,<0.12"]
-dev = ["pytest>=8"]
+dev = ["pytest>=8,<9", "pytest-cov>=6,<8", "ruff>=0.8,<1"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

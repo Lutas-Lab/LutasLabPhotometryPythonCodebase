@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-
 from lutaslab_core.synchronization import fit_clock_alignment as _fit_clock_alignment
 
 

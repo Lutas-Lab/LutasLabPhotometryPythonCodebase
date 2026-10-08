@@ -2,31 +2,27 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 import math
+from collections.abc import Sequence
 
 import numpy as np
 
 try:
     from scipy.special import log_ndtr as _log_ndtr
 except ImportError:  # Keep model evaluation usable when only NumPy is installed.
+
     def _log_ndtr(values: np.ndarray) -> np.ndarray:
         values = np.asarray(values, dtype=float)
         output = np.empty_like(values)
         regular = values > -10.0
         erfc = np.frompyfunc(math.erfc, 1, 1)
-        probabilities = 0.5 * np.asarray(
-            erfc(-values[regular] / math.sqrt(2.0)), dtype=float
-        )
+        probabilities = 0.5 * np.asarray(erfc(-values[regular] / math.sqrt(2.0)), dtype=float)
         output[regular] = np.log(probabilities)
         x = values[~regular]
         inverse_square = 1.0 / (x * x)
         correction = 1.0 - inverse_square + 3.0 * inverse_square**2 - 15.0 * inverse_square**3
         output[~regular] = (
-            -0.5 * x * x
-            - np.log(-x)
-            - 0.5 * math.log(2.0 * math.pi)
-            + np.log(correction)
+            -0.5 * x * x - np.log(-x) - 0.5 * math.log(2.0 * math.pi) + np.log(correction)
         )
         return output
 
@@ -56,11 +52,7 @@ def periodic_exgaussian_basis(
         n_previous = max(2, int(math.floor(tau / pulse_interval * 10.0 + 0.5)))
     offsets = -t0 + np.arange(n_previous + 1, dtype=float) * pulse_interval
     x = time[:, None] + offsets[None, :]
-    log_terms = (
-        irf_sigma**2 / (2.0 * tau**2)
-        - x / tau
-        + _log_ndtr(x / irf_sigma - irf_sigma / tau)
-    )
+    log_terms = irf_sigma**2 / (2.0 * tau**2) - x / tau + _log_ndtr(x / irf_sigma - irf_sigma / tau)
     basis = np.exp(log_terms).sum(axis=1)
     if normalize is None or normalize == "none":
         return basis

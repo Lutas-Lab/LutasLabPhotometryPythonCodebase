@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-
 from lutaslab_core.events import (
     LickBouts,
     TTLPulses,

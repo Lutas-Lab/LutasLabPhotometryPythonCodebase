@@ -1,5 +1,4 @@
 import numpy as np
-
 from fluopulse_analysis.glm import (
     build_adaptive_ensure_design,
     fit_adaptive_ensure_glm,

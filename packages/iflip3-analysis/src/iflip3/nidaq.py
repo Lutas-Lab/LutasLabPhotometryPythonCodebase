@@ -6,15 +6,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from scipy.io import loadmat
-
-from lutaslab_core.events import TTLPulses, find_ttl_pulses as _find_ttl_pulses
+from lutaslab_core.events import TTLPulses
+from lutaslab_core.events import find_ttl_pulses as _find_ttl_pulses
 from lutaslab_core.nidaq import (
     DEFAULT_CHANNEL_ROWS,
     NIDAQRecording,
     nidaq_from_mapping,
     running_from_mapping,
 )
+from scipy.io import loadmat
 
 
 @dataclass(frozen=True)

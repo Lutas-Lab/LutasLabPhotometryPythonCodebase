@@ -6,11 +6,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-
 from lutaslab_core.nidaq import (
     DEFAULT_CHANNEL_ROWS,
     NIDAQRecording,
     read_nidaq,
+)
+from lutaslab_core.nidaq import (
     read_running as _read_running,
 )
 

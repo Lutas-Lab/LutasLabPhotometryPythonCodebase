@@ -38,9 +38,7 @@ class NIDAQPaths:
         required = {"NI-DAQ": self.nidaq}
         if require_running:
             required["running"] = self.running
-        missing = [
-            f"{name}: {path}" for name, path in required.items() if not path.is_file()
-        ]
+        missing = [f"{name}: {path}" for name, path in required.items() if not path.is_file()]
         if missing:
             raise FileNotFoundError("Session files not found:\n" + "\n".join(missing))
 
@@ -77,7 +75,19 @@ def nidaq_paths(
 
     mouse = str(mouse).strip()
     date = str(date).strip()
-    run = int(run)
+    if not mouse or not date:
+        raise ValueError("mouse and date must not be empty")
+    if any(character in mouse or character in date for character in ("/", "\\")):
+        raise ValueError("mouse and date must not contain path separators")
+    if isinstance(run, bool):
+        raise ValueError("run must be a nonnegative integer")
+    try:
+        numeric_run = float(run)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("run must be a nonnegative integer") from exc
+    if not numeric_run.is_integer() or numeric_run < 0:
+        raise ValueError("run must be a nonnegative integer")
+    run = int(numeric_run)
     folder = Path(photometry_root) / mouse / f"{mouse}_{date}"
     stem = f"{mouse}-{date}-{run:03d}"
     return NIDAQPaths(

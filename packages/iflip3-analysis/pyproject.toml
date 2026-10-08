@@ -7,17 +7,17 @@ name = "iflip3-analysis"
 version = "0.1.0"
 description = "Safe loading and global analysis of iFLiP3 fluorescence-lifetime photometry data"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12,<3.13"
 dependencies = [
   "lutaslab-core>=0.1,<0.2",
-  "numpy>=1.26",
-  "scipy>=1.12",
-  "matplotlib>=3.8",
+  "numpy>=1.26,<3",
+  "scipy>=1.12,<2",
+  "matplotlib>=3.8,<4",
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8"]
-dev = ["pytest>=8"]
+test = ["pytest>=8,<9"]
+dev = ["pytest>=8,<9", "pytest-cov>=6,<8", "ruff>=0.8,<1"]
 events = ["pynapple>=0.11,<0.12"]
 
 [tool.pytest.ini_options]

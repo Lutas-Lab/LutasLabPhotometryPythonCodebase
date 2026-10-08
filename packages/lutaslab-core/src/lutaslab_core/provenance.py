@@ -8,7 +8,7 @@ import platform
 import subprocess
 import sys
 from collections.abc import Iterable, Mapping
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib import metadata
 from pathlib import Path
 from typing import Any
@@ -29,7 +29,7 @@ DEFAULT_PACKAGES = (
 def utc_now() -> str:
     """Return an ISO-8601 UTC timestamp suitable for a run record."""
 
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _json_value(value: Any) -> Any:
@@ -72,7 +72,7 @@ def describe_path(path: str | Path, *, hash_file: bool = True) -> dict[str, Any]
         {
             "kind": "directory" if resolved.is_dir() else "file",
             "modified_utc": datetime.fromtimestamp(
-                stat.st_mtime, tz=timezone.utc
+                stat.st_mtime, tz=UTC
             ).isoformat(),
         }
     )

@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-
 DEFAULT_DATA_ROOT = Path("Z:/")
 PHOTOMETRY_FOLDER = "Photometry"
 IFLIP_FOLDER = "FLIM FLIP"
@@ -52,18 +51,12 @@ class SessionPaths:
         missing: list[str] = []
         if not any(_is_file(path) for path in self.iflip_candidates):
             missing.append(
-                "iFLiP: "
-                f"{self.iflip_preferred} (preferred) or "
-                f"{self.iflip_legacy} (legacy)"
+                f"iFLiP: {self.iflip_preferred} (preferred) or {self.iflip_legacy} (legacy)"
             )
         required = {"NI-DAQ": self.nidaq}
         if require_running:
             required["running"] = self.running
-        missing.extend(
-            f"{label}: {path}"
-            for label, path in required.items()
-            if not _is_file(path)
-        )
+        missing.extend(f"{label}: {path}" for label, path in required.items() if not _is_file(path))
         if missing:
             raise FileNotFoundError("Session input files not found:\n" + "\n".join(missing))
 
@@ -89,11 +82,12 @@ def session_paths(
     if isinstance(run, bool):
         raise ValueError("run must be a nonnegative integer")
     try:
-        run = int(run)
+        numeric_run = float(run)
     except (TypeError, ValueError) as exc:
         raise ValueError("run must be a nonnegative integer") from exc
-    if run < 0:
+    if not numeric_run.is_integer() or numeric_run < 0:
         raise ValueError("run must be a nonnegative integer")
+    run = int(numeric_run)
 
     root = Path(data_root)
     dated_folder = f"{mouse}_{date}"

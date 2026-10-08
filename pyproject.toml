@@ -1,9 +1,14 @@
 [tool.pytest.ini_options]
-testpaths = ["packages/lutaslab-photometry/tests"]
-addopts = "-ra"
+testpaths = [
+    "packages/lutaslab-core/tests",
+    "packages/lutaslab-photometry/tests",
+    "packages/fluopulse-analysis/tests",
+    "packages/iflip3-analysis/tests",
+]
+addopts = "-ra --import-mode=importlib"
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py312"
 line-length = 100
 src = ["packages/lutaslab-photometry/src"]
 
@@ -11,8 +16,7 @@ src = ["packages/lutaslab-photometry/src"]
 select = ["E", "F", "I", "B", "UP", "NPY"]
 
 [tool.mypy]
-# NumPy 2.4's installed stubs use Python 3.12 type-statement syntax. Ruff and
-# the 3.10/3.11 CI jobs separately enforce the package's base compatibility.
+# The workspace standardizes on Python 3.12 for analysis and development.
 python_version = "3.12"
 files = ["packages/lutaslab-core/src/lutaslab_core"]
 check_untyped_defs = true

@@ -118,6 +118,8 @@ def fit_nonnegative_gamma_transfer(
         if len(fit_window) != 2 or fit_window[0] >= fit_window[1]:
             raise ValueError("fit_window must contain increasing bounds")
         selected = (time >= fit_window[0]) & (time <= fit_window[1])
+        if not np.any(selected):
+            raise ValueError("fit_window does not overlap time")
     baseline = None
     if baseline_window is not None:
         if len(baseline_window) != 2 or baseline_window[0] >= baseline_window[1]:

@@ -28,7 +28,7 @@ AVAILABLE_METRICS = (
 def _trapezoid(values, x, axis):
     if hasattr(np, "trapezoid"):
         return np.trapezoid(values, x=x, axis=axis)
-    # NumPy 1.26 compatibility for the declared Python 3.10 support window.
+    # Compatibility with supported NumPy releases that still expose ``trapz``.
     return np.trapz(values, x=x, axis=axis)  # noqa: NPY201
 
 

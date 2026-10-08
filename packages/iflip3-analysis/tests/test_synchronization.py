@@ -1,5 +1,4 @@
 import numpy as np
-
 from iflip3.synchronization import external_marker_mask, fit_clock_alignment
 
 
