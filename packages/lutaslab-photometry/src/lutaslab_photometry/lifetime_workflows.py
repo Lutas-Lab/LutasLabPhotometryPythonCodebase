@@ -11,6 +11,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
+from lutaslab_core.events import find_lick_bouts
 from lutaslab_core.glm import event_times_to_counts, fit_ridge, group_folds, r2_score
 from lutaslab_core.perievent import (
     extract_perievent_trials,
@@ -29,7 +30,13 @@ LIFETIME_SIGNALS = {
     "fluopulse": ("tau", "amplitude", "fit_r_square"),
     "iflip3": ("mpet", "raw_intensity"),
 }
-LIFETIME_EVENTS = ("ensure", "visual_cue", "licks")
+LIFETIME_EVENTS = (
+    "ensure",
+    "visual_cue",
+    "licks",
+    "lick_bout_onset",
+    "lick_bout_offset",
+)
 
 
 def _files_with_suffix(folders, suffix: str) -> list[Path]:
@@ -389,11 +396,23 @@ def export_aligned_sessions(workflow, rows, data_root, output_dir) -> list[Path]
 
 
 def _behavioral_events(session) -> dict[str, np.ndarray]:
+    bouts = find_lick_bouts(session.events.get("licks", _EMPTY_EVENT).timestamps)
     return {
         "solenoid_onset": session.events.get("ensure", _EMPTY_EVENT).timestamps,
         "cue_onset": session.events.get("visual_cue", _EMPTY_EVENT).timestamps,
         "lick_times": session.events.get("licks", _EMPTY_EVENT).timestamps,
+        "lick_bout_onset": bouts.onset_times,
+        "lick_bout_offset": bouts.offset_times,
+        "lick_bout_duration": bouts.durations,
+        "lick_bout_lick_count": bouts.lick_counts,
     }
+
+
+def _lifetime_event_times(session, event: str) -> np.ndarray:
+    if event in {"lick_bout_onset", "lick_bout_offset"}:
+        bouts = find_lick_bouts(session.events.get("licks", _EMPTY_EVENT).timestamps)
+        return bouts.onset_times if event.endswith("onset") else bouts.offset_times
+    return session.events[event].timestamps
 
 
 class _EmptyEvent:
@@ -421,6 +440,8 @@ def run_lifetime_psth(
     heatmap_sort_direction="auto",
     heatmap_unmatched="bottom",
     heatmap_cmap="coolwarm",
+    first_event_only=False,
+    allow_partial_windows=False,
 ) -> list[Path]:
     """Run shared event-aligned lifetime analysis and save auditable figures."""
 
@@ -436,13 +457,16 @@ def run_lifetime_psth(
     for row in rows:
         session, paths = load_lifetime_session(workflow, row, data_root)
         continuous = session.continuous[signal]
-        alignment_times = session.events[event].timestamps
+        alignment_times = _lifetime_event_times(session, event)
+        if first_event_only:
+            alignment_times = alignment_times[:1]
         time, trials, valid = extract_perievent_trials(
             continuous.timestamps,
             continuous.values,
             alignment_times,
             window=window,
             dt=dt,
+            require_complete=not allow_partial_windows,
         )
         normalized = normalize_trials(time, trials, normalization, baseline)
         if normalized.shape[0] == 0:
@@ -460,10 +484,10 @@ def run_lifetime_psth(
         )
     by_mouse = defaultdict(list)
     for item in results:
-        by_mouse[item["mouse"]].append(np.nanmean(item["trials"], axis=0))
+        by_mouse[item["mouse"]].append(summarize_trials(item["trials"])[0])
     mouse_names = sorted(by_mouse)
     mouse_matrix = np.vstack(
-        [np.nanmean(np.vstack(by_mouse[mouse]), axis=0) for mouse in mouse_names]
+        [summarize_trials(np.vstack(by_mouse[mouse]))[0] for mouse in mouse_names]
     )
     bundle = {
         "time": time,
@@ -513,6 +537,8 @@ def run_lifetime_psth(
         "dt": dt,
         "normalization": normalization,
         "baseline": list(baseline),
+        "first_event_only": bool(first_event_only),
+        "allow_partial_windows": bool(allow_partial_windows),
         "session_count": len(results),
         "mouse_count": len(mouse_names),
     }

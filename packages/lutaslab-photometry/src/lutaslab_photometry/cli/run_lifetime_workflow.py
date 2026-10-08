@@ -20,7 +20,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-root", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--signal")
-    parser.add_argument("--event", choices=("ensure", "visual_cue", "licks"))
+    parser.add_argument("--event", choices=(
+        "ensure", "visual_cue", "licks", "lick_bout_onset", "lick_bout_offset"
+    ))
+    parser.add_argument("--first-event-only", action="store_true")
+    parser.add_argument("--allow-partial-windows", action="store_true")
     parser.add_argument("--window", nargs=2, type=float, default=(-5.0, 20.0))
     parser.add_argument("--dt", type=float, default=0.1)
     parser.add_argument(
@@ -69,6 +73,8 @@ def main(argv=None) -> int:
             heatmap_sort_direction=args.heatmap_sort_direction,
             heatmap_unmatched=args.heatmap_unmatched,
             heatmap_cmap=args.heatmap_cmap,
+            first_event_only=args.first_event_only,
+            allow_partial_windows=args.allow_partial_windows,
         )
     else:
         if not args.signal:

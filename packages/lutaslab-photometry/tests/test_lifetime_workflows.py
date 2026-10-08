@@ -149,3 +149,42 @@ def test_lifetime_psth_writes_mouse_and_pooled_heatmaps(monkeypatch, tmp_path):
     assert "group_ensure_mouse_means_heatmap.png" in names
     assert "group_ensure_pooled_trials_heatmap.png" in names
     assert "heatmap_trial_order.csv" in names
+
+
+def test_lifetime_bout_offset_first_event_keeps_partial_tail(monkeypatch, tmp_path):
+    time = np.arange(0.0, 12.1, 0.1)
+
+    def fake_load(workflow, row, data_root):
+        del workflow, data_root
+        session = AlignedSession(
+            session_id="M1_1",
+            continuous={"tau": ContinuousSignal(time, time.copy(), "ns")},
+            events={
+                "ensure": EventSeries(np.array([2.0, 8.0])),
+                "visual_cue": EventSeries(np.array([])),
+                "licks": EventSeries(
+                    np.array([2.0, 2.2, 2.4, 2.6, 2.8, 8.0, 8.2, 8.4, 8.6, 8.8])
+                ),
+            },
+        )
+        return session, {"source_path": "synthetic.doric"}
+
+    monkeypatch.setattr(workflows, "load_lifetime_session", fake_load)
+    outputs = workflows.run_lifetime_psth(
+        "fluopulse",
+        [{"mouse": "M1", "date": "260101", "run": 1}],
+        tmp_path,
+        tmp_path / "partial",
+        signal="tau",
+        event="lick_bout_offset",
+        window=(-1.0, 12.0),
+        dt=0.1,
+        baseline=(-1.0, 0.0),
+        first_event_only=True,
+        allow_partial_windows=True,
+        heatmaps=True,
+    )
+    metadata = next(path for path in outputs if path.name == "analysis_metadata.json")
+    text = metadata.read_text(encoding="utf-8")
+    assert '"first_event_only": true' in text
+    assert '"allow_partial_windows": true' in text

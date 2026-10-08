@@ -28,6 +28,7 @@ _BEHAVIORAL_EVENT_KEYS = (
     "solenoid_onset",
     "lick_times",
     "lick_bout_onset",
+    "lick_bout_offset",
     "lick_bout_duration",
     "lick_bout_lick_count",
 )
@@ -47,9 +48,24 @@ def _peri_time(window, dt):
     return start + np.arange(count + 1, dtype=float) * dt
 
 
-def extract_perievent_trials(signal_time, signal, event_times, window=(-5, 10), dt=0.02):
-    """Interpolate a continuous signal around events with complete windows."""
-    return _extract_perievent_trials(signal_time, signal, event_times, window, dt)
+def extract_perievent_trials(
+    signal_time,
+    signal,
+    event_times,
+    window=(-5, 10),
+    dt=0.02,
+    *,
+    require_complete=True,
+):
+    """Interpolate a continuous signal around events, optionally padding edges."""
+    return _extract_perievent_trials(
+        signal_time,
+        signal,
+        event_times,
+        window,
+        dt,
+        require_complete=require_complete,
+    )
 
 
 def extract_perievent_event_rate(
@@ -58,14 +74,17 @@ def extract_perievent_event_rate(
     recording_bounds,
     window=(-5, 10),
     dt=0.1,
+    *,
+    require_complete=True,
 ):
-    """Bin discrete events as rates around alignments with complete windows."""
+    """Bin discrete events as rates around alignments, optionally padding edges."""
     return _extract_perievent_event_rate(
         event_times,
         alignment_times,
         recording_bounds,
         window,
         dt,
+        require_complete=require_complete,
     )
 
 
@@ -221,8 +240,9 @@ def _mean_and_sem(rows):
     rows = np.asarray(rows, dtype=float)
     if rows.ndim != 2 or rows.shape[0] == 0:
         raise ValueError("rows must be a nonempty two-dimensional array.")
-    mean = np.nanmean(rows, axis=0)
     count = np.sum(np.isfinite(rows), axis=0)
+    mean = np.full(rows.shape[1], np.nan, dtype=float)
+    np.divide(np.nansum(rows, axis=0), count, out=mean, where=count > 0)
     sem = np.full(rows.shape[1], np.nan, dtype=float)
     enough = count > 1
     if np.any(enough):
@@ -292,6 +312,8 @@ def compute_manifest_psth(
     null_exclusion=0.0,
     trial_class="all",
     post_cue_window=2.0,
+    first_event_only=False,
+    allow_partial_windows=False,
 ):
     """Compute session, mouse, and group PSTHs with mice as the group unit."""
     if signal_type not in ("photometry", "licking"):
@@ -325,6 +347,11 @@ def compute_manifest_psth(
         time_key = f"photo_time_465_ch{selected_channel}"
         path = processed_session_path(data_root, info)
         session = load_session(path)
+        if event_key == "lick_bout_offset" and event_key not in session:
+            if "lick_bout_onset" in session and "lick_bout_duration" in session:
+                session[event_key] = np.asarray(
+                    session["lick_bout_onset"], dtype=float
+                ) + np.asarray(session["lick_bout_duration"], dtype=float)
         required = {event_key, time_key}
         required.add(signal_key if signal_type == "photometry" else "lick_times")
         missing = required.difference(session)
@@ -334,6 +361,8 @@ def compute_manifest_psth(
         if trial_class != "all":
             mask = cue_trial_mask(session, trial_class, post_cue_window)
             event_times = event_times[mask]
+        if first_event_only:
+            event_times = event_times[:1]
 
         if signal_type == "photometry":
             peri_time, trials, valid_indices = extract_perievent_trials(
@@ -342,6 +371,7 @@ def compute_manifest_psth(
                 event_times,
                 window=window,
                 dt=dt,
+                require_complete=not allow_partial_windows,
             )
         else:
             recording_time = np.asarray(session[time_key], dtype=float)
@@ -351,11 +381,12 @@ def compute_manifest_psth(
                 (recording_time[0], recording_time[-1]),
                 window=window,
                 dt=dt,
+                require_complete=not allow_partial_windows,
             )
         if len(trials) == 0:
             warnings.warn(
                 f"Skipping {info['mouse']} {info['date']} run {info['run']}: "
-                f"no complete {event_key} windows.",
+                f"no usable {event_key} windows.",
                 UserWarning,
                 stacklevel=2,
             )
@@ -363,7 +394,7 @@ def compute_manifest_psth(
         normalized = normalize_trials(
             peri_time, trials, normalization=normalization, baseline=baseline
         )
-        session_mean = np.nanmean(normalized, axis=0)
+        session_mean, _ = _mean_and_sem(normalized)
         if not np.any(np.isfinite(session_mean)):
             warnings.warn(
                 f"Skipping {info['mouse']} {info['date']} run {info['run']}: "
@@ -490,6 +521,8 @@ def compute_manifest_psth(
         "null_exclusion": null_exclusion,
         "trial_class": trial_class,
         "post_cue_window": float(post_cue_window),
+        "first_event_only": bool(first_event_only),
+        "allow_partial_windows": bool(allow_partial_windows),
         **null_results,
     }
 

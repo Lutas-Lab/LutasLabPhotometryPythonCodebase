@@ -166,6 +166,8 @@ def build_psth_command(
     heatmap_sort_direction="auto",
     heatmap_unmatched="bottom",
     heatmap_cmap="coolwarm",
+    first_event_only=False,
+    allow_partial_windows=False,
 ):
     """Build the maintained event-aligned analysis command."""
     command = _python_command(project_root, "run_psth.py")
@@ -208,6 +210,10 @@ def build_psth_command(
         ]
     )
     command.append("--stratify" if stratify else "--no-stratify")
+    if first_event_only:
+        command.append("--first-event-only")
+    if allow_partial_windows:
+        command.append("--allow-partial-windows")
     if heatmaps:
         command.extend(
             [
@@ -302,6 +308,8 @@ def build_lifetime_command(
     heatmap_cmap="coolwarm",
     lick_kernel_seconds=10.0,
     ensure_kernel_seconds=20.0,
+    first_event_only=False,
+    allow_partial_windows=False,
 ):
     """Build a FluoPulse or iFLiP3 workflow command."""
 
@@ -351,6 +359,10 @@ def build_lifetime_command(
             ]
         )
         command.append("--heatmaps" if heatmaps else "--no-heatmaps")
+        if first_event_only:
+            command.append("--first-event-only")
+        if allow_partial_windows:
+            command.append("--allow-partial-windows")
         if heatmap_sort_window is not None:
             command.extend(
                 [

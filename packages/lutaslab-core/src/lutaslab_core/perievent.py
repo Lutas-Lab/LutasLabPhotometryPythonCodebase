@@ -86,6 +86,8 @@ def extract_perievent_event_rate(
     recording_bounds: tuple[float, float] | None = None,
     window: tuple[float, float] = (-5.0, 10.0),
     dt: float = 0.1,
+    *,
+    require_complete: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Bin discrete events as rates around alignment events."""
 
@@ -101,7 +103,7 @@ def extract_perievent_event_rate(
         raise ValueError("The event-rate window duration must be divisible by dt")
     edges = start + np.arange(n_bins + 1, dtype=float) * dt
     relative_time = edges[:-1] + dt / 2
-    if recording_bounds is None:
+    if recording_bounds is None or not require_complete:
         valid = np.flatnonzero(np.isfinite(alignments))
     else:
         valid = valid_event_indices(alignments, recording_bounds, window)
@@ -111,6 +113,12 @@ def extract_perievent_event_rate(
         trials[row] = (
             np.histogram(finite_events - alignments[alignment_index], bins=edges)[0] / dt
         )
+        if recording_bounds is not None and not require_complete:
+            absolute_centers = alignments[alignment_index] + relative_time
+            outside = (absolute_centers < recording_bounds[0]) | (
+                absolute_centers > recording_bounds[1]
+            )
+            trials[row, outside] = np.nan
     return relative_time, trials, valid
 
 
@@ -156,8 +164,9 @@ def summarize_trials(trials: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     if trials.shape[0] == 0:
         empty = np.full(trials.shape[1], np.nan)
         return empty, empty.copy()
-    mean = np.nanmean(trials, axis=0)
     count = np.sum(np.isfinite(trials), axis=0)
+    mean = np.full(trials.shape[1], np.nan, dtype=float)
+    np.divide(np.nansum(trials, axis=0), count, out=mean, where=count > 0)
     sem = np.full(trials.shape[1], np.nan, dtype=float)
     enough = count > 1
     if np.any(enough):

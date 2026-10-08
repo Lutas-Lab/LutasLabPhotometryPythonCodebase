@@ -35,6 +35,20 @@ def test_extract_event_rate_can_filter_incomplete_windows():
     np.testing.assert_allclose(trials[0], [2.0, 0.0, 2.0, 2.0])
 
 
+def test_extract_event_rate_can_nan_pad_recording_edges():
+    relative, trials, valid = extract_perievent_event_rate(
+        [0.25, 1.25],
+        [0.1],
+        (0.0, 2.0),
+        window=(-0.5, 1.0),
+        dt=0.5,
+        require_complete=False,
+    )
+    np.testing.assert_array_equal(valid, [0])
+    assert np.isnan(trials[0, 0])
+    np.testing.assert_allclose(trials[0, 1:], [2.0, 0.0])
+
+
 def test_extract_continuous_trials_can_nan_pad_recording_edges():
     time = np.arange(0.0, 2.1, 0.1)
     relative, trials, valid = extract_perievent_trials(

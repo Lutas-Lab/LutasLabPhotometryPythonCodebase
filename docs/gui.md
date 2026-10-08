@@ -82,7 +82,10 @@ the recording, synchronization, and NI-DAQ behavior inputs are required.
 The interface supports session-manifest editing, batch preprocessing,
 event-aligned PSTHs, heatmaps, and behavioral GLMs. Heatmaps use the same trial
 selection, time window, and normalization as their PSTH and can preserve event
-order or sort rows by their mean post-event response. Every run creates:
+order or sort rows by their mean post-event response. PSTHs can align to
+lick-bout onset or offset, use only the first event in each session, and retain
+partial recording-boundary windows with unavailable samples left missing.
+Every run creates:
 
 - one trial heatmap per session;
 - a mouse-level heatmap with one row per mouse, after averaging trials within
@@ -167,7 +170,11 @@ The two lifetime modes share the sensor-independent session representation in
   NPZ files. FluoPulse exposes vendor tau, amplitude, and fit R-square. iFLIP3
   calculates background-corrected MPET and exposes raw intensity for QC.
 - **Event-aligned PSTH** aligns a selected lifetime/QC signal to Ensure, visual
-  cue, or lick events. It writes the mouse-level mean and session, equally
+  cue, individual lick, lick-bout onset, or lick-bout offset events. It can use
+  every event or only the first event in each session. Long windows can retain
+  the available portion of recordings that end before the requested window,
+  representing the unavailable tail as missing data rather than excluding the
+  event. It writes the mouse-level mean and session, equally
   weighted mouse-level, and descriptive pooled-trial heatmaps. Lifetime
   heatmaps support recorded order, response magnitude, Ensure latency,
   first-lick latency, post-event lick count, and pre-event lick rate.

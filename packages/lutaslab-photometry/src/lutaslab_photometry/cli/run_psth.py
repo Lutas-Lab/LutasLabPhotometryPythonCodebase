@@ -33,6 +33,16 @@ def parse_arguments():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--event-key", default="cue_onset")
     parser.add_argument(
+        "--first-event-only",
+        action="store_true",
+        help="Use only the first selected alignment event in each session.",
+    )
+    parser.add_argument(
+        "--allow-partial-windows",
+        action="store_true",
+        help="Keep recorded samples and pad unavailable window edges with NaN.",
+    )
+    parser.add_argument(
         "--trial-class",
         choices=TRIAL_CLASS_KEYS,
         default="all",
@@ -142,6 +152,8 @@ def _save_numeric_results(results, output_dir):
         null_exclusion=results["null_exclusion"],
         trial_class=results.get("trial_class", "all"),
         post_cue_window=results.get("post_cue_window", 2.0),
+        first_event_only=results.get("first_event_only", False),
+        allow_partial_windows=results.get("allow_partial_windows", False),
         mouse_null_mean_matrix=results.get(
             "mouse_null_mean_matrix", np.empty((0, len(results["time"])))
         ),
@@ -213,6 +225,8 @@ def main():
         null_exclusion=args.null_exclusion,
         trial_class=args.trial_class,
         post_cue_window=args.post_cue_window,
+        first_event_only=args.first_event_only,
+        allow_partial_windows=args.allow_partial_windows,
     )
     has_strata = any(
         session.get("group") or session.get("condition") for session in sessions

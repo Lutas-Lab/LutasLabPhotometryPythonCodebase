@@ -114,6 +114,8 @@ def test_build_psth_command_includes_gui_choices():
         heatmap_sort_direction="ascending",
         heatmap_unmatched="exclude",
         heatmap_cmap="viridis",
+        first_event_only=True,
+        allow_partial_windows=True,
     )
     assert command[command.index("--event-key") + 1] == "cue_onset"
     assert command[command.index("--signal") + 1] == "licking"
@@ -129,6 +131,8 @@ def test_build_psth_command_includes_gui_choices():
     assert command[command.index("--heatmap-sort-direction") + 1] == "ascending"
     assert command[command.index("--heatmap-unmatched") + 1] == "exclude"
     assert command[command.index("--heatmap-cmap") + 1] == "viridis"
+    assert "--first-event-only" in command
+    assert "--allow-partial-windows" in command
 
 
 def test_build_behavior_glm_command_uses_zero_horizon_nested_model():
@@ -168,6 +172,8 @@ def test_build_lifetime_command_includes_sensor_specific_options():
         event="ensure",
         heatmap_sort="first_lick_latency",
         heatmap_sort_window=(0, 12),
+        first_event_only=True,
+        allow_partial_windows=True,
     )
     assert command[:3] == [
         command[0],
@@ -182,6 +188,8 @@ def test_build_lifetime_command_includes_sensor_specific_options():
         "0.0",
         "12.0",
     ]
+    assert "--first-event-only" in command
+    assert "--allow-partial-windows" in command
 
 
 def test_run_command_streams_and_captures_output(tmp_path):

@@ -528,6 +528,24 @@ def _lifetime_gui(workflow: str) -> None:
             baseline_end = st.number_input(
                 "Baseline end (s)", value=0.0, key=f"{workflow}_baseline_end"
             )
+        selection_left, selection_right = st.columns(2)
+        with selection_left:
+            first_event_only = st.checkbox(
+                "Align only to the first event in each session",
+                value=False,
+                key=f"{workflow}_first_event_only",
+            )
+        with selection_right:
+            allow_partial_windows = st.checkbox(
+                "Keep partial windows at recording boundaries",
+                value=True,
+                help=(
+                    "Keeps the available samples and leaves the unrecorded tail blank "
+                    "instead of excluding the event. The number of contributing "
+                    "sessions can therefore decrease near the plot edges."
+                ),
+                key=f"{workflow}_allow_partial_windows",
+            )
         output = st.text_input(
             "Figure/output directory",
             value=str(PROJECT_ROOT / "analysis" / workflow / "psth"),
@@ -585,6 +603,8 @@ def _lifetime_gui(workflow: str) -> None:
             heatmaps=save_heatmaps,
             heatmap_sort=heatmap_sort,
             heatmap_sort_window=sort_window,
+            first_event_only=first_event_only,
+            allow_partial_windows=allow_partial_windows,
         )
         if st.button(
             "Run PSTH and heatmaps",
@@ -799,7 +819,13 @@ with psth_tab:
     with first:
         event_key = st.selectbox(
             "Alignment event",
-            ("cue_onset", "solenoid_onset", "lick_bout_onset", "lick_times"),
+            (
+                "cue_onset",
+                "solenoid_onset",
+                "lick_bout_onset",
+                "lick_bout_offset",
+                "lick_times",
+            ),
         )
         signal = st.selectbox("Signal", ("photometry", "licking"))
         channel = st.selectbox("Photoreceiver channel", ("manifest", "1", "2"))
@@ -811,6 +837,22 @@ with psth_tab:
         normalization = st.selectbox("Normalization", ("zscore", "subtract", "none"))
         baseline_start = st.number_input("Baseline start (s)", value=-5.0)
         baseline_end = st.number_input("Baseline end (s)", value=0.0)
+
+    selection_left, selection_right = st.columns(2)
+    with selection_left:
+        first_event_only = st.checkbox(
+            "Align only to the first event in each session", value=False
+        )
+    with selection_right:
+        allow_partial_windows = st.checkbox(
+            "Keep partial windows at recording boundaries",
+            value=True,
+            help=(
+                "Keeps the available samples and leaves the unrecorded tail blank "
+                "instead of excluding the event. The number of contributing "
+                "sessions can therefore decrease near the plot edges."
+            ),
+        )
 
     if event_key == "cue_onset":
         class_left, class_right = st.columns(2)
@@ -975,6 +1017,8 @@ with psth_tab:
         heatmap_sort_direction=heatmap_sort_direction,
         heatmap_unmatched=heatmap_unmatched,
         heatmap_cmap=heatmap_cmap,
+        first_event_only=first_event_only,
+        allow_partial_windows=allow_partial_windows,
     )
     if st.button("Run PSTH and plots", type="primary", width="stretch"):
         _run_workflow(
