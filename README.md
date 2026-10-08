@@ -24,7 +24,21 @@ python --version
 
 It should report `Python 3.12.x`.
 
-### 2. Choose how to run the software
+### 2. Save the repository locally
+
+Clone or download the repository to a local, nonsynchronized folder, such as:
+
+```text
+C:\Users\<username>\source\LutasLabPhotometryPythonCodebase
+```
+
+Avoid OneDrive, Dropbox, network-drive, and administrator-protected locations.
+The repository creates local environments containing many small files, and
+synchronization can cause slow installation or file-lock conflicts. Raw
+experimental data can remain on a mapped lab drive such as `Z:\Photometry`.
+Choose the repository's final location before installing the software.
+
+### 3. Choose how to run the software
 
 - **GUI:** double-click `install_gui.bat`, then `launch_gui.bat`.
 - **Command line or notebooks:** from PowerShell in the repository root, run:
