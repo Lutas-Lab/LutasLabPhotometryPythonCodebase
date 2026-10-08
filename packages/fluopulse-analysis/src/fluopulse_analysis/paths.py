@@ -2,21 +2,21 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
-import re
 
 DEFAULT_PHOTOMETRY_ROOT = Path("Z:/Photometry")
 DEFAULT_DORIC_ROOT = Path("Z:/FLIM FLIP")
 _DORIC_NAMES = (
     re.compile(
         r"^(?P<date>\d{6})[_-](?P<mouse>.+?)[_-]run(?P<run>\d+)"
-        r"(?:[_-]\d+)?\.doric$",
+        r"(?:[_-].*)?\.doric$",
         re.IGNORECASE,
     ),
     re.compile(
         r"^(?P<mouse>.+?)[_-](?P<date>\d{6})[_-]run(?P<run>\d+)"
-        r"(?:[_-]\d+)?\.doric$",
+        r"(?:[_-].*)?\.doric$",
         re.IGNORECASE,
     ),
 )

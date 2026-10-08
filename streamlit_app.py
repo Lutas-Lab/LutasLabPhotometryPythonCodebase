@@ -29,6 +29,7 @@ from lutaslab_photometry.heatmap_ordering import (
 from lutaslab_photometry.lifetime_workflows import (
     LIFETIME_EVENTS,
     LIFETIME_SIGNALS,
+    discover_lifetime_paths,
     lifetime_manifest_columns,
     normalize_lifetime_manifest_rows,
     write_lifetime_manifest,
@@ -65,6 +66,34 @@ def _records(editor_value):
     if hasattr(editor_value, "to_dict"):
         return editor_value.to_dict(orient="records")
     return list(editor_value)
+
+
+def _relative_path_text(path: Path, data_root: str | Path) -> str:
+    """Prefer portable manifest paths relative to the selected data root."""
+
+    root = Path(data_root).expanduser()
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
+
+
+def _path_picker(workflow, field, label, candidates, data_root, *, optional=False):
+    choices = [_relative_path_text(path, data_root) for path in candidates]
+    manual_label = "Enter a different path..."
+    options = choices + (["(none)"] if optional else []) + [manual_label]
+    selected = st.selectbox(
+        label,
+        options,
+        key=f"{workflow}_discovery_{field}_choice",
+    )
+    if selected == manual_label:
+        return st.text_input(
+            f"{label} (editable path)",
+            key=f"{workflow}_discovery_{field}_manual",
+            placeholder="Path relative to the data root, or an absolute path",
+        ).strip()
+    return "" if selected == "(none)" else selected
 
 
 def _preview_command(command):
@@ -189,14 +218,185 @@ def _lifetime_gui(workflow: str) -> None:
         st.subheader(f"{label} session manifest")
         if workflow == "iflip3":
             st.info(
-                "Each iFLIP3 row requires the matched background recording used for "
-                "background and afterpulse correction. It is never guessed automatically."
+                "The path assistant finds session and background candidates from mouse, "
+                "date, and run. You still choose the matched iFLIP3 background used for "
+                "background and afterpulse correction."
             )
         else:
             st.info(
-                "Doric and NI-DAQ files can be discovered from mouse, date, and run. "
-                "Use explicit paths for nonstandard filenames or ambiguous recordings."
+                "The path assistant finds Doric and NI-DAQ files from mouse, date, and "
+                "run, including standard names with descriptive suffix text."
             )
+
+        with st.expander("Add a session and find its files", expanded=True):
+            identity_columns = st.columns((1.2, 1.2, 0.8, 1, 1))
+            with identity_columns[0]:
+                discovery_mouse = st.text_input(
+                    "Mouse", key=f"{workflow}_discovery_mouse"
+                )
+            with identity_columns[1]:
+                discovery_date = st.text_input(
+                    "Date (YYMMDD)", key=f"{workflow}_discovery_date"
+                )
+            with identity_columns[2]:
+                discovery_run = st.number_input(
+                    "Run",
+                    min_value=0,
+                    step=1,
+                    value=1,
+                    key=f"{workflow}_discovery_run",
+                )
+            with identity_columns[3]:
+                discovery_group = st.text_input(
+                    "Group", key=f"{workflow}_discovery_group"
+                )
+            with identity_columns[4]:
+                discovery_condition = st.text_input(
+                    "Condition", key=f"{workflow}_discovery_condition"
+                )
+
+            if st.button(
+                "Find matching files",
+                type="primary",
+                key=f"{workflow}_discover_files",
+            ):
+                try:
+                    choices = discover_lifetime_paths(
+                        workflow,
+                        discovery_mouse,
+                        discovery_date,
+                        discovery_run,
+                        data_root,
+                    )
+                except ValueError as error:
+                    st.error(str(error))
+                else:
+                    st.session_state[f"{workflow}_discovery_results"] = choices
+                    st.session_state[f"{workflow}_discovery_identity"] = (
+                        discovery_mouse.strip(),
+                        discovery_date.strip(),
+                        int(discovery_run),
+                        str(Path(data_root).expanduser()),
+                    )
+
+            choices = st.session_state.get(f"{workflow}_discovery_results")
+            identity = st.session_state.get(f"{workflow}_discovery_identity")
+            current_identity = (
+                discovery_mouse.strip(),
+                discovery_date.strip(),
+                int(discovery_run),
+                str(Path(data_root).expanduser()),
+            )
+            if choices is not None and identity == current_identity:
+                recording_field = "doric_path" if workflow == "fluopulse" else "iflip_path"
+                recording_label = (
+                    "Doric recording" if workflow == "fluopulse" else "iFLIP3 recording"
+                )
+                if not choices[recording_field]:
+                    st.warning(
+                        f"No {recording_label} candidate was found. Enter its filename or "
+                        "path below."
+                    )
+                recording_path = _path_picker(
+                    workflow,
+                    recording_field,
+                    recording_label,
+                    choices[recording_field],
+                    data_root,
+                )
+                nidaq_path = _path_picker(
+                    workflow,
+                    "nidaq_path",
+                    "NI-DAQ file",
+                    choices["nidaq_path"],
+                    data_root,
+                )
+                running_path = _path_picker(
+                    workflow,
+                    "running_path",
+                    "Running file (optional)",
+                    choices["running_path"],
+                    data_root,
+                    optional=True,
+                )
+                background_path = ""
+                if workflow == "iflip3":
+                    background_candidates = [
+                        path
+                        for path in choices["background_path"]
+                        if _relative_path_text(path, data_root) != recording_path
+                    ]
+                    if not background_candidates:
+                        st.warning(
+                            "No likely background was found. Enter the matched background "
+                            "filename or path below."
+                        )
+                    background_path = _path_picker(
+                        workflow,
+                        "background_path",
+                        "Matched background",
+                        background_candidates,
+                        data_root,
+                    )
+
+                if st.button(
+                    "Add or update manifest row",
+                    width="stretch",
+                    key=f"{workflow}_add_discovered",
+                ):
+                    if not recording_path:
+                        st.error(f"Choose or enter the {recording_label} path.")
+                    elif not nidaq_path:
+                        st.error("Choose or enter the NI-DAQ path.")
+                    elif workflow == "iflip3" and not background_path:
+                        st.error("Choose or enter the matched background path.")
+                    else:
+                        new_row = {
+                            "mouse": discovery_mouse.strip(),
+                            "date": discovery_date.strip(),
+                            "run": int(discovery_run),
+                            "group": discovery_group.strip(),
+                            "condition": discovery_condition.strip(),
+                            recording_field: recording_path,
+                            "nidaq_path": nidaq_path,
+                            "running_path": running_path,
+                        }
+                        if workflow == "iflip3":
+                            new_row["background_path"] = background_path
+                        existing_rows = [
+                            row
+                            for row in st.session_state[state_key]
+                            if str(row.get("mouse", "") or "").strip()
+                            or str(row.get("date", "") or "").strip()
+                        ]
+                        new_identity = (
+                            new_row["mouse"].casefold(),
+                            new_row["date"],
+                            new_row["run"],
+                        )
+                        updated_rows = []
+                        replaced = False
+                        for row in existing_rows:
+                            try:
+                                row_run = int(row.get("run", -1))
+                            except (TypeError, ValueError):
+                                row_run = -1
+                            row_identity = (
+                                str(row.get("mouse", "")).casefold(),
+                                str(row.get("date", "")),
+                                row_run,
+                            )
+                            if row_identity == new_identity:
+                                updated_rows.append(new_row)
+                                replaced = True
+                            else:
+                                updated_rows.append(row)
+                        if not replaced:
+                            updated_rows.append(new_row)
+                        st.session_state[state_key] = updated_rows
+                        st.session_state.pop(f"{workflow}_manifest_editor", None)
+                        st.rerun()
+
         uploaded = st.file_uploader(
             "Load an existing CSV", type="csv", key=f"{workflow}_upload"
         )

@@ -57,13 +57,21 @@ Each acquisition system retains a separate manifest and output directory:
 
 - **Conventional photometry** uses mouse, date, run, group, condition, and
   photoreceiver channel. Its data root defaults to `Z:\Photometry`.
-- **FluoPulse** uses mouse, date, and run plus optional explicit Doric, NI-DAQ,
-  and running paths. Blank paths are discovered under `Z:\FLIM FLIP` and
-  `Z:\Photometry` using the laboratory naming conventions.
-- **iFLIP3** uses mouse, date, and run plus optional explicit iFLIP, NI-DAQ, and
-  running paths. Every row must provide a matched `background_path`; the app
-  deliberately never guesses a background recording. Its data root defaults
-  to `Z:\`, which contains both `FLIM FLIP` and `Photometry`.
+- **FluoPulse** uses mouse, date, and run to search `Z:\FLIM FLIP` and
+  `Z:\Photometry`. The session path assistant presents matching Doric, NI-DAQ,
+  and optional running files before adding the row.
+- **iFLIP3** uses the same identity fields to find the iFLIP3, NI-DAQ, running,
+  and likely background files. The user must choose the matched background;
+  the app presents candidates but does not silently decide which background is
+  scientifically appropriate. Its data root defaults to `Z:\`, which contains
+  both `FLIM FLIP` and `Photometry`.
+
+The path assistant accepts descriptive text appended to a standard lifetime
+filename. When more than one file matches, it provides a dropdown. Choose
+**Enter a different path...** to type or paste an unusual final filename. The
+chosen paths are copied into the manifest as paths relative to the data root
+when possible, so the saved CSV remains readable and portable. The table below
+the assistant remains directly editable.
 
 Explicit relative paths are resolved from the selected data root. Absolute
 paths override discovery. Running files remain optional for lifetime analyses;

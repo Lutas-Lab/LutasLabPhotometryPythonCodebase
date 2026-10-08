@@ -228,6 +228,12 @@ FluoPulse accepts optional `doric_path`, `nidaq_path`, and `running_path`
 columns; iFLIP3 accepts `iflip_path`, `nidaq_path`, and `running_path` and
 requires `background_path` for every row.
 
+The GUI's session path assistant can generate these path fields from mouse,
+date, and run. In Python or a notebook, the same candidate search is available
+through `lutaslab_photometry.lifetime_workflows.discover_lifetime_paths(...)`;
+it returns lists so ambiguous recordings and iFLIP3 backgrounds remain an
+explicit user choice.
+
 ```powershell
 lutaslab-run-lifetime-workflow psth `
     --workflow fluopulse `

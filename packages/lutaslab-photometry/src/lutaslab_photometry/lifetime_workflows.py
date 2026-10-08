@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 import tempfile
 from collections import defaultdict
 from pathlib import Path
@@ -29,6 +30,155 @@ LIFETIME_SIGNALS = {
     "iflip3": ("mpet", "raw_intensity"),
 }
 LIFETIME_EVENTS = ("ensure", "visual_cue", "licks")
+
+
+def _files_with_suffix(folders, suffix: str) -> list[Path]:
+    """Return unique files from a small set of likely session folders."""
+
+    found: dict[str, Path] = {}
+    for folder in folders:
+        try:
+            paths = folder.rglob("*") if folder.is_dir() else ()
+            for path in paths:
+                if path.is_file() and path.suffix.casefold() == suffix.casefold():
+                    found[str(path.resolve()).casefold()] = path
+        except OSError:
+            continue
+    return sorted(found.values(), key=lambda path: str(path).casefold())
+
+
+def _session_folders(root: Path, area: str, mouse: str, date: str) -> tuple[Path, ...]:
+    area_root = root / area
+    return (
+        area_root / mouse / f"{mouse}_{date}",
+        area_root / f"{mouse}_{date}",
+        area_root / mouse / date,
+    )
+
+
+def _iflip_recording_matches(path: Path, mouse: str, date: str, run: int) -> bool:
+    """Match standard iFLIP names while allowing descriptive suffix text."""
+
+    prefix = re.escape(f"{mouse}_{date}")
+    run_forms = (str(run), f"{run:03d}")
+    patterns = [
+        rf"^{prefix}_(?:run)?{re.escape(run_text)}(?:$|[_\- ].*)"
+        for run_text in run_forms
+    ]
+    patterns.append(rf"^{prefix}{run:03d}(?:$|[_\- ].*)")
+    stem = path.stem
+    return any(re.match(pattern, stem, flags=re.IGNORECASE) for pattern in patterns)
+
+
+def _mat_candidates(
+    folder: Path,
+    mouse: str,
+    date: str,
+    run: int,
+    kind: str,
+) -> list[Path]:
+    """Find NI-DAQ/running files, preferring the exact conventional filename."""
+
+    exact = folder / f"{mouse}-{date}-{run:03d}-{kind}.mat"
+    candidates = _files_with_suffix((folder,), ".mat")
+    stem_prefix = f"{mouse}-{date}-{run:03d}".casefold()
+    marker = kind.casefold()
+    matches = [
+        path
+        for path in candidates
+        if path.stem.casefold().startswith(stem_prefix)
+        and marker in path.stem.casefold()
+    ]
+    return sorted(
+        matches,
+        key=lambda path: (path.resolve() != exact.resolve(), path.name.casefold()),
+    )
+
+
+def discover_lifetime_paths(
+    workflow: str,
+    mouse: str,
+    date: str,
+    run: int,
+    data_root: str | Path = "Z:/",
+) -> dict[str, list[Path]]:
+    """Find path choices for a lifetime manifest row from its session identity.
+
+    The search is deliberately limited to the conventional final mouse/date folders.
+    Descriptive text appended to a standard recording filename is allowed. iFLIP3
+    backgrounds are returned as choices and are never selected by the backend.
+    """
+
+    if workflow not in LIFETIME_PATH_COLUMNS:
+        raise ValueError("workflow must be 'fluopulse' or 'iflip3'")
+    mouse = str(mouse).strip()
+    date = str(date).strip()
+    if not mouse or len(date) != 6 or not date.isdigit():
+        raise ValueError("Enter a mouse and a six-digit date (YYMMDD).")
+    try:
+        run = int(run)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Run must be a nonnegative integer.") from error
+    if run < 0:
+        raise ValueError("Run must be a nonnegative integer.")
+
+    root = Path(data_root).expanduser()
+    photometry_folder = root / "Photometry" / mouse / f"{mouse}_{date}"
+    result = {
+        "nidaq_path": _mat_candidates(
+            photometry_folder, mouse, date, run, "nidaq"
+        ),
+        "running_path": _mat_candidates(
+            photometry_folder, mouse, date, run, "running"
+        ),
+    }
+
+    lifetime_folders = _session_folders(root, "FLIM FLIP", mouse, date)
+    if workflow == "fluopulse":
+        from fluopulse_analysis import infer_session_identity
+
+        recordings = _files_with_suffix(lifetime_folders, ".doric")
+        matching_recordings = []
+        for path in recordings:
+            try:
+                identity = infer_session_identity(path)
+            except ValueError:
+                continue
+            if (
+                identity.mouse.casefold() == mouse.casefold()
+                and identity.date == date
+                and identity.run == run
+            ):
+                matching_recordings.append(path)
+        result["doric_path"] = matching_recordings or recordings
+        return result
+
+    all_iflip = _files_with_suffix(lifetime_folders, ".iFLiP3")
+    recordings = [
+        path
+        for path in all_iflip
+        if _iflip_recording_matches(path, mouse, date, run)
+        and not re.search(r"(?:^|[_\- ])(?:bg|background|dark)(?:$|[_\- ])", path.stem, re.I)
+    ]
+    background_folders = (*lifetime_folders, root / "FLIM FLIP" / "backgrounds")
+    background_pool = _files_with_suffix(background_folders, ".iFLiP3")
+    marked_backgrounds = [
+        path
+        for path in background_pool
+        if re.search(r"(?:^|[_\- ])(?:bg|background|dark)(?:$|[_\- ])", path.stem, re.I)
+    ]
+    non_background_files = [
+        path
+        for path in all_iflip
+        if not re.search(
+            r"(?:^|[_\- ])(?:bg|background|dark)(?:$|[_\- ])", path.stem, re.I
+        )
+    ]
+    result["iflip_path"] = recordings or non_background_files
+    result["background_path"] = marked_backgrounds or [
+        path for path in background_pool if path not in recordings
+    ]
+    return result
 
 
 def lifetime_manifest_columns(workflow: str) -> tuple[str, ...]:

@@ -20,6 +20,11 @@ def test_infer_identity_and_nidaq_paths():
     )
 
 
+def test_infer_identity_allows_descriptive_suffix():
+    identity = infer_session_identity("260923_SC81_run6_0000_reward-session.doric")
+    assert (identity.mouse, identity.date, identity.run) == ("SC81", "260923", 6)
+
+
 def test_find_doric_files_sorts_runs_and_ignores_other_files(monkeypatch):
     run2 = Path("260923_SC81_run2_0000.doric")
     run1 = Path("nested/SC81_260923_run1_0000.doric")
