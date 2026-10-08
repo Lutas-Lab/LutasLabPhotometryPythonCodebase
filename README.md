@@ -29,7 +29,7 @@ It should report `Python 3.12.x`.
 Clone or download the repository to a local, nonsynchronized folder, such as:
 
 ```text
-C:\Users\<username>\source\LutasLabPhotometryPythonCodebase
+C:\Users\<username>\LutasLabPhotometry
 ```
 
 Avoid OneDrive, Dropbox, network-drive, and administrator-protected locations.
