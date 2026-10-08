@@ -8,6 +8,7 @@ import os
 import re
 import tempfile
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +31,13 @@ LIFETIME_PATH_COLUMNS = {
 }
 LIFETIME_SIGNALS = {
     "fluopulse": ("tau", "amplitude", "fit_r_square"),
-    "iflip3": ("mpet", "raw_intensity"),
+    "iflip3": (
+        "mpet",
+        "long_lifetime_fraction",
+        "short_component_counts",
+        "long_component_counts",
+        "raw_intensity",
+    ),
 }
 LIFETIME_EVENTS = (
     "ensure",
@@ -40,6 +47,69 @@ LIFETIME_EVENTS = (
     "lick_bout_offset",
 )
 LIFETIME_PROCESSED_SCHEMA_VERSION = "1.0"
+
+IFLIP3_FIT_PARAMETER_DEFAULTS = {
+    "tau1": {"mode": "auto", "value": 0.6, "lower": 0.03, "upper": 5.0},
+    "tau2": {"mode": "auto", "value": 2.5, "lower": 0.2, "upper": 12.5},
+    "t0": {"mode": "auto", "value": 1.0, "lower": -0.5, "upper": 3.0},
+    "sigma": {"mode": "auto", "value": 0.13, "lower": 0.01, "upper": 1.0},
+    "background": {"mode": "auto", "value": 0.0, "lower": -1e6, "upper": 1e6},
+}
+
+
+@dataclass(frozen=True)
+class IFLIP3FitPreview:
+    """Aggregate decay fit and fixed-basis time-resolved decomposition."""
+
+    lifetime_time: np.ndarray
+    aggregate_decay: np.ndarray
+    fitted_decay: np.ndarray
+    short_component: np.ndarray
+    long_component: np.ndarray
+    residuals: np.ndarray
+    lifetimes: np.ndarray
+    t0: float
+    irf_sigma: float
+    background: float
+    rmse: float
+    r_squared: float
+    success: bool
+    message: str
+    short_component_counts: np.ndarray
+    long_component_counts: np.ndarray
+    long_lifetime_fraction: np.ndarray
+    fit_rmse_by_sample: np.ndarray
+
+
+def normalize_iflip3_fit_settings(settings: dict | None) -> dict[str, dict[str, float | str]]:
+    """Validate GUI/CLI controls for the aggregate iFLIP3 decay fit."""
+
+    supplied = settings or {}
+    unknown = set(supplied) - set(IFLIP3_FIT_PARAMETER_DEFAULTS)
+    if unknown:
+        raise ValueError(f"Unknown iFLIP3 fit parameter(s): {', '.join(sorted(unknown))}")
+    normalized: dict[str, dict[str, float | str]] = {}
+    for name, defaults in IFLIP3_FIT_PARAMETER_DEFAULTS.items():
+        raw = supplied.get(name, {})
+        mode = str(raw.get("mode", defaults["mode"])).strip().lower()
+        if mode not in {"auto", "fixed", "bounded"}:
+            raise ValueError(f"{name} mode must be auto, fixed, or bounded")
+        value = float(raw.get("value", defaults["value"]))
+        lower = float(raw.get("lower", defaults["lower"]))
+        upper = float(raw.get("upper", defaults["upper"]))
+        if not all(np.isfinite(item) for item in (value, lower, upper)):
+            raise ValueError(f"{name} settings must be finite")
+        if mode == "bounded" and lower >= upper:
+            raise ValueError(f"{name} lower bound must be less than its upper bound")
+        if mode == "bounded" and not lower <= value <= upper:
+            raise ValueError(f"{name} starting value must lie inside its bounds")
+        normalized[name] = {
+            "mode": mode,
+            "value": value,
+            "lower": lower,
+            "upper": upper,
+        }
+    return normalized
 
 
 def _files_with_suffix(folders, suffix: str) -> list[Path]:
@@ -353,7 +423,127 @@ def _iflip3_paths(row: dict, data_root: Path) -> dict[str, Path | None]:
     }
 
 
-def _load_iflip3(row: dict, data_root: Path):
+def preview_iflip3_fit(
+    row: dict,
+    data_root: str | Path,
+    settings: dict | None = None,
+    *,
+    spc_range: tuple[float, float] = (0.4, 12.3),
+    afterpulse_ratio: float = 0.03,
+) -> IFLIP3FitPreview:
+    """Fit one session aggregate decay and decompose every photometry sample."""
+
+    from iflip3 import (
+        average_background,
+        calculate_mpet,
+        fit_decay,
+        fit_target,
+        lifetime_window,
+        periodic_exgaussian_basis,
+        read_iflip3,
+    )
+
+    root = Path(data_root).expanduser()
+    resolved = _iflip3_paths(row, root)
+    recording = read_iflip3(resolved["source_path"])
+    measured_background = None
+    if resolved["background_path"] is not None:
+        measured_background = average_background([read_iflip3(resolved["background_path"])])
+    _, correction = calculate_mpet(
+        recording,
+        spc_range,
+        t0=float(recording.header.get_path("state.t0.Value")),
+        measured_background=measured_background,
+        afterpulse_ratio=afterpulse_ratio,
+    )
+    corrected = np.asarray(correction.corrected, dtype=float)
+    if corrected.ndim == 3:
+        corrected = corrected[:, :, 0]
+    use = lifetime_window(recording.lifetime_time, spc_range)
+    time = np.asarray(recording.lifetime_time[use], dtype=float)
+    curves = corrected[use]
+    aggregate = curves.sum(axis=1)
+    controls = normalize_iflip3_fit_settings(settings)
+    initial = {name: float(control["value"]) for name, control in controls.items()}
+    fixed = {
+        name: float(control["value"])
+        for name, control in controls.items()
+        if control["mode"] == "fixed"
+    }
+    bounds = {
+        name: (float(control["lower"]), float(control["upper"]))
+        for name, control in controls.items()
+        if control["mode"] == "bounded"
+    }
+    weighting = "none" if np.any(aggregate < 0) else "poisson"
+    fit = fit_decay(
+        time,
+        aggregate,
+        n_components=2,
+        pulse_interval=recording.header.pulse_interval_ns,
+        initial=initial,
+        fixed=fixed,
+        bounds=bounds,
+        weighting=weighting,
+    )
+    per_sample_background = fit.background / max(curves.shape[1], 1)
+    target = fit_target(
+        time,
+        curves,
+        lifetimes=fit.lifetimes,
+        t0=fit.t0,
+        irf_sigma=fit.irf_sigma,
+        pulse_interval=recording.header.pulse_interval_ns,
+        residual_background_per_bin=per_sample_background,
+        weighting="none" if np.any(curves < 0) else "poisson",
+    )
+    short_basis = periodic_exgaussian_basis(
+        time,
+        fit.lifetimes[0],
+        fit.t0,
+        fit.irf_sigma,
+        recording.header.pulse_interval_ns,
+    )
+    long_basis = periodic_exgaussian_basis(
+        time,
+        fit.lifetimes[1],
+        fit.t0,
+        fit.irf_sigma,
+        recording.header.pulse_interval_ns,
+    )
+    short_component = fit.amplitudes[0] * short_basis
+    long_component = fit.amplitudes[1] * long_basis
+    residual_sum_squares = float(np.sum(fit.residuals**2))
+    total_sum_squares = float(np.sum((aggregate - aggregate.mean()) ** 2))
+    r_squared = (
+        1.0 - residual_sum_squares / total_sum_squares
+        if total_sum_squares > 0
+        else float("nan")
+    )
+    counts = target.component_counts
+    return IFLIP3FitPreview(
+        lifetime_time=time,
+        aggregate_decay=aggregate,
+        fitted_decay=fit.fitted,
+        short_component=short_component,
+        long_component=long_component,
+        residuals=fit.residuals,
+        lifetimes=fit.lifetimes,
+        t0=fit.t0,
+        irf_sigma=fit.irf_sigma,
+        background=fit.background,
+        rmse=float(np.sqrt(np.mean(fit.residuals**2))),
+        r_squared=r_squared,
+        success=fit.success,
+        message=fit.message,
+        short_component_counts=counts[:, 0],
+        long_component_counts=counts[:, 1],
+        long_lifetime_fraction=target.component_fractions[:, 1],
+        fit_rmse_by_sample=np.sqrt(np.mean(target.residuals**2, axis=0)),
+    )
+
+
+def _load_iflip3(row: dict, data_root: Path, fit_settings: dict | None = None):
     from iflip3 import process_aligned_session
 
     resolved = _iflip3_paths(row, data_root)
@@ -367,7 +557,44 @@ def _load_iflip3(row: dict, data_root: Path):
         background,
         running_path=running,
     )
-    return session.to_core_session(_session_id(row)), _stringify_paths(resolved)
+    core = session.to_core_session(_session_id(row))
+    if fit_settings is not None:
+        preview = preview_iflip3_fit(row, data_root, fit_settings)
+        timestamps = core.continuous["mpet"].timestamps
+        core.continuous.update(
+            {
+                "short_component_counts": ContinuousSignal(
+                    timestamps, preview.short_component_counts, "counts"
+                ),
+                "long_component_counts": ContinuousSignal(
+                    timestamps, preview.long_component_counts, "counts"
+                ),
+                "long_lifetime_fraction": ContinuousSignal(
+                    timestamps, preview.long_lifetime_fraction, "fraction"
+                ),
+                "lifetime_fit_rmse": ContinuousSignal(
+                    timestamps, preview.fit_rmse_by_sample, "counts/bin"
+                ),
+            }
+        )
+        core.metadata["lifetime_fit"] = {
+            "lifetimes_ns": preview.lifetimes.tolist(),
+            "t0_ns": preview.t0,
+            "irf_sigma_ns": preview.irf_sigma,
+            "aggregate_background_counts_per_bin": preview.background,
+            "aggregate_rmse": preview.rmse,
+            "aggregate_r_squared": preview.r_squared,
+            "fit_settings": normalize_iflip3_fit_settings(fit_settings),
+        }
+        core.metadata["lifetime_fit_qc"] = {
+            "lifetime_time_ns": preview.lifetime_time.tolist(),
+            "aggregate_decay": preview.aggregate_decay.tolist(),
+            "fitted_decay": preview.fitted_decay.tolist(),
+            "short_component": preview.short_component.tolist(),
+            "long_component": preview.long_component.tolist(),
+            "residuals": preview.residuals.tolist(),
+        }
+    return core, _stringify_paths(resolved)
 
 
 def _stringify_paths(paths: dict[str, Path | None]) -> dict[str, str]:
@@ -381,14 +608,20 @@ def _session_id(row: dict) -> str:
     return f"{row['mouse']}_{row['date']}_run{int(row['run']):03d}"
 
 
-def load_lifetime_session(workflow: str, row: dict, data_root: str | Path):
+def load_lifetime_session(
+    workflow: str,
+    row: dict,
+    data_root: str | Path,
+    *,
+    iflip3_fit_settings: dict | None = None,
+):
     """Load and align one lifetime session into the shared core representation."""
 
     root = Path(data_root).expanduser()
     if workflow == "fluopulse":
         return _load_fluopulse(row, root)
     if workflow == "iflip3":
-        return _load_iflip3(row, root)
+        return _load_iflip3(row, root, iflip3_fit_settings)
     raise ValueError("workflow must be 'fluopulse' or 'iflip3'")
 
 
@@ -458,6 +691,7 @@ def preprocess_lifetime_sessions(
     data_root,
     *,
     overwrite=False,
+    iflip3_fit_settings: dict | None = None,
 ) -> list[Path]:
     """Process raw lifetime sessions and save each result beside its recording."""
 
@@ -467,7 +701,15 @@ def preprocess_lifetime_sessions(
         if output.exists() and not overwrite:
             outputs.append(output)
             continue
-        session, paths = load_lifetime_session(workflow, row, data_root)
+        if workflow == "iflip3" and iflip3_fit_settings is not None:
+            session, paths = load_lifetime_session(
+                workflow,
+                row,
+                data_root,
+                iflip3_fit_settings=iflip3_fit_settings,
+            )
+        else:
+            session, paths = load_lifetime_session(workflow, row, data_root)
         output.parent.mkdir(parents=True, exist_ok=True)
         _save_processed_lifetime_session(workflow, session, paths, output)
         outputs.append(output)

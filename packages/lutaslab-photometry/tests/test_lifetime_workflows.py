@@ -1,4 +1,5 @@
 import csv
+import types
 
 import numpy as np
 import pytest
@@ -12,6 +13,7 @@ from lutaslab_photometry.lifetime_workflows import (
     load_processed_lifetime_session,
     normalize_lifetime_manifest_rows,
     preprocess_lifetime_sessions,
+    preview_iflip3_fit,
     write_lifetime_manifest,
 )
 
@@ -42,6 +44,52 @@ def test_iflip3_manifest_allows_missing_background():
         [{"mouse": "AL164", "date": "260923", "run": 4}],
     )
     assert rows[0]["background_path"] == ""
+
+
+def test_iflip3_fit_preview_returns_quality_and_time_resolved_components(monkeypatch):
+    from iflip3.models import periodic_exgaussian_basis
+
+    lifetime_time = np.arange(126, dtype=float) * 0.1
+    short = periodic_exgaussian_basis(lifetime_time, 0.7, 1.0, 0.14, 12.5)
+    long = periodic_exgaussian_basis(lifetime_time, 2.6, 1.0, 0.14, 12.5)
+    scales = np.linspace(0.8, 1.2, 12)
+    curves = (
+        short[:, None] * (2500.0 * scales)[None, :]
+        + long[:, None] * (5000.0 / scales)[None, :]
+        + 2.0
+    )
+    header = types.SimpleNamespace(
+        pulse_interval_ns=12.5,
+        get_path=lambda path: 1.0,
+    )
+    recording = types.SimpleNamespace(
+        lifetime_time=lifetime_time,
+        header=header,
+    )
+    monkeypatch.setattr(
+        workflows,
+        "_iflip3_paths",
+        lambda row, root: {"source_path": "recording", "background_path": None},
+    )
+    monkeypatch.setattr("iflip3.read_iflip3", lambda path: recording)
+    monkeypatch.setattr(
+        "iflip3.calculate_mpet",
+        lambda *args, **kwargs: (None, types.SimpleNamespace(corrected=curves)),
+    )
+    settings = {
+        "t0": {"mode": "fixed", "value": 1.0},
+        "sigma": {"mode": "fixed", "value": 0.14},
+        "tau1": {"mode": "bounded", "value": 0.6, "lower": 0.4, "upper": 1.0},
+        "tau2": {"mode": "bounded", "value": 2.4, "lower": 1.5, "upper": 3.5},
+    }
+
+    preview = preview_iflip3_fit({}, ".", settings)
+
+    assert preview.success
+    np.testing.assert_allclose(preview.lifetimes, [0.7, 2.6], atol=0.04)
+    assert preview.r_squared > 0.999
+    assert preview.long_lifetime_fraction.shape == (12,)
+    assert preview.fit_rmse_by_sample.shape == (12,)
 
 
 def test_write_iflip3_manifest_preserves_background_provenance(tmp_path):

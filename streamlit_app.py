@@ -27,11 +27,13 @@ from lutaslab_photometry.heatmap_ordering import (
     default_heatmap_sort_window,
 )
 from lutaslab_photometry.lifetime_workflows import (
+    IFLIP3_FIT_PARAMETER_DEFAULTS,
     LIFETIME_EVENTS,
     LIFETIME_SIGNALS,
     discover_lifetime_paths,
     lifetime_manifest_columns,
     normalize_lifetime_manifest_rows,
+    preview_iflip3_fit,
     write_lifetime_manifest,
 )
 from lutaslab_photometry.update_check import (
@@ -181,6 +183,122 @@ def _path_picker(workflow, field, label, candidates, data_root, *, optional=Fals
 def _preview_command(command):
     st.code(display_command(command), language="powershell")
     st.info("Command preview only; no files were changed and no analysis was run.")
+
+
+def _iflip3_fit_controls() -> dict[str, dict[str, float | str]]:
+    """Render aggregate-decay fitting controls and return backend-ready settings."""
+
+    labels = {
+        "tau1": "Short lifetime τ1 (ns)",
+        "tau2": "Long lifetime τ2 (ns)",
+        "t0": "Decay start t0 (ns)",
+        "sigma": "IRF width σ (ns)",
+        "background": "Residual background (counts/bin)",
+    }
+    settings = {}
+    headings = st.columns((1.8, 1, 1, 1))
+    fit_headings = ("Parameter", "Mode", "Value/start", "Bounds")
+    for column, heading in zip(headings, fit_headings, strict=True):
+        column.caption(heading)
+    for name, defaults in IFLIP3_FIT_PARAMETER_DEFAULTS.items():
+        parameter, mode_column, value_column, bounds_column = st.columns((1.8, 1, 1, 1))
+        parameter.write(labels[name])
+        mode = mode_column.selectbox(
+            f"{labels[name]} mode",
+            ("Auto", "Fixed", "Bounded"),
+            index=("auto", "fixed", "bounded").index(str(defaults["mode"])),
+            key=f"iflip3_fit_{name}_mode",
+            label_visibility="collapsed",
+        ).lower()
+        value = value_column.number_input(
+            f"{labels[name]} value",
+            value=float(defaults["value"]),
+            format="%.5g",
+            key=f"iflip3_fit_{name}_value",
+            label_visibility="collapsed",
+        )
+        lower = float(defaults["lower"])
+        upper = float(defaults["upper"])
+        if mode == "bounded":
+            bound_columns = bounds_column.columns(2)
+            lower = bound_columns[0].number_input(
+                f"{labels[name]} minimum",
+                value=lower,
+                format="%.5g",
+                key=f"iflip3_fit_{name}_lower",
+                label_visibility="collapsed",
+            )
+            upper = bound_columns[1].number_input(
+                f"{labels[name]} maximum",
+                value=upper,
+                format="%.5g",
+                key=f"iflip3_fit_{name}_upper",
+                label_visibility="collapsed",
+            )
+        else:
+            bounds_column.caption("—")
+        settings[name] = {
+            "mode": mode,
+            "value": float(value),
+            "lower": float(lower),
+            "upper": float(upper),
+        }
+    st.caption(
+        "Auto fits from the entered starting value. Fixed holds the value constant. "
+        "Bounded fits only within the entered minimum and maximum."
+    )
+    return settings
+
+
+def _lock_iflip3_preview_lifetimes(lifetimes) -> None:
+    st.session_state["iflip3_fit_tau1_mode"] = "Fixed"
+    st.session_state["iflip3_fit_tau2_mode"] = "Fixed"
+    st.session_state["iflip3_fit_tau1_value"] = float(lifetimes[0])
+    st.session_state["iflip3_fit_tau2_value"] = float(lifetimes[1])
+
+
+def _show_iflip3_fit_preview(preview) -> None:
+    """Display fit curves, structured residuals, parameters, and quality metrics."""
+
+    import matplotlib.pyplot as plt
+
+    figure, (fit_axis, residual_axis) = plt.subplots(
+        2,
+        1,
+        figsize=(8.5, 6.0),
+        sharex=True,
+        gridspec_kw={"height_ratios": (3, 1)},
+        constrained_layout=True,
+    )
+    fit_axis.plot(preview.lifetime_time, preview.aggregate_decay, color="black", label="Data")
+    fit_axis.plot(preview.lifetime_time, preview.fitted_decay, color="#d62728", label="Total fit")
+    fit_axis.plot(
+        preview.lifetime_time, preview.short_component + preview.background, label="Short component"
+    )
+    fit_axis.plot(
+        preview.lifetime_time, preview.long_component + preview.background, label="Long component"
+    )
+    fit_axis.set_ylabel("Aggregate counts")
+    fit_axis.legend(frameon=False, ncols=2)
+    residual_axis.axhline(0.0, color="0.5", linewidth=1)
+    residual_axis.plot(preview.lifetime_time, preview.residuals, color="#4c78a8")
+    residual_axis.set_xlabel("Time after excitation pulse (ns)")
+    residual_axis.set_ylabel("Residual")
+    st.pyplot(figure, clear_figure=True)
+    plt.close(figure)
+
+    metrics = st.columns(6)
+    metric_values = (
+        ("τ1", f"{preview.lifetimes[0]:.4g} ns"),
+        ("τ2", f"{preview.lifetimes[1]:.4g} ns"),
+        ("t0", f"{preview.t0:.4g} ns"),
+        ("IRF σ", f"{preview.irf_sigma:.4g} ns"),
+        ("R²", f"{preview.r_squared:.5f}"),
+        ("RMSE", f"{preview.rmse:.4g}"),
+    )
+    for column, (name, value) in zip(metrics, metric_values, strict=True):
+        column.metric(name, value)
+    st.caption(f"Residual background: {preview.background:.5g} aggregate counts/bin")
 
 
 def _run_workflow(command, editor_rows, manifest_path, data_root, workflow_name):
@@ -557,11 +675,98 @@ def _lifetime_gui(workflow: str) -> None:
             "sensor clock and available embedded events are retained. PSTH, heatmap, "
             "and GLM analyses use this processed file."
         )
+        iflip3_fit_settings = None
+        if workflow == "iflip3":
+            st.markdown("#### Inspect the biexponential fit")
+            st.write(
+                "Choose a session, preview the aggregate decay fit, and adjust its "
+                "parameters before preprocessing. Previewing is read-only."
+            )
+            try:
+                preview_rows = normalize_lifetime_manifest_rows(workflow, rows)
+            except ValueError:
+                preview_rows = []
+            if preview_rows:
+                preview_labels = [
+                    f"{row['mouse']} · {row['date']} · run {int(row['run']):03d}"
+                    + (f" · {row['condition']}" if row.get("condition") else "")
+                    for row in preview_rows
+                ]
+                preview_index = st.selectbox(
+                    "Session to inspect",
+                    range(len(preview_rows)),
+                    format_func=lambda index: preview_labels[index],
+                    key="iflip3_fit_preview_session",
+                )
+                with st.expander("Fit parameters", expanded=True):
+                    iflip3_fit_settings = _iflip3_fit_controls()
+                if st.button(
+                    "Preview fit",
+                    type="primary",
+                    key="iflip3_preview_fit",
+                ):
+                    try:
+                        with st.spinner("Loading the recording and fitting its decay..."):
+                            preview = preview_iflip3_fit(
+                                preview_rows[preview_index],
+                                data_root,
+                                iflip3_fit_settings,
+                            )
+                    except (OSError, ValueError, RuntimeError) as error:
+                        st.error(f"The fit preview could not be generated: {error}")
+                    else:
+                        st.session_state["iflip3_fit_preview_result"] = preview
+                        st.session_state["iflip3_fit_preview_identity"] = preview_labels[
+                            preview_index
+                        ]
+                        st.session_state["iflip3_fit_preview_settings"] = iflip3_fit_settings
+                preview = st.session_state.get("iflip3_fit_preview_result")
+                preview_identity = st.session_state.get("iflip3_fit_preview_identity")
+                if preview is not None:
+                    st.caption(f"Previewed session: {preview_identity}")
+                    if (
+                        preview_identity != preview_labels[preview_index]
+                        or st.session_state.get("iflip3_fit_preview_settings")
+                        != iflip3_fit_settings
+                    ):
+                        st.warning(
+                            "The selected session or fit controls changed after this preview. "
+                            "Click Preview fit again before preprocessing."
+                        )
+                    _show_iflip3_fit_preview(preview)
+                    if preview.success:
+                        st.success(
+                            "The optimizer converged. Inspect the residual plot before proceeding."
+                        )
+                    else:
+                        st.warning(f"The optimizer reported: {preview.message}")
+                    st.button(
+                        "Use preview τ1 and τ2 as fixed shared lifetimes",
+                        on_click=_lock_iflip3_preview_lifetimes,
+                        args=(preview.lifetimes,),
+                        key="iflip3_lock_preview_lifetimes",
+                    )
+                    st.caption(
+                        "This copies the previewed lifetimes into the controls above and "
+                        "fixes them for every session in this preprocessing run."
+                    )
+            else:
+                st.info("Add a complete session row before previewing an iFLIP3 fit.")
+            st.divider()
+            st.caption(
+                "The settings currently shown above are applied to every iFLIP3 session "
+                "when preprocessing runs. Use fixed τ1/τ2 for a shared acquisition basis."
+            )
         overwrite_processed = st.checkbox(
             "Overwrite existing processed files",
             value=False,
             key=f"{workflow}_overwrite_processed",
         )
+        if workflow == "iflip3":
+            st.caption(
+                "If this session was processed previously, select overwrite to apply changed "
+                "fit parameters and regenerate its component signals."
+            )
         command = build_lifetime_command(
             PROJECT_ROOT,
             "preprocess",
@@ -569,6 +774,7 @@ def _lifetime_gui(workflow: str) -> None:
             manifest_path,
             data_root,
             overwrite=overwrite_processed,
+            iflip3_fit_settings=iflip3_fit_settings,
         )
         if st.button(
             "Run preprocessing",

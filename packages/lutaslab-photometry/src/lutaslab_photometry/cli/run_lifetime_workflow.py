@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 
 from lutaslab_photometry.lifetime_workflows import (
     preprocess_lifetime_sessions,
@@ -23,6 +24,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--group", help="Analyze only this manifest group.")
     parser.add_argument("--condition", help="Analyze only this manifest condition.")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--iflip3-fit-settings",
+        help="JSON fit controls produced by the GUI for iFLIP3 preprocessing.",
+    )
     parser.add_argument("--signal")
     parser.add_argument("--event", choices=(
         "ensure", "visual_cue", "licks", "lick_bout_onset", "lick_bout_offset"
@@ -56,6 +61,11 @@ def main(argv=None) -> int:
             rows,
             args.data_root,
             overwrite=args.overwrite,
+            iflip3_fit_settings=(
+                json.loads(args.iflip3_fit_settings)
+                if args.iflip3_fit_settings is not None
+                else None
+            ),
         )
     elif args.action == "psth":
         if not args.signal or not args.event or not args.output_dir:

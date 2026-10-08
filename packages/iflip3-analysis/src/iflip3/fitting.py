@@ -54,6 +54,7 @@ def fit_decay(
     pulse_interval: float = 12.5,
     initial: Mapping[str, float] | None = None,
     fixed: Mapping[str, float] | None = None,
+    bounds: Mapping[str, tuple[float, float]] | None = None,
     weighting: str = "poisson",
     max_nfev: int = 1000,
 ) -> LifetimeFitResult:
@@ -83,6 +84,25 @@ def fit_decay(
         upper_map[f"amplitude{index + 1}"] = np.inf
         lower_map[f"tau{index + 1}"] = 0.03
         upper_map[f"tau{index + 1}"] = pulse_interval * 4.0
+    known_names = set(names)
+    unknown_fixed = set(fixed) - known_names
+    unknown_bounds = set(bounds or {}) - known_names
+    if unknown_fixed or unknown_bounds:
+        unknown = sorted(unknown_fixed | unknown_bounds)
+        raise ValueError(f"Unknown fit parameter(s): {', '.join(unknown)}")
+    for name, limits in (bounds or {}).items():
+        if len(limits) != 2:
+            raise ValueError(f"Bounds for {name} must contain a lower and upper value")
+        lower_value, upper_value = map(float, limits)
+        if not np.isfinite(lower_value) or not np.isfinite(upper_value):
+            raise ValueError(f"Bounds for {name} must be finite")
+        if lower_value >= upper_value:
+            raise ValueError(f"Lower bound for {name} must be less than its upper bound")
+        lower_map[name] = lower_value
+        upper_map[name] = upper_value
+    for name, value in fixed.items():
+        if value < lower_map[name] or value > upper_map[name]:
+            raise ValueError(f"Fixed {name} lies outside its allowed bounds")
     x0 = np.array([params[name] for name in free])
     lower = np.array([lower_map[name] for name in free])
     upper = np.array([upper_map[name] for name in free])

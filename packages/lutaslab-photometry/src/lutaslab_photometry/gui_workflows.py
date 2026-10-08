@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import os
 import subprocess
 import sys
@@ -325,6 +326,7 @@ def build_lifetime_command(
     overwrite=False,
     group_filter=None,
     condition_filter=None,
+    iflip3_fit_settings=None,
 ):
     """Build a FluoPulse or iFLiP3 workflow command."""
 
@@ -352,6 +354,13 @@ def build_lifetime_command(
         command.extend(["--condition", str(condition_filter)])
     if action == "preprocess" and overwrite:
         command.append("--overwrite")
+    if action == "preprocess" and workflow == "iflip3" and iflip3_fit_settings is not None:
+        command.extend(
+            [
+                "--iflip3-fit-settings",
+                json.dumps(iflip3_fit_settings, separators=(",", ":"), sort_keys=True),
+            ]
+        )
     if signal is not None:
         command.extend(["--signal", str(signal)])
     if action == "psth":

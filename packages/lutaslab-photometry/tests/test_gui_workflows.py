@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 import sys
 from pathlib import Path
 
@@ -215,6 +216,22 @@ def test_build_lifetime_preprocess_command_writes_beside_raw_data():
     )
     assert "--output-dir" not in command
     assert "--overwrite" in command
+
+
+def test_build_iflip3_preprocess_command_includes_fit_controls():
+    settings = {
+        "tau1": {"mode": "fixed", "value": 0.7, "lower": 0.03, "upper": 5.0}
+    }
+    command = build_lifetime_command(
+        ".",
+        "preprocess",
+        "iflip3",
+        "sessions.csv",
+        "Z:/",
+        iflip3_fit_settings=settings,
+    )
+    encoded = command[command.index("--iflip3-fit-settings") + 1]
+    assert json.loads(encoded) == settings
 
 
 def test_run_command_streams_and_captures_output(tmp_path):
