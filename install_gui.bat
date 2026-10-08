@@ -11,9 +11,12 @@ echo.
 if not "%INSTALL_RESULT%"=="0" (
     echo Installation did not finish successfully.
     echo Review the message above, then try again.
+    echo Press any key to close this window.
 ) else (
-    echo Installation complete. Double-click launch_gui.bat to start the GUI.
+    echo Installation complete.
+    echo Press any key to close this window.
+    echo Then double-click launch_gui.bat to start the GUI.
 )
 echo.
-pause
+pause >nul
 exit /b %INSTALL_RESULT%
