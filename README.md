@@ -10,12 +10,27 @@ provenance, event-aligned analysis, mouse-level statistics, and temporal GLMs.
 
 ## Quickstart
 
-All workspace packages standardize on Python 3.12, including the optional
-NeMoS/JAX backend. From PowerShell in the repository root:
+### 1. Install Python
+
+Install **64-bit Python 3.12** from
+[python.org](https://www.python.org/downloads/). During installation, select
+**Add python.exe to PATH**.
+
+Open a new PowerShell window and verify:
+
+```powershell
+python --version
+```
+
+It should report `Python 3.12.x`.
+
+### 2. Choose how to run the software
+
+- **GUI:** double-click `install_gui.bat`, then `launch_gui.bat`.
+- **Command line or notebooks:** from PowerShell in the repository root, run:
 
 ```powershell
 python -m pip install "uv==0.12.21"
-uv python install 3.12
 uv sync --frozen --all-packages
 uv run lutaslab-check-install
 ```
