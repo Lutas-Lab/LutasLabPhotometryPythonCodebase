@@ -26,7 +26,14 @@ It should report `Python 3.12.x`.
 
 ### 2. Save the repository locally
 
-Clone or download the repository to a local, nonsynchronized folder, such as:
+Install [GitHub Desktop](https://desktop.github.com/download/), sign in, and use
+**File > Clone repository > URL**. Enter:
+
+```text
+https://github.com/Lutas-Lab/LutasLabPhotometryPythonCodebase.git
+```
+
+Set the local path to a nonsynchronized folder such as:
 
 ```text
 C:\Users\<username>\LutasLabPhotometry
@@ -37,6 +44,12 @@ The repository creates local environments containing many small files, and
 synchronization can cause slow installation or file-lock conflicts. Raw
 experimental data can remain on a mapped lab drive such as `Z:\Photometry`.
 Choose the repository's final location before installing the software.
+
+Cloning with GitHub Desktop is recommended instead of downloading a ZIP. A
+clone lets the GUI identify the installed revision and check the public GitHub
+repository for updates. To install an available update, close the GUI, open the
+repository in GitHub Desktop, select `main`, click **Fetch origin** and then
+**Pull origin**, and run `install_gui.bat` again.
 
 ### 3. Choose how to run the software
 

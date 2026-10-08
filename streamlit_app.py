@@ -34,6 +34,11 @@ from lutaslab_photometry.lifetime_workflows import (
     normalize_lifetime_manifest_rows,
     write_lifetime_manifest,
 )
+from lutaslab_photometry.update_check import (
+    GITHUB_REPOSITORY_URL,
+    UpdateStatus,
+    check_for_update,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 TRIAL_CLASS_LABELS = {
@@ -55,6 +60,46 @@ DEFAULT_ROWS = [
         "channel": 1,
     }
 ]
+
+
+@st.cache_data(ttl=6 * 60 * 60, show_spinner=False)
+def _cached_update_status(project_root: str) -> UpdateStatus:
+    """Limit the public GitHub check to once every six hours."""
+
+    return check_for_update(project_root)
+
+
+def _show_update_status() -> None:
+    status = _cached_update_status(str(PROJECT_ROOT))
+    st.divider()
+    st.caption("Software version")
+    if status.local_commit:
+        st.code(status.local_commit[:7], language=None)
+    if status.state == "up_to_date":
+        st.success("Up to date with GitHub main.")
+    elif status.state == "update_available":
+        count = status.commits_behind
+        detail = f" ({count} new commit{'s' if count != 1 else ''})" if count else ""
+        st.warning(f"Update available{detail}.")
+        st.caption(
+            "Close the GUI, open this repository in GitHub Desktop, select main, "
+            "click Pull origin, and then run install_gui.bat again."
+        )
+    elif status.state == "local_ahead":
+        st.info("This checkout is newer than GitHub main.")
+    elif status.state == "diverged":
+        st.warning(
+            "This checkout differs from GitHub main. Ask the repository maintainer "
+            "before updating."
+        )
+    elif status.state == "not_a_clone":
+        st.info(
+            "Version checking is unavailable because this appears to be a ZIP copy. "
+            "Clone the repository with GitHub Desktop to enable it."
+        )
+    else:
+        st.caption("Could not check GitHub. The GUI can still be used normally.")
+    st.link_button("View repository on GitHub", GITHUB_REPOSITORY_URL, width="stretch")
 
 
 def _uploaded_rows(uploaded_file):
@@ -693,6 +738,7 @@ with st.sidebar:
         }[value],
         help="Switching systems preserves the current table and controls for each mode.",
     )
+    _show_update_status()
 
 if selected_workflow != "conventional":
     _lifetime_gui(selected_workflow)
