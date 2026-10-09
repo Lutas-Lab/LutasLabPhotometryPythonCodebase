@@ -32,14 +32,20 @@ from lutaslab_photometry.lifetime_workflows import (
     LIFETIME_SIGNALS,
     discover_lifetime_paths,
     lifetime_manifest_columns,
+    lifetime_preprocessing_parameters,
+    lifetime_processed_path,
     normalize_lifetime_manifest_rows,
     preview_iflip3_fit,
     write_lifetime_manifest,
 )
+from lutaslab_photometry.processed_provenance import classify_processed_provenance
+from lutaslab_photometry.save_sessiondata import conventional_preprocessing_parameters
+from lutaslab_photometry.session_manifest import processed_session_path
 from lutaslab_photometry.update_check import (
     GITHUB_REPOSITORY_URL,
     UpdateStatus,
     check_for_update,
+    local_git_commit,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -299,6 +305,76 @@ def _show_iflip3_fit_preview(preview) -> None:
     for column, (name, value) in zip(metrics, metric_values, strict=True):
         column.metric(name, value)
     st.caption(f"Residual background: {preview.background:.5g} aggregate counts/bin")
+
+
+def _processed_provenance_panel(
+    workflow,
+    rows,
+    data_root,
+    expected_parameters,
+) -> None:
+    """Let the user inspect one processed session's saved code and settings."""
+
+    with st.expander("Check an existing processed file"):
+        try:
+            valid_rows = (
+                normalize_manifest_rows(rows)
+                if workflow == "conventional"
+                else normalize_lifetime_manifest_rows(workflow, rows)
+            )
+        except ValueError:
+            valid_rows = []
+        if not valid_rows:
+            st.caption("Add a complete session row to check its processed file.")
+            return
+        labels = [
+            f"{row['mouse']} · {row['date']} · run {int(row['run']):03d}"
+            + (f" · {row['condition']}" if row.get("condition") else "")
+            for row in valid_rows
+        ]
+        selected = st.selectbox(
+            "Session",
+            range(len(valid_rows)),
+            format_func=lambda index: labels[index],
+            key=f"{workflow}_provenance_session",
+        )
+        if not st.button("Check processed-file version", key=f"{workflow}_check_provenance"):
+            return
+        row = valid_rows[selected]
+        try:
+            path = (
+                processed_session_path(data_root, row)
+                if workflow == "conventional"
+                else lifetime_processed_path(workflow, row, data_root)
+            )
+            status = classify_processed_provenance(
+                path,
+                current_commit=local_git_commit(PROJECT_ROOT),
+                expected_schema_version="1.0",
+                expected_parameters=expected_parameters,
+            )
+        except (OSError, ValueError) as error:
+            st.error(f"The processed file could not be checked: {error}")
+            return
+        message = f"{status.summary}. {status.detail}"
+        if status.state == "current":
+            st.success(message)
+        elif status.state in {"missing", "different_commit"}:
+            st.info(message)
+        elif status.state == "older_schema":
+            st.error(message)
+        else:
+            st.warning(message)
+        st.caption(f"Processed file: {path}")
+        if status.provenance:
+            code = status.provenance.get("code") or {}
+            commit = code.get("commit")
+            if commit:
+                st.code(str(commit)[:12], language=None)
+            st.caption(
+                f"Processed: {status.provenance.get('processing_utc', 'unknown time')}"
+            )
+            st.json(status.provenance, expanded=False)
 
 
 def _run_workflow(command, editor_rows, manifest_path, data_root, workflow_name):
@@ -757,6 +833,12 @@ def _lifetime_gui(workflow: str) -> None:
                 "The settings currently shown above are applied to every iFLIP3 session "
                 "when preprocessing runs. Use fixed τ1/τ2 for a shared acquisition basis."
             )
+        _processed_provenance_panel(
+            workflow,
+            rows,
+            data_root,
+            lifetime_preprocessing_parameters(workflow, iflip3_fit_settings),
+        )
         overwrite_processed = st.checkbox(
             "Overwrite existing processed files",
             value=False,
@@ -1098,6 +1180,12 @@ with preprocess_tab:
     st.write("Creates each processed `.npz` beside its original raw session files.")
     overwrite = st.checkbox("Overwrite existing processed files", value=False)
     continue_on_error = st.checkbox("Continue after a failed session", value=True)
+    _processed_provenance_panel(
+        "conventional",
+        editor_rows,
+        data_root,
+        conventional_preprocessing_parameters(),
+    )
     preprocess_command = build_preprocess_command(
         PROJECT_ROOT,
         manifest_path_text,

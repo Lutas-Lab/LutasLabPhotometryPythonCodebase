@@ -1,10 +1,11 @@
-import subprocess
+import json
 import warnings
-from datetime import UTC, datetime
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import numpy as np
+
+from .load_data import DEFAULT_CHANNEL_MAP
+from .processed_provenance import build_processed_provenance, provenance_json
 
 SCHEMA_VERSION = "1.0"
 REQUIRED_SESSION_KEYS = {
@@ -17,6 +18,39 @@ REQUIRED_SESSION_KEYS = {
     "locomotion_time",
     "processed_locomotion",
 }
+PREPROCESSING_PARAMETER_KEYS = (
+    "photometry_edge",
+    "irls_constant",
+    "ttl_threshold",
+    "cue_max_pulse_gap",
+    "locomotion_min_width",
+    "locomotion_max_width",
+    "locomotion_invert",
+    "lick_bout_interval",
+    "minimum_bout_licks",
+    "post_cue_window",
+)
+CONVENTIONAL_PREPROCESSING_DEFAULTS = {
+    "channel_map": DEFAULT_CHANNEL_MAP,
+    "photometry_edge": 3,
+    "irls_constant": 1.4,
+    "ttl_threshold": 1.5,
+    "cue_max_pulse_gap": 0.5,
+    "locomotion_min_width": 4,
+    "locomotion_max_width": 6,
+    "locomotion_invert": True,
+    "lick_bout_interval": 1.0,
+    "minimum_bout_licks": 3,
+    "post_cue_window": 2.0,
+}
+
+
+def conventional_preprocessing_parameters(overrides=None):
+    """Return the maintained conventional preprocessing defaults plus overrides."""
+
+    parameters = dict(CONVENTIONAL_PREPROCESSING_DEFAULTS)
+    parameters.update(overrides or {})
+    return parameters
 
 
 def validate_session(session, *, require_current_schema=False):
@@ -31,29 +65,6 @@ def validate_session(session, *, require_current_schema=False):
             f"Processed session schema {schema!r} is not supported; expected {SCHEMA_VERSION!r}."
         )
     return schema
-
-
-def _package_version(package):
-    try:
-        return version(package)
-    except PackageNotFoundError:
-        return "unknown"
-
-
-def _git_commit():
-    project_root = Path(__file__).resolve().parents[4]
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=project_root,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return "unknown"
-    return result.stdout.strip() or "unknown"
 
 
 # ============================================================
@@ -153,13 +164,37 @@ def save_session(
 
             save_dict[key] = value
 
+    parameters = conventional_preprocessing_parameters(
+        {
+            key: session[key]
+            for key in PREPROCESSING_PARAMETER_KEYS
+            if key in session
+        }
+    )
+    if "channel_map_keys" in session and "channel_map_rows" in session:
+        parameters["channel_map"] = {
+            str(key): int(row)
+            for key, row in zip(
+                session["channel_map_keys"],
+                session["channel_map_rows"],
+                strict=True,
+            )
+        }
+    provenance = build_processed_provenance(
+        "conventional",
+        parameters,
+        processed_schema_version=schema,
+    )
+    packages = provenance["software"]["packages"]
     save_dict["processed_schema_version"] = schema
-    save_dict["processing_utc"] = datetime.now(UTC).isoformat()
-    save_dict["code_commit"] = _git_commit()
-    save_dict["numpy_version"] = _package_version("numpy")
-    save_dict["scipy_version"] = _package_version("scipy")
-    save_dict["pynapple_version"] = _package_version("pynapple")
-    save_dict["nemos_version"] = _package_version("nemos")
+    save_dict["provenance_json"] = provenance_json(provenance)
+    # Retain the original top-level provenance fields for older consumers.
+    save_dict["processing_utc"] = provenance["processing_utc"]
+    save_dict["code_commit"] = provenance["code"]["commit"] or "unknown"
+    save_dict["numpy_version"] = packages["numpy"] or "unknown"
+    save_dict["scipy_version"] = packages["scipy"] or "unknown"
+    save_dict["pynapple_version"] = packages["pynapple"] or "unknown"
+    save_dict["nemos_version"] = packages["nemos"] or "unknown"
 
     # --------------------------------------------------------
     # Save
@@ -241,6 +276,9 @@ def load_session(
         session[key] = value
 
     loaded.close()
+
+    if "provenance_json" in session:
+        session["provenance"] = json.loads(str(session["provenance_json"]))
 
     # --------------------------------------------------------
     # Store where THIS processed file was loaded from

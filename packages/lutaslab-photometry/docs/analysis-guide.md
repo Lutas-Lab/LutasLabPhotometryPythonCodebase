@@ -49,6 +49,12 @@ parameters, package versions, the code commit, processing time, event counts,
 and IRLS quality-control summaries. Legacy files remain readable but may lack
 the exact processing configuration.
 
+The same structured provenance record is embedded in conventional, FluoPulse,
+and iFLIP3 processed NPZ files. The GUI's preprocessing tab can inspect a
+session and distinguish changed settings or an incompatible file schema from a
+mere code-commit difference. A different commit is a prompt to review changes;
+it does not by itself mean the raw data must be reprocessed.
+
 ## Session manifests and batch analysis
 
 Copy `packages/lutaslab-photometry/examples/config/sessions.example.csv` to the

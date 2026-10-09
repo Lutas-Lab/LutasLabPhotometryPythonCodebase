@@ -1,5 +1,7 @@
 import csv
+import json
 import types
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -44,6 +46,36 @@ def test_iflip3_manifest_allows_missing_background():
         [{"mouse": "AL164", "date": "260923", "run": 4}],
     )
     assert rows[0]["background_path"] == ""
+
+
+def test_lifetime_processed_file_embeds_structured_provenance():
+    path = Path("packages/lutaslab-photometry/tests/_lifetime-provenance.npz")
+    session = AlignedSession(
+        session_id="M1_260101_run001",
+        continuous={
+            "tau": ContinuousSignal(np.array([0.0, 1.0]), np.array([2.0, 2.1]), "ns")
+        },
+        events={"ensure": EventSeries(np.array([0.5]))},
+        metadata={},
+    )
+    parameters = workflows.lifetime_preprocessing_parameters("fluopulse")
+    try:
+        workflows._save_processed_lifetime_session(
+            "fluopulse",
+            session,
+            {"source_path": "recording.doric"},
+            path,
+            parameters,
+        )
+        with np.load(path, allow_pickle=False) as data:
+            provenance = json.loads(str(data["provenance_json"].item()))
+    finally:
+        path.unlink(missing_ok=True)
+
+    assert provenance["workflow"] == "fluopulse"
+    assert provenance["parameters"] == parameters
+    assert "commit" in provenance["code"]
+    assert "dirty" in provenance["code"]
 
 
 def test_iflip3_fit_preview_returns_quality_and_time_resolved_components(monkeypatch):
@@ -225,6 +257,9 @@ def test_lifetime_preprocessing_saves_beside_raw_and_roundtrips(monkeypatch, tmp
     np.testing.assert_allclose(loaded.continuous["tau"].values, np.sin(time))
     np.testing.assert_allclose(loaded.events["ensure"].timestamps, [1.5])
     assert loaded.metadata["clock_drift_ppm"] == 2.5
+    assert loaded.metadata["provenance"]["workflow"] == "fluopulse"
+    assert "commit" in loaded.metadata["provenance"]["code"]
+    assert loaded.metadata["provenance"]["parameters"]["nidaq_threshold"] == 1.5
     assert paths["processed_path"] == str(expected)
 
     monkeypatch.setattr(

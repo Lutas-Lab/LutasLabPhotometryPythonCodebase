@@ -23,6 +23,7 @@ from lutaslab_core.perievent import (
 from lutaslab_core.session import AlignedSession, ContinuousSignal, EventSeries
 
 from .group_analysis import save_psth_heatmaps
+from .processed_provenance import build_processed_provenance, provenance_json
 
 LIFETIME_COMMON_COLUMNS = ("mouse", "date", "run", "group", "condition")
 LIFETIME_PATH_COLUMNS = {
@@ -110,6 +111,35 @@ def normalize_iflip3_fit_settings(settings: dict | None) -> dict[str, dict[str, 
             "upper": upper,
         }
     return normalized
+
+
+def lifetime_preprocessing_parameters(
+    workflow: str,
+    iflip3_fit_settings: dict | None = None,
+) -> dict[str, Any]:
+    """Return the effective defaults recorded with a lifetime processed file."""
+
+    if workflow == "fluopulse":
+        return {
+            "nidaq_threshold": 1.5,
+            "doric_sync_start_index": 0,
+            "nidaq_sync_start_index": 0,
+        }
+    if workflow == "iflip3":
+        return {
+            "spc_range_ns": [0.4, 12.3],
+            "afterpulse_ratio": 0.03,
+            "sync_threshold": 1.5,
+            "behavior_threshold": 1.5,
+            "iflip_sync_start_index": 0,
+            "nidaq_sync_start_index": 0,
+            "lifetime_fit": (
+                None
+                if iflip3_fit_settings is None
+                else normalize_iflip3_fit_settings(iflip3_fit_settings)
+            ),
+        }
+    raise ValueError("workflow must be 'fluopulse' or 'iflip3'")
 
 
 def _files_with_suffix(folders, suffix: str) -> list[Path]:
@@ -655,13 +685,20 @@ def _save_processed_lifetime_session(
     session: AlignedSession,
     paths: dict[str, str],
     destination: Path,
+    preprocessing_parameters: dict[str, Any],
 ) -> None:
+    provenance = build_processed_provenance(
+        workflow,
+        preprocessing_parameters,
+        processed_schema_version=LIFETIME_PROCESSED_SCHEMA_VERSION,
+    )
     arrays: dict[str, Any] = {
         "processed_schema_version": np.asarray(LIFETIME_PROCESSED_SCHEMA_VERSION),
         "workflow": np.asarray(workflow),
         "session_id": np.asarray(session.session_id),
         "metadata_json": np.asarray(json.dumps(session.metadata, default=_json_default)),
         "source_paths_json": np.asarray(json.dumps(paths)),
+        "provenance_json": np.asarray(provenance_json(provenance)),
     }
     for name, signal in session.continuous.items():
         arrays[f"continuous_{name}_time"] = signal.timestamps
@@ -696,6 +733,10 @@ def preprocess_lifetime_sessions(
     """Process raw lifetime sessions and save each result beside its recording."""
 
     outputs = []
+    preprocessing_parameters = lifetime_preprocessing_parameters(
+        workflow,
+        iflip3_fit_settings,
+    )
     for row in rows:
         output = lifetime_processed_path(workflow, row, data_root)
         if output.exists() and not overwrite:
@@ -711,7 +752,13 @@ def preprocess_lifetime_sessions(
         else:
             session, paths = load_lifetime_session(workflow, row, data_root)
         output.parent.mkdir(parents=True, exist_ok=True)
-        _save_processed_lifetime_session(workflow, session, paths, output)
+        _save_processed_lifetime_session(
+            workflow,
+            session,
+            paths,
+            output,
+            preprocessing_parameters,
+        )
         outputs.append(output)
     return outputs
 
@@ -757,6 +804,8 @@ def load_processed_lifetime_session(
             if key.startswith("events_")
         }
         metadata = json.loads(str(data["metadata_json"].item()))
+        if "provenance_json" in data.files:
+            metadata["provenance"] = json.loads(str(data["provenance_json"].item()))
         paths = json.loads(str(data["source_paths_json"].item()))
         session_id = str(data["session_id"].item())
     return (

@@ -1,3 +1,4 @@
+import json
 import unittest
 from pathlib import Path
 
@@ -30,4 +31,10 @@ class SessionPersistenceTests(unittest.TestCase):
         self.assertEqual(loaded["processed_schema_version"], "1.0")
         self.assertIn("processing_utc", loaded)
         self.assertIn("code_commit", loaded)
+        provenance = json.loads(loaded["provenance_json"])
+        self.assertEqual(provenance["workflow"], "conventional")
+        self.assertIn("commit", provenance["code"])
+        self.assertIn("dirty", provenance["code"])
+        self.assertEqual(provenance["parameters"]["post_cue_window"], 2.0)
+        self.assertEqual(loaded["provenance"], provenance)
         np.testing.assert_array_equal(loaded["dff_ch1"], session["dff_ch1"])
