@@ -71,7 +71,7 @@ def test_lifetime_cli_dispatches_preprocess(workflow_stubs, capsys):
     name, args, kwargs = calls.pop()
     assert name == "preprocess"
     assert args == ("iflip3", rows, "data")
-    assert kwargs == {"overwrite": True}
+    assert kwargs == {"overwrite": True, "iflip3_fit_settings": None}
     assert str(output) in capsys.readouterr().out
 
 
@@ -104,6 +104,7 @@ def test_lifetime_cli_dispatches_psth_options(workflow_stubs):
     assert kwargs["baseline"] == (-2.0, 0.0)
     assert kwargs["dt"] == 0.2
     assert kwargs["heatmaps"] is False
+    assert callable(kwargs["progress_callback"])
 
 
 def test_lifetime_cli_dispatches_glm_options(workflow_stubs):

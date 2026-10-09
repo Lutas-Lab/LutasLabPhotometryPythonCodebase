@@ -7,6 +7,7 @@ import json
 import os
 import re
 import tempfile
+import warnings
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,7 +23,7 @@ from lutaslab_core.perievent import (
 )
 from lutaslab_core.session import AlignedSession, ContinuousSignal, EventSeries
 
-from .group_analysis import save_psth_heatmaps
+from .group_analysis import extract_perievent_event_rate, save_psth_heatmaps
 from .processed_provenance import build_processed_provenance, provenance_json
 
 LIFETIME_COMMON_COLUMNS = ("mouse", "date", "run", "group", "condition")
@@ -40,6 +41,7 @@ LIFETIME_SIGNALS = {
         "raw_intensity",
     ),
 }
+LIFETIME_BEHAVIOR_SIGNALS = ("licking", "running_speed")
 LIFETIME_EVENTS = (
     "ensure",
     "visual_cue",
@@ -866,35 +868,73 @@ def run_lifetime_psth(
     heatmap_cmap="coolwarm",
     first_event_only=False,
     allow_partial_windows=False,
+    progress_callback=None,
 ) -> list[Path]:
     """Run shared event-aligned lifetime analysis and save auditable figures."""
 
     import matplotlib.pyplot as plt
 
-    if signal not in LIFETIME_SIGNALS[workflow]:
+    supported_signals = (*LIFETIME_SIGNALS[workflow], *LIFETIME_BEHAVIOR_SIGNALS)
+    if signal not in supported_signals:
         raise ValueError(f"Unsupported {workflow} signal: {signal}")
     if event not in LIFETIME_EVENTS:
         raise ValueError(f"Unsupported alignment event: {event}")
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
     results = []
-    for row in rows:
+    total_sessions = len(rows)
+    for session_index, row in enumerate(rows, start=1):
+        if progress_callback is not None:
+            progress_callback(
+                session_index,
+                total_sessions,
+                f"{row['mouse']} {row['date']} run {int(row['run'])}",
+            )
         session, paths = load_processed_lifetime_session(workflow, row, data_root)
-        continuous = session.continuous[signal]
         alignment_times = _lifetime_event_times(session, event)
         if first_event_only:
             alignment_times = alignment_times[:1]
-        time, trials, valid = extract_perievent_trials(
-            continuous.timestamps,
-            continuous.values,
-            alignment_times,
-            window=window,
-            dt=dt,
-            require_complete=not allow_partial_windows,
-        )
+        if signal == "licking":
+            reference = session.continuous[LIFETIME_SIGNALS[workflow][0]]
+            time, trials, valid = extract_perievent_event_rate(
+                session.events.get("licks", _EMPTY_EVENT).timestamps,
+                alignment_times,
+                (float(reference.timestamps[0]), float(reference.timestamps[-1])),
+                window=window,
+                dt=dt,
+                require_complete=not allow_partial_windows,
+            )
+            units = "Hz"
+            signal_type = "licking"
+        else:
+            if signal not in session.continuous:
+                if signal == "running_speed":
+                    warnings.warn(
+                        f"Skipping {session.session_id}: running data are unavailable.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    continue
+                raise ValueError(f"{session.session_id} has no {signal} signal")
+            continuous = session.continuous[signal]
+            time, trials, valid = extract_perievent_trials(
+                continuous.timestamps,
+                continuous.values,
+                alignment_times,
+                window=window,
+                dt=dt,
+                require_complete=not allow_partial_windows,
+            )
+            units = continuous.units
+            signal_type = "running" if signal == "running_speed" else "photometry"
         normalized = normalize_trials(time, trials, normalization, baseline)
         if normalized.shape[0] == 0:
-            raise ValueError(f"{session.session_id} has no complete {event} windows")
+            warnings.warn(
+                f"Skipping {session.session_id}: no usable {event} windows.",
+                UserWarning,
+                stacklevel=2,
+            )
+            continue
         results.append(
             {
                 **row,
@@ -903,9 +943,11 @@ def run_lifetime_psth(
                 "alignment_times": alignment_times[valid],
                 "behavioral_events": _behavioral_events(session),
                 "session_id": session.session_id,
-                "units": continuous.units,
+                "units": units,
             }
         )
+    if not results:
+        raise ValueError(f"No sessions contained usable {signal} data and {event} windows")
     by_mouse = defaultdict(list)
     for item in results:
         by_mouse[item["mouse"]].append(summarize_trials(item["trials"])[0])
@@ -916,7 +958,7 @@ def run_lifetime_psth(
     bundle = {
         "time": time,
         "normalization": normalization,
-        "signal_type": "photometry",
+        "signal_type": signal_type,
         "event_key": event,
         "description": f"{signal} aligned to {event}",
         "ylabel": f"{signal} ({normalization})",

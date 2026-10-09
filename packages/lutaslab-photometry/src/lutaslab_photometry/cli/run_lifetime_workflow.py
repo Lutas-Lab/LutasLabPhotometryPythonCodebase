@@ -93,6 +93,10 @@ def main(argv=None) -> int:
             heatmap_cmap=args.heatmap_cmap,
             first_event_only=args.first_event_only,
             allow_partial_windows=args.allow_partial_windows,
+            progress_callback=lambda current, total, label: print(
+                f"PROGRESS\t{current}\t{total}\t{label}",
+                flush=True,
+            ),
         )
     else:
         if not args.signal or not args.output_dir:

@@ -260,6 +260,13 @@ def _psth_ylabel(normalization, signal_type="photometry"):
             "subtract": "Baseline-subtracted lick rate (Hz)",
             "zscore": "Trial z-score of lick rate",
         }.get(normalization, str(normalization))
+    if signal_type == "running":
+        return {
+            "none": "Running speed (a.u.)",
+            None: "Running speed (a.u.)",
+            "subtract": "Baseline-subtracted running speed (a.u.)",
+            "zscore": "Trial z-score of running speed",
+        }.get(normalization, str(normalization))
     return {
         "none": "dF/F",
         None: "dF/F",
@@ -292,7 +299,17 @@ def _psth_description(results):
     )
     if results.get("signal_type", "photometry") == "licking":
         return f"licking aligned to {event_label}{trial_suffix}"
+    if results.get("signal_type", "photometry") == "running":
+        return f"running aligned to {event_label}{trial_suffix}"
     return f"{event_label}-aligned photometry{trial_suffix}"
+
+
+def _response_suffix(signal_type):
+    return {
+        "photometry": "",
+        "licking": "_licking",
+        "running": "_running",
+    }[signal_type]
 
 
 def compute_manifest_psth(
@@ -314,10 +331,11 @@ def compute_manifest_psth(
     post_cue_window=2.0,
     first_event_only=False,
     allow_partial_windows=False,
+    progress_callback=None,
 ):
     """Compute session, mouse, and group PSTHs with mice as the group unit."""
-    if signal_type not in ("photometry", "licking"):
-        raise ValueError("signal_type must be 'photometry' or 'licking'.")
+    if signal_type not in ("photometry", "licking", "running"):
+        raise ValueError("signal_type must be 'photometry', 'licking', or 'running'.")
     if signal_type == "licking" and null_method != "none":
         raise ValueError("Null alignment is not yet supported for the licking response.")
     if null_method not in ("none", "random_onsets", "circular_shift"):
@@ -341,7 +359,14 @@ def compute_manifest_psth(
 
     session_results = []
 
-    for info in sessions:
+    total_sessions = len(sessions)
+    for session_index, info in enumerate(sessions, start=1):
+        if progress_callback is not None:
+            progress_callback(
+                session_index,
+                total_sessions,
+                f"{info['mouse']} {info['date']} run {int(info['run'])}",
+            )
         selected_channel = resolve_session_channel(info, channel)
         signal_key = f"dff_ch{selected_channel}"
         time_key = f"photo_time_465_ch{selected_channel}"
@@ -352,10 +377,23 @@ def compute_manifest_psth(
                 session[event_key] = np.asarray(
                     session["lick_bout_onset"], dtype=float
                 ) + np.asarray(session["lick_bout_duration"], dtype=float)
-        required = {event_key, time_key}
-        required.add(signal_key if signal_type == "photometry" else "lick_times")
+        required = {event_key}
+        if signal_type == "photometry":
+            required.update((time_key, signal_key))
+        elif signal_type == "licking":
+            required.update((time_key, "lick_times"))
+        else:
+            required.update(("locomotion_time", "processed_locomotion"))
         missing = required.difference(session)
         if missing:
+            if signal_type == "running":
+                warnings.warn(
+                    f"Skipping {info['mouse']} {info['date']} run {info['run']}: "
+                    f"running data are unavailable ({sorted(missing)}).",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                continue
             raise ValueError(f"{path} is missing analysis keys: {sorted(missing)}")
         event_times = np.asarray(session[event_key], dtype=float)
         if trial_class != "all":
@@ -373,12 +411,21 @@ def compute_manifest_psth(
                 dt=dt,
                 require_complete=not allow_partial_windows,
             )
-        else:
+        elif signal_type == "licking":
             recording_time = np.asarray(session[time_key], dtype=float)
             peri_time, trials, valid_indices = extract_perievent_event_rate(
                 session["lick_times"],
                 event_times,
                 (recording_time[0], recording_time[-1]),
+                window=window,
+                dt=dt,
+                require_complete=not allow_partial_windows,
+            )
+        else:
+            peri_time, trials, valid_indices = extract_perievent_trials(
+                session["locomotion_time"],
+                session["processed_locomotion"],
+                event_times,
                 window=window,
                 dt=dt,
                 require_complete=not allow_partial_windows,
@@ -407,7 +454,11 @@ def compute_manifest_psth(
             **info,
             "path": path,
             "channel": selected_channel,
-            "signal_key": signal_key if signal_type == "photometry" else "lick_times",
+            "signal_key": {
+                "photometry": signal_key,
+                "licking": "lick_times",
+                "running": "processed_locomotion",
+            }[signal_type],
             "n_events": len(valid_indices),
             "alignment_times": event_times[valid_indices],
             "behavioral_events": {
@@ -418,10 +469,14 @@ def compute_manifest_psth(
             "mean": session_mean,
         }
         if null_method != "none":
+            null_time_key = time_key if signal_type == "photometry" else "locomotion_time"
+            null_signal_key = (
+                signal_key if signal_type == "photometry" else "processed_locomotion"
+            )
             valid_event_times = event_times[valid_indices]
             result["null_means"], result["null_diagnostics"] = _null_session_means(
-                np.asarray(session[time_key], dtype=float),
-                np.asarray(session[signal_key], dtype=float),
+                np.asarray(session[null_time_key], dtype=float),
+                np.asarray(session[null_signal_key], dtype=float),
                 valid_event_times,
                 window=window,
                 dt=dt,
@@ -536,11 +591,24 @@ def compute_manifest_psth_strata(sessions, data_root, **kwargs):
         strata[(group, condition)].append(session)
 
     results = {}
+    progress_callback = kwargs.pop("progress_callback", None)
+    completed = 0
+    total = len(sessions)
     for (group, condition), stratum_sessions in sorted(strata.items()):
-        result = compute_manifest_psth(stratum_sessions, data_root, **kwargs)
+        def stratum_progress(current, _subtotal, label, *, offset=completed):
+            if progress_callback is not None:
+                progress_callback(offset + current, total, label)
+
+        result = compute_manifest_psth(
+            stratum_sessions,
+            data_root,
+            progress_callback=stratum_progress,
+            **kwargs,
+        )
         result["group"] = group
         result["condition"] = condition
         results[(group, condition)] = result
+        completed += len(stratum_sessions)
     return results
 
 
@@ -672,11 +740,7 @@ def save_condition_comparison_figures(
 
         fig.tight_layout()
         condition_label = "_vs_".join(safe_label(value) for value in conditions)
-        response_suffix = (
-            "_licking"
-            if reference.get("signal_type", "photometry") == "licking"
-            else ""
-        )
+        response_suffix = _response_suffix(reference.get("signal_type", "photometry"))
         paths = save_figure_formats(
             fig,
             output_dir
@@ -720,9 +784,7 @@ def save_psth_heatmaps(
     )
     context = _psth_context(results)
     context_prefix = f"{context}: " if context else ""
-    response_suffix = (
-        "_licking" if results.get("signal_type", "photometry") == "licking" else ""
-    )
+    response_suffix = _response_suffix(results.get("signal_type", "photometry"))
     order_label = HEATMAP_SORT_LABELS[sort]
     saved = []
 
@@ -1163,9 +1225,7 @@ def save_psth_figures(
     )
     context = _psth_context(results)
     description = _psth_description(results)
-    response_suffix = (
-        "_licking" if results.get("signal_type", "photometry") == "licking" else ""
-    )
+    response_suffix = _response_suffix(results.get("signal_type", "photometry"))
     saved = []
 
     if figure_level in ("individual", "both"):

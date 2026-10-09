@@ -34,7 +34,7 @@ def _write_processed_session(data_root, info, value):
         photometry_465_ch2=np.full_like(time, value * 10),
         dff_ch2=np.full_like(time, value * 10),
         locomotion_time=time,
-        processed_locomotion=np.zeros_like(time),
+        processed_locomotion=time / 2.0,
         cue_onset=np.array([10.0]),
         cue_offset=np.array([10.5]),
         lick_times=np.array([9.25, 10.25, 10.75]),
@@ -188,6 +188,36 @@ class GroupAnalysisTests(unittest.TestCase):
         np.testing.assert_allclose(results["group_mean"], [2.0, 0.0, 2.0, 2.0])
         self.assertEqual(results["signal_key"], "lick_times")
         self.assertEqual(results["signal_type"], "licking")
+
+    def test_manifest_can_compute_running_and_report_progress(self):
+        sessions = [
+            {"mouse": "M1", "date": "260101", "run": 1, "channel": "1"},
+            {"mouse": "M2", "date": "260101", "run": 1, "channel": "1"},
+        ]
+        data_root = Path("tests/_group_analysis_data")
+        progress = []
+        try:
+            for info in sessions:
+                _write_processed_session(data_root, info, 1.0)
+            results = compute_manifest_psth(
+                sessions,
+                data_root,
+                event_key="cue_onset",
+                signal_type="running",
+                window=(-1.0, 1.0),
+                dt=0.1,
+                normalization="none",
+                progress_callback=lambda current, total, label: progress.append(
+                    (current, total, label)
+                ),
+            )
+        finally:
+            shutil.rmtree(data_root, ignore_errors=True)
+
+        self.assertEqual(results["signal_key"], "processed_locomotion")
+        self.assertEqual(results["signal_type"], "running")
+        self.assertEqual([(row[0], row[1]) for row in progress], [(1, 2), (2, 2)])
+        self.assertTrue(all("run 1" in row[2] for row in progress))
 
     def test_saves_session_trial_heatmap(self):
         sessions = [{"mouse": "M1", "date": "260101", "run": 1}]

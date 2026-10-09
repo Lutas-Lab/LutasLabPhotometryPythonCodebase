@@ -61,9 +61,9 @@ def parse_arguments():
     )
     parser.add_argument(
         "--signal",
-        choices=("photometry", "licking"),
+        choices=("photometry", "licking", "running"),
         default="photometry",
-        help="Plot photometry or binned lick rate around the alignment events.",
+        help="Plot photometry, binned lick rate, or running around alignment events.",
     )
     parser.add_argument(
         "--channel",
@@ -237,6 +237,10 @@ def main():
         post_cue_window=args.post_cue_window,
         first_event_only=args.first_event_only,
         allow_partial_windows=args.allow_partial_windows,
+        progress_callback=lambda current, total, label: print(
+            f"PROGRESS\t{current}\t{total}\t{label}",
+            flush=True,
+        ),
     )
     has_strata = any(
         session.get("group") or session.get("condition") for session in sessions

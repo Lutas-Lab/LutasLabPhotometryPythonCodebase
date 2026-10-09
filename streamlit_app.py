@@ -377,7 +377,74 @@ def _processed_provenance_panel(
             st.json(status.provenance, expanded=False)
 
 
-def _run_workflow(command, editor_rows, manifest_path, data_root, workflow_name):
+def _run_command_batch(command, workflow_name, command_labels=None):
+    """Run one or more commands with streamed logs and session progress."""
+
+    commands = (
+        list(command)
+        if command and isinstance(command[0], (list, tuple))
+        else [command]
+    )
+    labels = command_labels or [workflow_name] * len(commands)
+    output_lines = deque(maxlen=500)
+    output_panel = st.empty()
+    progress_panel = st.progress(0.0, text=f"Starting {workflow_name}...")
+
+    for command_index, (current_command, label) in enumerate(
+        zip(commands, labels, strict=True)
+    ):
+        if len(commands) > 1:
+            output_lines.append(f"--- {label} ---")
+
+        def show_output(line, _command_index=command_index, _label=label):
+            stripped = line.rstrip("\r\n")
+            fields = stripped.split("\t", maxsplit=3)
+            if len(fields) == 4 and fields[0] == "PROGRESS":
+                try:
+                    current = int(fields[1])
+                    total = int(fields[2])
+                except ValueError:
+                    pass
+                else:
+                    fraction = current / max(total, 1)
+                    overall = (_command_index + fraction) / len(commands)
+                    progress_panel.progress(
+                        min(overall, 1.0),
+                        text=f"{_label}: session {current} of {total} — {fields[3]}",
+                    )
+                    return
+            output_lines.append(stripped)
+            output_panel.code(
+                "\n".join(output_lines) or "(Waiting for console output...)",
+                language="text",
+            )
+
+        try:
+            return_code, output = run_command(current_command, PROJECT_ROOT, show_output)
+        except OSError as error:
+            st.error(f"{label} could not start: {error}")
+            return False
+        if not output_lines:
+            output_panel.code(output or "(No console output)", language="text")
+        if return_code != 0:
+            st.error(f"{label} exited with code {return_code}.")
+            return False
+        progress_panel.progress(
+            (command_index + 1) / len(commands),
+            text=f"Finished {label} ({command_index + 1} of {len(commands)} outputs)",
+        )
+    st.success(f"{workflow_name} finished successfully.")
+    return True
+
+
+def _run_workflow(
+    command,
+    editor_rows,
+    manifest_path,
+    data_root,
+    workflow_name,
+    command_labels=None,
+):
     data_root_path = Path(data_root).expanduser()
     if not data_root_path.is_dir():
         st.error(f"Raw-data root does not exist or is not a directory: {data_root_path}")
@@ -390,28 +457,8 @@ def _run_workflow(command, editor_rows, manifest_path, data_root, workflow_name)
         return
 
     st.success(f"Validated and saved the current session table to {saved_path}")
-    output_lines = deque(maxlen=500)
-    output_panel = st.empty()
-
-    def show_output(line):
-        output_lines.append(line.rstrip("\r\n"))
-        output_panel.code(
-            "\n".join(output_lines) or "(Waiting for console output...)",
-            language="text",
-        )
-
     with st.spinner("Running workflow. Keep this browser tab open..."):
-        try:
-            return_code, output = run_command(command, PROJECT_ROOT, show_output)
-        except OSError as error:
-            st.error(f"{workflow_name} could not start: {error}")
-            return
-    if not output_lines:
-        output_panel.code(output or "(No console output)", language="text")
-    if return_code == 0:
-        st.success(f"{workflow_name} finished successfully.")
-    else:
-        st.error(f"{workflow_name} exited with code {return_code}.")
+        _run_command_batch(command, workflow_name, command_labels)
 
 
 def _run_lifetime_workflow(
@@ -421,6 +468,7 @@ def _run_lifetime_workflow(
     manifest_path,
     data_root,
     workflow_name,
+    command_labels=None,
 ):
     data_root_path = Path(data_root).expanduser()
     if not data_root_path.is_dir():
@@ -432,25 +480,8 @@ def _run_lifetime_workflow(
         st.error(f"The session manifest was not saved: {error}")
         return
     st.success(f"Validated and saved the current session table to {saved_path}")
-    output_lines = deque(maxlen=500)
-    output_panel = st.empty()
-
-    def show_output(line):
-        output_lines.append(line.rstrip("\r\n"))
-        output_panel.code("\n".join(output_lines), language="text")
-
     with st.spinner("Running workflow. Keep this browser tab open..."):
-        try:
-            return_code, output = run_command(command, PROJECT_ROOT, show_output)
-        except OSError as error:
-            st.error(f"{workflow_name} could not start: {error}")
-            return
-    if not output_lines:
-        output_panel.code(output or "(No console output)", language="text")
-    if return_code == 0:
-        st.success(f"{workflow_name} finished successfully.")
-    else:
-        st.error(f"{workflow_name} exited with code {return_code}.")
+        _run_command_batch(command, workflow_name, command_labels)
 
 
 def _lifetime_gui(workflow: str) -> None:
@@ -934,6 +965,23 @@ def _lifetime_gui(workflow: str) -> None:
             value=True,
             key=f"{workflow}_heatmaps",
         )
+        st.markdown("#### Additional behavioral responses")
+        behavior_left, behavior_right = st.columns(2)
+        with behavior_left:
+            include_licking = st.checkbox(
+                "Also generate licking PSTH and heatmaps",
+                value=False,
+                key=f"{workflow}_include_licking_psth",
+            )
+        with behavior_right:
+            include_running = st.checkbox(
+                "Also generate running PSTH and heatmaps",
+                value=False,
+                help=(
+                    "Sessions without a saved running signal are skipped with a warning."
+                ),
+                key=f"{workflow}_include_running_psth",
+            )
         sort_options = [
             "event_order",
             "response_mean",
@@ -986,6 +1034,38 @@ def _lifetime_gui(workflow: str) -> None:
             group_filter=psth_group_filter,
             condition_filter=psth_condition_filter,
         )
+        commands = [command]
+        command_labels = [f"{signal} PSTH"]
+        for behavior_signal, include, behavior_label in (
+            ("licking", include_licking, "Licking PSTH"),
+            ("running_speed", include_running, "Running PSTH"),
+        ):
+            if not include:
+                continue
+            commands.append(
+                build_lifetime_command(
+                    PROJECT_ROOT,
+                    "psth",
+                    workflow,
+                    manifest_path,
+                    data_root,
+                    Path(output) / behavior_signal,
+                    signal=behavior_signal,
+                    event=event,
+                    window=(window_start, window_end),
+                    dt=dt,
+                    normalization=normalization,
+                    baseline=(baseline_start, baseline_end),
+                    heatmaps=save_heatmaps,
+                    heatmap_sort=heatmap_sort,
+                    heatmap_sort_window=sort_window,
+                    first_event_only=first_event_only,
+                    allow_partial_windows=allow_partial_windows,
+                    group_filter=psth_group_filter,
+                    condition_filter=psth_condition_filter,
+                )
+            )
+            command_labels.append(behavior_label)
         if st.button(
             "Run PSTH and heatmaps",
             type="primary",
@@ -993,11 +1073,21 @@ def _lifetime_gui(workflow: str) -> None:
             key=f"{workflow}_run_psth",
         ):
             _run_lifetime_workflow(
-                command, workflow, rows, manifest_path, data_root, "PSTH analysis"
+                commands,
+                workflow,
+                rows,
+                manifest_path,
+                data_root,
+                "PSTH analysis",
+                command_labels,
             )
         with st.expander("Advanced: inspect or copy command"):
             if st.button("Preview PSTH command", key=f"{workflow}_preview_psth"):
-                _preview_command(command)
+                for label, preview_command in zip(
+                    command_labels, commands, strict=True
+                ):
+                    st.caption(label)
+                    _preview_command(preview_command)
 
     with glm_tab:
         st.subheader("Lick and Ensure lifetime GLM")
@@ -1308,6 +1398,21 @@ with psth_tab:
         value=True,
         help="Uses the same aligned and normalized trials as the PSTH.",
     )
+    behavior_left, behavior_right = st.columns(2)
+    with behavior_left:
+        include_licking = st.checkbox(
+            "Also generate licking PSTH and heatmaps",
+            value=False,
+            disabled=signal == "licking",
+            key="conventional_include_licking_psth",
+        )
+    with behavior_right:
+        include_running = st.checkbox(
+            "Also generate running PSTH and heatmaps",
+            value=False,
+            help="Sessions without saved running data are skipped with a warning.",
+            key="conventional_include_running_psth",
+        )
     heatmap_left, heatmap_right = st.columns(2)
     with heatmap_left:
         heatmap_sort_options = [
@@ -1417,17 +1522,63 @@ with psth_tab:
         group_filter=psth_group_filter,
         condition_filter=psth_condition_filter,
     )
+    psth_commands = [psth_command]
+    psth_command_labels = [f"{signal.title()} PSTH"]
+    for behavior_signal, include, behavior_label in (
+        ("licking", include_licking and signal != "licking", "Licking PSTH"),
+        ("running", include_running and signal != "running", "Running PSTH"),
+    ):
+        if not include:
+            continue
+        psth_commands.append(
+            build_psth_command(
+                PROJECT_ROOT,
+                manifest_path_text,
+                data_root,
+                Path(output_dir) / behavior_signal,
+                event_key=event_key,
+                signal=behavior_signal,
+                channel=channel,
+                window=(window_start, window_end),
+                dt=dt,
+                normalization=normalization,
+                baseline=(baseline_start, baseline_end),
+                stratify=stratify,
+                null_method="none" if behavior_signal == "licking" else null_method,
+                n_shuffles=n_shuffles,
+                seed=seed,
+                null_exclusion=null_exclusion,
+                trial_class=trial_class,
+                post_cue_window=post_cue_window,
+                heatmaps=save_heatmaps,
+                heatmap_sort=heatmap_sort,
+                heatmap_sort_window=heatmap_sort_window,
+                heatmap_sort_direction=heatmap_sort_direction,
+                heatmap_unmatched=heatmap_unmatched,
+                heatmap_cmap=heatmap_cmap,
+                first_event_only=first_event_only,
+                allow_partial_windows=allow_partial_windows,
+                group_filter=psth_group_filter,
+                condition_filter=psth_condition_filter,
+            )
+        )
+        psth_command_labels.append(behavior_label)
     if st.button("Run PSTH and plots", type="primary", width="stretch"):
         _run_workflow(
-            psth_command,
+            psth_commands,
             editor_rows,
             manifest_path_text,
             data_root,
             "PSTH analysis",
+            psth_command_labels,
         )
     with st.expander("Advanced: inspect or copy command"):
         if st.button("Preview PSTH command", width="stretch"):
-            _preview_command(psth_command)
+            for label, preview_command in zip(
+                psth_command_labels, psth_commands, strict=True
+            ):
+                st.caption(label)
+                _preview_command(preview_command)
 
 with glm_tab:
     st.subheader("Behavioral GLM")

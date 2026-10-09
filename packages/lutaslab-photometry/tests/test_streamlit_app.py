@@ -28,6 +28,8 @@ def test_streamlit_app_loads_without_exceptions():
         "Preview GLM command",
         "Run behavioral GLM",
     }
+    assert app.checkbox(key="conventional_include_licking_psth").value is False
+    assert app.checkbox(key="conventional_include_running_psth").value is False
 
 
 @pytest.mark.parametrize(
@@ -57,3 +59,5 @@ def test_streamlit_lifetime_modes_load(workflow, expected_signal):
         "Run PSTH and heatmaps",
         "Run lifetime GLM",
     }
+    assert app.checkbox(key=f"{workflow}_include_licking_psth").value is False
+    assert app.checkbox(key=f"{workflow}_include_running_psth").value is False

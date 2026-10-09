@@ -350,6 +350,98 @@ def test_lifetime_psth_writes_mouse_and_pooled_heatmaps(monkeypatch, tmp_path):
     assert "heatmap_trial_order.csv" in names
 
 
+@pytest.mark.parametrize(
+    ("signal", "expected_name"),
+    [
+        ("licking", "fluopulse_licking_ensure_psth.png"),
+        ("running_speed", "fluopulse_running_speed_ensure_psth.png"),
+    ],
+)
+def test_lifetime_psth_supports_behavior_signals_and_progress(
+    monkeypatch, tmp_path, signal, expected_name
+):
+    time = np.arange(0.0, 30.0, 0.1)
+
+    def fake_load(workflow, row, data_root):
+        del workflow, data_root
+        return (
+            AlignedSession(
+                session_id=f"{row['mouse']}_{row['run']}",
+                continuous={
+                    "tau": ContinuousSignal(time, np.sin(time), "ns"),
+                    "running_speed": ContinuousSignal(time, time / 10, "cm/s"),
+                },
+                events={
+                    "ensure": EventSeries(np.array([10.0, 20.0])),
+                    "licks": EventSeries(np.array([10.2, 10.4, 20.2])),
+                },
+            ),
+            {"source_path": "synthetic.doric"},
+        )
+
+    monkeypatch.setattr(workflows, "load_processed_lifetime_session", fake_load)
+    progress = []
+    outputs = workflows.run_lifetime_psth(
+        "fluopulse",
+        [{"mouse": "M1", "date": "260101", "run": 1}],
+        tmp_path,
+        tmp_path / signal,
+        signal=signal,
+        event="ensure",
+        window=(-1.0, 1.0),
+        dt=0.1,
+        normalization="none",
+        heatmaps=False,
+        progress_callback=lambda current, total, label: progress.append(
+            (current, total, label)
+        ),
+    )
+
+    assert expected_name in {path.name for path in outputs}
+    assert progress == [(1, 1, "M1 260101 run 1")]
+
+
+def test_lifetime_running_skips_sessions_without_running_data(monkeypatch, tmp_path):
+    time = np.arange(0.0, 30.0, 0.1)
+
+    def fake_load(workflow, row, data_root):
+        del workflow, data_root
+        continuous = {"tau": ContinuousSignal(time, np.sin(time), "ns")}
+        if row["mouse"] == "M2":
+            continuous["running_speed"] = ContinuousSignal(time, time / 10, "cm/s")
+        return (
+            AlignedSession(
+                session_id=f"{row['mouse']}_{row['run']}",
+                continuous=continuous,
+                events={"ensure": EventSeries(np.array([10.0, 20.0]))},
+            ),
+            {"source_path": "synthetic.doric"},
+        )
+
+    monkeypatch.setattr(workflows, "load_processed_lifetime_session", fake_load)
+    rows = [
+        {"mouse": "M1", "date": "260101", "run": 1},
+        {"mouse": "M2", "date": "260101", "run": 1},
+    ]
+    with pytest.warns(UserWarning, match="running data are unavailable"):
+        outputs = workflows.run_lifetime_psth(
+            "fluopulse",
+            rows,
+            tmp_path,
+            tmp_path / "running",
+            signal="running_speed",
+            event="ensure",
+            window=(-1.0, 1.0),
+            dt=0.1,
+            normalization="none",
+            heatmaps=False,
+        )
+
+    assert "fluopulse_running_speed_ensure_psth.png" in {
+        path.name for path in outputs
+    }
+
+
 def test_lifetime_bout_offset_first_event_keeps_partial_tail(monkeypatch, tmp_path):
     time = np.arange(0.0, 12.1, 0.1)
 
