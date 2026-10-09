@@ -9,6 +9,7 @@ matplotlib.use("Agg")
 import numpy as np
 
 from lutaslab_photometry.group_analysis import (
+    CONVENTIONAL_PHOTOMETRY_SIGNALS,
     compute_manifest_psth,
     compute_manifest_psth_strata,
     save_condition_comparison_figures,
@@ -64,6 +65,12 @@ def parse_arguments():
         choices=("photometry", "licking", "running"),
         default="photometry",
         help="Plot photometry, binned lick rate, or running around alignment events.",
+    )
+    parser.add_argument(
+        "--photometry-signal",
+        choices=tuple(CONVENTIONAL_PHOTOMETRY_SIGNALS),
+        default="dff",
+        help="Processed photometry trace to use when --signal=photometry.",
     )
     parser.add_argument(
         "--channel",
@@ -150,6 +157,7 @@ def _save_numeric_results(results, output_dir):
         event_key=results["event_key"],
         signal_key=results["signal_key"],
         signal_type=results.get("signal_type", "photometry"),
+        photometry_signal=results.get("photometry_signal", "dff"),
         normalization=results["normalization"],
         null_method=results["null_method"],
         n_shuffles=results["n_shuffles"],
@@ -224,6 +232,7 @@ def main():
     analysis_options = dict(
         event_key=args.event_key,
         signal_type=args.signal,
+        photometry_signal=args.photometry_signal,
         channel=args.channel,
         window=args.window,
         dt=args.dt,

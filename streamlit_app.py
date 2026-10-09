@@ -58,6 +58,12 @@ TRIAL_CLASS_LABELS = {
     "cue_and_post": "During and after cue",
     "cue_miss": "No lick during or after cue",
 }
+CONVENTIONAL_PHOTOMETRY_SIGNAL_LABELS = {
+    "dff": "IRLS ΔF/F",
+    "raw465": "465 fluorescence",
+    "raw405": "405 isosbestic fluorescence (QC)",
+    "fitted405": "Fitted 405 control (QC)",
+}
 DEFAULT_ROWS = [
     {
         "mouse": "DK21",
@@ -1333,25 +1339,25 @@ with psth_tab:
                 "lick_times",
             ),
         )
-        signal = st.selectbox("Signal", ("photometry", "licking"))
+        photometry_signal = st.selectbox(
+            "Photometry signal",
+            tuple(CONVENTIONAL_PHOTOMETRY_SIGNAL_LABELS),
+            format_func=CONVENTIONAL_PHOTOMETRY_SIGNAL_LABELS.get,
+            key="conventional_photometry_signal",
+            help=(
+                "IRLS ΔF/F is the standard corrected response. The 405 and fitted "
+                "405 traces are controls for inspecting artifacts."
+            ),
+        )
         channel = st.selectbox("Photoreceiver channel", ("manifest", "1", "2"))
     with second:
         window_start = st.number_input("Window start (s)", value=-5.0)
         window_end = st.number_input("Window end (s)", value=20.0)
         dt = st.number_input("Time bin (s)", min_value=0.001, value=0.02, format="%.3f")
     with third:
-        normalization_options = (
-            ("none",) if signal == "licking" else ("zscore", "subtract", "none")
-        )
         normalization = st.selectbox(
             "Normalization",
-            normalization_options,
-            disabled=signal == "licking",
-            help=(
-                "Licking is always shown in licks/s."
-                if signal == "licking"
-                else None
-            ),
+            ("zscore", "subtract", "none"),
         )
         baseline_start = st.number_input(
             "Baseline start (s)", value=-5.0, disabled=normalization == "none"
@@ -1435,7 +1441,6 @@ with psth_tab:
         include_licking = st.checkbox(
             "Also generate licking PSTH",
             value=False,
-            disabled=signal == "licking",
             help="Saved in licks/s. Heatmaps are also saved when enabled below.",
             key="conventional_include_licking_psth",
         )
@@ -1540,7 +1545,8 @@ with psth_tab:
         data_root,
         output_dir,
         event_key=event_key,
-        signal=signal,
+        signal="photometry",
+        photometry_signal=photometry_signal,
         channel=channel,
         window=(window_start, window_end),
         dt=dt,
@@ -1565,10 +1571,12 @@ with psth_tab:
         condition_filter=psth_condition_filter,
     )
     psth_commands = [psth_command]
-    psth_command_labels = [f"{signal.title()} PSTH"]
+    psth_command_labels = [
+        f"{CONVENTIONAL_PHOTOMETRY_SIGNAL_LABELS[photometry_signal]} PSTH"
+    ]
     for behavior_signal, include, behavior_label in (
-        ("licking", include_licking and signal != "licking", "Licking PSTH"),
-        ("running", include_running and signal != "running", "Running PSTH"),
+        ("licking", include_licking, "Licking PSTH"),
+        ("running", include_running, "Running PSTH"),
     ):
         if not include:
             continue

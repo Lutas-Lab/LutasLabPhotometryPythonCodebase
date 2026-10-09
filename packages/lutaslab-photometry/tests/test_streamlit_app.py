@@ -30,6 +30,8 @@ def test_streamlit_app_loads_without_exceptions():
     }
     assert app.checkbox(key="conventional_include_licking_psth").value is False
     assert app.checkbox(key="conventional_include_running_psth").value is False
+    assert app.selectbox(key="conventional_photometry_signal").value == "dff"
+    assert "Signal" not in {selectbox.label for selectbox in app.selectbox}
 
 
 @pytest.mark.parametrize(

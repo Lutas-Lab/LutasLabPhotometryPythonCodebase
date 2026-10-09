@@ -29,9 +29,13 @@ def _write_processed_session(data_root, info, value):
         processed_schema_version="1.0",
         photo_time_465_ch1=time,
         photometry_465_ch1=np.full_like(time, value),
+        photometry_405_aligned_ch1=np.full_like(time, value + 100),
+        photometry_405_fitted_ch1=np.full_like(time, value + 200),
         dff_ch1=np.full_like(time, value),
         photo_time_465_ch2=time,
         photometry_465_ch2=np.full_like(time, value * 10),
+        photometry_405_aligned_ch2=np.full_like(time, value * 10 + 100),
+        photometry_405_fitted_ch2=np.full_like(time, value * 10 + 200),
         dff_ch2=np.full_like(time, value * 10),
         locomotion_time=time,
         processed_locomotion=time / 2.0,
@@ -189,6 +193,32 @@ class GroupAnalysisTests(unittest.TestCase):
         self.assertEqual(results["signal_key"], "lick_times")
         self.assertEqual(results["signal_type"], "licking")
         self.assertEqual(results["normalization"], "none")
+
+    def test_manifest_selects_each_processed_photometry_signal(self):
+        sessions = [{"mouse": "M1", "date": "260101", "run": 1, "channel": "1"}]
+        data_root = Path("tests/_group_analysis_data")
+        expected = {
+            "dff": ("dff_ch1", 1.0),
+            "raw465": ("photometry_465_ch1", 1.0),
+            "raw405": ("photometry_405_aligned_ch1", 101.0),
+            "fitted405": ("photometry_405_fitted_ch1", 201.0),
+        }
+        try:
+            _write_processed_session(data_root, sessions[0], 1.0)
+            for photometry_signal, (signal_key, value) in expected.items():
+                results = compute_manifest_psth(
+                    sessions,
+                    data_root,
+                    photometry_signal=photometry_signal,
+                    window=(-1.0, 1.0),
+                    dt=0.1,
+                    normalization="none",
+                )
+                self.assertEqual(results["signal_key"], signal_key)
+                self.assertEqual(results["photometry_signal"], photometry_signal)
+                np.testing.assert_allclose(results["group_mean"], value)
+        finally:
+            shutil.rmtree(data_root, ignore_errors=True)
 
     def test_manifest_can_compute_running_and_report_progress(self):
         sessions = [

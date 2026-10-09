@@ -100,6 +100,7 @@ def test_build_psth_command_includes_gui_choices():
         "output",
         event_key="cue_onset",
         signal="licking",
+        photometry_signal="fitted405",
         channel="2",
         window=(-5, 20),
         stratify=False,
@@ -122,6 +123,7 @@ def test_build_psth_command_includes_gui_choices():
     )
     assert command[command.index("--event-key") + 1] == "cue_onset"
     assert command[command.index("--signal") + 1] == "licking"
+    assert command[command.index("--photometry-signal") + 1] == "fitted405"
     assert command[command.index("--channel") + 1] == "2"
     assert "--no-stratify" in command
     assert command[command.index("--n-shuffles") + 1] == "25"

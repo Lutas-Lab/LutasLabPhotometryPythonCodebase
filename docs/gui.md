@@ -94,6 +94,9 @@ selection, time window, and normalization as their PSTH and can preserve event
 order or sort rows by their mean post-event response. PSTHs can align to
 lick-bout onset or offset, use only the first event in each session, and retain
 partial recording-boundary windows with unavailable samples left missing.
+The **Photometry signal** selector offers IRLS ΔF/F (the default analysis
+signal), 465 fluorescence, 405 isosbestic fluorescence, and the IRLS-fitted 405
+control. The two 405 choices are labeled as QC controls in the GUI.
 Optional checkboxes generate matching licking-rate and running-speed PSTHs in
 separate output subdirectories during the same run. Licking remains in licks/s
 and running remains in cm/s; neither behavioral signal is normalized. Heatmaps

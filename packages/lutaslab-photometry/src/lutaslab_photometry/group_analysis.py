@@ -252,7 +252,35 @@ def _mean_and_sem(rows):
     return mean, sem
 
 
-def _psth_ylabel(normalization, signal_type="photometry"):
+CONVENTIONAL_PHOTOMETRY_SIGNALS = {
+    "dff": {
+        "key": "dff_ch{channel}",
+        "time_key": "photo_time_465_ch{channel}",
+        "label": "IRLS dF/F",
+        "ylabel": "dF/F",
+    },
+    "raw465": {
+        "key": "photometry_465_ch{channel}",
+        "time_key": "photo_time_465_ch{channel}",
+        "label": "465 fluorescence",
+        "ylabel": "465 fluorescence (a.u.)",
+    },
+    "raw405": {
+        "key": "photometry_405_aligned_ch{channel}",
+        "time_key": "photo_time_465_ch{channel}",
+        "label": "405 isosbestic fluorescence",
+        "ylabel": "405 fluorescence (a.u.)",
+    },
+    "fitted405": {
+        "key": "photometry_405_fitted_ch{channel}",
+        "time_key": "photo_time_465_ch{channel}",
+        "label": "Fitted 405 control (QC)",
+        "ylabel": "Fitted 405 control (a.u.)",
+    },
+}
+
+
+def _psth_ylabel(normalization, signal_type="photometry", photometry_signal="dff"):
     if signal_type == "licking":
         return {
             "none": "Lick rate (licks/s)",
@@ -263,10 +291,11 @@ def _psth_ylabel(normalization, signal_type="photometry"):
             "none": "Running speed (cm/s)",
             None: "Running speed (cm/s)",
         }.get(normalization, str(normalization))
+    base_label = CONVENTIONAL_PHOTOMETRY_SIGNALS[photometry_signal]["ylabel"]
     return {
-        "none": "dF/F",
-        None: "dF/F",
-        "subtract": "Baseline-subtracted dF/F",
+        "none": base_label,
+        None: base_label,
+        "subtract": f"Baseline-subtracted {base_label}",
         "zscore": "Trial z-score",
     }.get(normalization, str(normalization))
 
@@ -297,12 +326,15 @@ def _psth_description(results):
         return f"licking aligned to {event_label}{trial_suffix}"
     if results.get("signal_type", "photometry") == "running":
         return f"running aligned to {event_label}{trial_suffix}"
-    return f"{event_label}-aligned photometry{trial_suffix}"
+    photometry_signal = results.get("photometry_signal", "dff")
+    signal_label = CONVENTIONAL_PHOTOMETRY_SIGNALS[photometry_signal]["label"]
+    return f"{signal_label} aligned to {event_label}{trial_suffix}"
 
 
-def _response_suffix(signal_type):
+def _response_suffix(signal_type, photometry_signal="dff"):
+    if signal_type == "photometry":
+        return "" if photometry_signal == "dff" else f"_{photometry_signal}"
     return {
-        "photometry": "",
         "licking": "_licking",
         "running": "_running",
     }[signal_type]
@@ -314,6 +346,7 @@ def compute_manifest_psth(
     *,
     event_key="cue_onset",
     signal_type="photometry",
+    photometry_signal="dff",
     channel="manifest",
     window=(-5, 10),
     dt=0.02,
@@ -332,6 +365,11 @@ def compute_manifest_psth(
     """Compute session, mouse, and group PSTHs with mice as the group unit."""
     if signal_type not in ("photometry", "licking", "running"):
         raise ValueError("signal_type must be 'photometry', 'licking', or 'running'.")
+    if photometry_signal not in CONVENTIONAL_PHOTOMETRY_SIGNALS:
+        raise ValueError(
+            "photometry_signal must be one of "
+            f"{tuple(CONVENTIONAL_PHOTOMETRY_SIGNALS)}."
+        )
     if signal_type in ("licking", "running"):
         normalization = "none"
     if signal_type == "licking" and null_method != "none":
@@ -366,8 +404,9 @@ def compute_manifest_psth(
                 f"{info['mouse']} {info['date']} run {int(info['run'])}",
             )
         selected_channel = resolve_session_channel(info, channel)
-        signal_key = f"dff_ch{selected_channel}"
-        time_key = f"photo_time_465_ch{selected_channel}"
+        signal_spec = CONVENTIONAL_PHOTOMETRY_SIGNALS[photometry_signal]
+        signal_key = signal_spec["key"].format(channel=selected_channel)
+        time_key = signal_spec["time_key"].format(channel=selected_channel)
         path = processed_session_path(data_root, info)
         session = load_session(path)
         if event_key == "lick_bout_offset" and event_key not in session:
@@ -562,6 +601,7 @@ def compute_manifest_psth(
         "n_mice": len(mouse_names),
         "event_key": event_key,
         "signal_type": signal_type,
+        "photometry_signal": photometry_signal,
         "signal_key": (
             session_results[0]["signal_key"]
             if len({result["signal_key"] for result in session_results}) == 1
@@ -680,7 +720,9 @@ def save_condition_comparison_figures(
         top.axvline(0, color="black", linestyle="--", linewidth=0.8)
         top.axhline(0, color="black", linestyle=":", linewidth=0.8)
         signal_ylabel = _psth_ylabel(
-            reference["normalization"], reference.get("signal_type", "photometry")
+            reference["normalization"],
+            reference.get("signal_type", "photometry"),
+            reference.get("photometry_signal", "dff"),
         )
         top.set(
             title=f"{group}: {_psth_description(reference)} by condition",
@@ -738,7 +780,10 @@ def save_condition_comparison_figures(
 
         fig.tight_layout()
         condition_label = "_vs_".join(safe_label(value) for value in conditions)
-        response_suffix = _response_suffix(reference.get("signal_type", "photometry"))
+        response_suffix = _response_suffix(
+            reference.get("signal_type", "photometry"),
+            reference.get("photometry_signal", "dff"),
+        )
         paths = save_figure_formats(
             fig,
             output_dir
@@ -778,11 +823,16 @@ def save_psth_heatmaps(
     configure_publication_style(font_family=font_family)
     time = np.asarray(results["time"], dtype=float)
     colorbar_label = results.get("ylabel") or _psth_ylabel(
-        results["normalization"], results.get("signal_type", "photometry")
+        results["normalization"],
+        results.get("signal_type", "photometry"),
+        results.get("photometry_signal", "dff"),
     )
     context = _psth_context(results)
     context_prefix = f"{context}: " if context else ""
-    response_suffix = _response_suffix(results.get("signal_type", "photometry"))
+    response_suffix = _response_suffix(
+        results.get("signal_type", "photometry"),
+        results.get("photometry_signal", "dff"),
+    )
     order_label = HEATMAP_SORT_LABELS[sort]
     saved = []
 
@@ -1185,7 +1235,11 @@ def save_null_diagnostics(
     ax.axvline(0, color="black", linestyle="--", linewidth=1)
     ax.set(
         xlabel=f"Time from random {results['event_key']} (s)",
-        ylabel=_psth_ylabel(results["normalization"], results["signal_type"]),
+        ylabel=_psth_ylabel(
+            results["normalization"],
+            results["signal_type"],
+            results.get("photometry_signal", "dff"),
+        ),
         title=f"Example null trials ({shown} shown)",
     )
     fig.tight_layout()
@@ -1219,11 +1273,16 @@ def save_psth_figures(
     configure_publication_style(font_family=font_family)
     time = results["time"]
     ylabel = _psth_ylabel(
-        results["normalization"], results.get("signal_type", "photometry")
+        results["normalization"],
+        results.get("signal_type", "photometry"),
+        results.get("photometry_signal", "dff"),
     )
     context = _psth_context(results)
     description = _psth_description(results)
-    response_suffix = _response_suffix(results.get("signal_type", "photometry"))
+    response_suffix = _response_suffix(
+        results.get("signal_type", "photometry"),
+        results.get("photometry_signal", "dff"),
+    )
     saved = []
 
     if figure_level in ("individual", "both"):
