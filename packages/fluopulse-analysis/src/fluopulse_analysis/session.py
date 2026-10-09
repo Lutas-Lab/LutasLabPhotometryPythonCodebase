@@ -91,7 +91,7 @@ class AlignedSession:
             continuous["running_speed"] = ContinuousSignal(
                 self.running_time_nidaq,
                 self.running_speed,
-                "a.u.",
+                "cm/s",
             )
         events = {
             "licks": EventSeries(self.doric_licks.onset_times, "licks"),

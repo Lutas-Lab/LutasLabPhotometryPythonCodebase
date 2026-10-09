@@ -52,11 +52,12 @@ def test_streamlit_lifetime_modes_load(workflow, expected_signal):
         "4. Lifetime GLM",
     ]
     assert app.selectbox(key=f"{workflow}_signal").value == expected_signal
+    assert app.selectbox(key=f"{workflow}_normalization").value == "subtract"
     assert {button.label for button in app.button} >= {
         "Validate sessions",
         "Save manifest",
         "Run preprocessing",
-        "Run PSTH and heatmaps",
+        "Run PSTH analysis",
         "Run lifetime GLM",
     }
     assert app.checkbox(key=f"{workflow}_include_licking_psth").value is False

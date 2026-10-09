@@ -180,7 +180,7 @@ class GroupAnalysisTests(unittest.TestCase):
                 signal_type="licking",
                 window=(-1.0, 1.0),
                 dt=0.5,
-                normalization="none",
+                normalization="zscore",
             )
         finally:
             shutil.rmtree(data_root, ignore_errors=True)
@@ -188,6 +188,7 @@ class GroupAnalysisTests(unittest.TestCase):
         np.testing.assert_allclose(results["group_mean"], [2.0, 0.0, 2.0, 2.0])
         self.assertEqual(results["signal_key"], "lick_times")
         self.assertEqual(results["signal_type"], "licking")
+        self.assertEqual(results["normalization"], "none")
 
     def test_manifest_can_compute_running_and_report_progress(self):
         sessions = [
@@ -206,7 +207,7 @@ class GroupAnalysisTests(unittest.TestCase):
                 signal_type="running",
                 window=(-1.0, 1.0),
                 dt=0.1,
-                normalization="none",
+                normalization="zscore",
                 progress_callback=lambda current, total, label: progress.append(
                     (current, total, label)
                 ),
@@ -216,6 +217,7 @@ class GroupAnalysisTests(unittest.TestCase):
 
         self.assertEqual(results["signal_key"], "processed_locomotion")
         self.assertEqual(results["signal_type"], "running")
+        self.assertEqual(results["normalization"], "none")
         self.assertEqual([(row[0], row[1]) for row in progress], [(1, 2), (2, 2)])
         self.assertTrue(all("run 1" in row[2] for row in progress))
 

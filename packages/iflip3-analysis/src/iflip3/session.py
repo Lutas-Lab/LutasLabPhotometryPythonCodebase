@@ -65,7 +65,7 @@ class AlignedSession:
             continuous["running_speed"] = ContinuousSignal(
                 self.running_time_nidaq,
                 self.running_speed,
-                "a.u.",
+                "cm/s",
             )
         return CoreAlignedSession(
             session_id=session_id,

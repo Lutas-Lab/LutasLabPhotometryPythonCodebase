@@ -104,6 +104,7 @@ def test_lifetime_cli_dispatches_psth_options(workflow_stubs):
     assert kwargs["baseline"] == (-2.0, 0.0)
     assert kwargs["dt"] == 0.2
     assert kwargs["heatmaps"] is False
+    assert kwargs["normalization"] == "subtract"
     assert callable(kwargs["progress_callback"])
 
 

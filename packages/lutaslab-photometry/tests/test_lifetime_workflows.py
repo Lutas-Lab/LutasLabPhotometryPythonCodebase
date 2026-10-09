@@ -108,6 +108,25 @@ def test_processed_file_replacement_retries_transient_lock(monkeypatch, tmp_path
     assert delays == [0.25, 0.5]
 
 
+def test_lifetime_plot_values_use_picoseconds_and_clear_labels():
+    signal = ContinuousSignal(
+        np.array([0.0, 1.0]),
+        np.array([2.4, 2.5]),
+        "ns",
+    )
+
+    values, units = workflows._lifetime_plot_values("tau", signal)
+
+    np.testing.assert_allclose(values, [2400.0, 2500.0])
+    assert units == "ps"
+    assert workflows._lifetime_psth_ylabel("tau", "none", units) == "τ (ps)"
+    assert workflows._lifetime_psth_ylabel("tau", "subtract", units) == "Δτ (ps)"
+    assert (
+        workflows._lifetime_psth_ylabel("running_speed", "none", "cm/s")
+        == "Running speed (cm/s)"
+    )
+
+
 def test_iflip3_fit_preview_returns_quality_and_time_resolved_components(monkeypatch):
     from iflip3.models import periodic_exgaussian_basis
 
@@ -311,6 +330,11 @@ def test_lifetime_preprocessing_saves_beside_raw_and_roundtrips(monkeypatch, tmp
         heatmaps=False,
     )
     assert any(path.name == "fluopulse_tau_ensure_psth.png" for path in psth_outputs)
+    psth_metadata = json.loads(
+        (tmp_path / "psth" / "analysis_metadata.json").read_text()
+    )
+    assert psth_metadata["units"] == "ps"
+    assert psth_metadata["ylabel"] == "τ (ps)"
 
 
 def test_processed_lifetime_file_is_required_for_downstream_analysis(tmp_path):
@@ -381,14 +405,14 @@ def test_lifetime_psth_writes_mouse_and_pooled_heatmaps(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("signal", "expected_name"),
+    ("signal", "expected_name", "expected_units"),
     [
-        ("licking", "fluopulse_licking_ensure_psth.png"),
-        ("running_speed", "fluopulse_running_speed_ensure_psth.png"),
+        ("licking", "fluopulse_licking_ensure_psth.png", "licks/s"),
+        ("running_speed", "fluopulse_running_speed_ensure_psth.png", "cm/s"),
     ],
 )
 def test_lifetime_psth_supports_behavior_signals_and_progress(
-    monkeypatch, tmp_path, signal, expected_name
+    monkeypatch, tmp_path, signal, expected_name, expected_units
 ):
     time = np.arange(0.0, 30.0, 0.1)
 
@@ -420,7 +444,7 @@ def test_lifetime_psth_supports_behavior_signals_and_progress(
         event="ensure",
         window=(-1.0, 1.0),
         dt=0.1,
-        normalization="none",
+        normalization="zscore",
         heatmaps=False,
         progress_callback=lambda current, total, label: progress.append(
             (current, total, label)
@@ -429,6 +453,9 @@ def test_lifetime_psth_supports_behavior_signals_and_progress(
 
     assert expected_name in {path.name for path in outputs}
     assert progress == [(1, 1, "M1 260101 run 1")]
+    metadata = json.loads((tmp_path / signal / "analysis_metadata.json").read_text())
+    assert metadata["normalization"] == "none"
+    assert metadata["units"] == expected_units
 
 
 def test_lifetime_running_skips_sessions_without_running_data(monkeypatch, tmp_path):

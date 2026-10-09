@@ -43,6 +43,7 @@ LIFETIME_SIGNALS = {
     ),
 }
 LIFETIME_BEHAVIOR_SIGNALS = ("licking", "running_speed")
+LIFETIME_TIME_SIGNALS = ("tau", "mpet")
 LIFETIME_EVENTS = (
     "ensure",
     "visual_cue",
@@ -872,6 +873,30 @@ class _EmptyEvent:
 _EMPTY_EVENT = _EmptyEvent()
 
 
+def _lifetime_plot_values(signal: str, continuous: ContinuousSignal):
+    """Return plotting values and units, expressing lifetime signals in ps."""
+
+    values = np.asarray(continuous.values, dtype=float)
+    units = str(continuous.units).strip()
+    if signal not in LIFETIME_TIME_SIGNALS:
+        return values, units
+    if units == "ns":
+        return values * 1000.0, "ps"
+    if units == "ps":
+        return values, units
+    raise ValueError(f"{signal} must use ns or ps units, not {units!r}")
+
+
+def _lifetime_psth_ylabel(signal: str, normalization: str, units: str) -> str:
+    if signal == "licking":
+        return "Lick rate (licks/s)"
+    if signal == "running_speed":
+        return "Running speed (cm/s)"
+    label = {"tau": "τ", "mpet": "MPET"}.get(signal, signal.replace("_", " "))
+    prefix = "Δ" if normalization == "subtract" else ""
+    return f"{prefix}{label} ({units})" if units else f"{prefix}{label}"
+
+
 def run_lifetime_psth(
     workflow,
     rows,
@@ -882,7 +907,7 @@ def run_lifetime_psth(
     event,
     window=(-5.0, 20.0),
     dt=0.1,
-    normalization="zscore",
+    normalization="subtract",
     baseline=(-5.0, 0.0),
     heatmaps=True,
     heatmap_sort="event_order",
@@ -903,6 +928,15 @@ def run_lifetime_psth(
         raise ValueError(f"Unsupported {workflow} signal: {signal}")
     if event not in LIFETIME_EVENTS:
         raise ValueError(f"Unsupported alignment event: {event}")
+    if signal not in LIFETIME_BEHAVIOR_SIGNALS and normalization not in (
+        "subtract",
+        "none",
+        None,
+    ):
+        raise ValueError("Lifetime PSTHs support only baseline subtraction or no normalization.")
+    effective_normalization = (
+        "none" if signal in LIFETIME_BEHAVIOR_SIGNALS else normalization or "none"
+    )
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
     results = []
@@ -928,7 +962,7 @@ def run_lifetime_psth(
                 dt=dt,
                 require_complete=not allow_partial_windows,
             )
-            units = "Hz"
+            units = "licks/s"
             signal_type = "licking"
         else:
             if signal not in session.continuous:
@@ -941,17 +975,24 @@ def run_lifetime_psth(
                     continue
                 raise ValueError(f"{session.session_id} has no {signal} signal")
             continuous = session.continuous[signal]
+            plot_values, units = _lifetime_plot_values(signal, continuous)
             time, trials, valid = extract_perievent_trials(
                 continuous.timestamps,
-                continuous.values,
+                plot_values,
                 alignment_times,
                 window=window,
                 dt=dt,
                 require_complete=not allow_partial_windows,
             )
-            units = continuous.units
+            if signal == "running_speed":
+                units = "cm/s"
             signal_type = "running" if signal == "running_speed" else "photometry"
-        normalized = normalize_trials(time, trials, normalization, baseline)
+        normalized = normalize_trials(
+            time,
+            trials,
+            effective_normalization,
+            baseline,
+        )
         if normalized.shape[0] == 0:
             warnings.warn(
                 f"Skipping {session.session_id}: no usable {event} windows.",
@@ -979,13 +1020,14 @@ def run_lifetime_psth(
     mouse_matrix = np.vstack(
         [summarize_trials(np.vstack(by_mouse[mouse]))[0] for mouse in mouse_names]
     )
+    ylabel = _lifetime_psth_ylabel(signal, effective_normalization, units)
     bundle = {
         "time": time,
-        "normalization": normalization,
+        "normalization": effective_normalization,
         "signal_type": signal_type,
         "event_key": event,
         "description": f"{signal} aligned to {event}",
-        "ylabel": f"{signal} ({normalization})",
+        "ylabel": ylabel,
         "session_results": results,
         "mouse_names": mouse_names,
         "mouse_matrix": mouse_matrix,
@@ -998,7 +1040,7 @@ def run_lifetime_psth(
     ax.axvline(0, color="black", linestyle="--")
     ax.set(
         xlabel=f"Time from {event} (s)",
-        ylabel=f"{signal} ({normalization})",
+        ylabel=ylabel,
         title=f"{workflow}: {signal} aligned to {event} (mouse mean ± SEM)",
     )
     fig.tight_layout()
@@ -1025,7 +1067,9 @@ def run_lifetime_psth(
         "event": event,
         "window": list(window),
         "dt": dt,
-        "normalization": normalization,
+        "normalization": effective_normalization,
+        "units": units,
+        "ylabel": ylabel,
         "baseline": list(baseline),
         "first_event_only": bool(first_event_only),
         "allow_partial_windows": bool(allow_partial_windows),

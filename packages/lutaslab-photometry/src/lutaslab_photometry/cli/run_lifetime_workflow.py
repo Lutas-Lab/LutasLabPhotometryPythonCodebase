@@ -37,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--window", nargs=2, type=float, default=(-5.0, 20.0))
     parser.add_argument("--dt", type=float, default=0.1)
     parser.add_argument(
-        "--normalization", choices=("zscore", "subtract", "none"), default="zscore"
+        "--normalization", choices=("subtract", "none"), default="subtract"
     )
     parser.add_argument("--baseline", nargs=2, type=float, default=(-5.0, 0.0))
     parser.add_argument("--heatmaps", action=argparse.BooleanOptionalAction, default=True)

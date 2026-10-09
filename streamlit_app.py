@@ -926,16 +926,35 @@ def _lifetime_gui(workflow: str) -> None:
                 "Time bin (s)", min_value=0.01, value=0.1, key=f"{workflow}_dt"
             )
         with third:
+            lifetime_label = {"tau": "τ", "mpet": "MPET"}.get(signal)
+            normalization_labels = (
+                {
+                    "subtract": f"Baseline-subtracted (Δ{lifetime_label}, ps)",
+                    "none": f"Unsubtracted ({lifetime_label}, ps)",
+                }
+                if lifetime_label is not None
+                else {
+                    "subtract": "Baseline-subtracted (Δ from baseline)",
+                    "none": "Unsubtracted (native values)",
+                }
+            )
             normalization = st.selectbox(
                 "Normalization",
-                ("zscore", "subtract", "none"),
+                ("subtract", "none"),
+                format_func=normalization_labels.get,
                 key=f"{workflow}_normalization",
             )
             baseline_start = st.number_input(
-                "Baseline start (s)", value=-5.0, key=f"{workflow}_baseline_start"
+                "Baseline start (s)",
+                value=-5.0,
+                disabled=normalization == "none",
+                key=f"{workflow}_baseline_start",
             )
             baseline_end = st.number_input(
-                "Baseline end (s)", value=0.0, key=f"{workflow}_baseline_end"
+                "Baseline end (s)",
+                value=0.0,
+                disabled=normalization == "none",
+                key=f"{workflow}_baseline_end",
             )
         selection_left, selection_right = st.columns(2)
         with selection_left:
@@ -960,28 +979,30 @@ def _lifetime_gui(workflow: str) -> None:
             value=str(PROJECT_ROOT / "analysis" / workflow / "psth"),
             key=f"{workflow}_psth_output",
         )
+        st.markdown("#### Additional behavioral responses")
+        behavior_left, behavior_right = st.columns(2)
+        with behavior_left:
+            include_licking = st.checkbox(
+                "Also generate licking PSTH",
+                value=False,
+                help="Saved in licks/s. Heatmaps are also saved when enabled below.",
+                key=f"{workflow}_include_licking_psth",
+            )
+        with behavior_right:
+            include_running = st.checkbox(
+                "Also generate running PSTH",
+                value=False,
+                help=(
+                    "Saved in cm/s. Sessions without a running signal are skipped. "
+                    "Heatmaps are also saved when enabled below."
+                ),
+                key=f"{workflow}_include_running_psth",
+            )
         save_heatmaps = st.checkbox(
             "Save session, mouse-level, and pooled-trial heatmaps",
             value=True,
             key=f"{workflow}_heatmaps",
         )
-        st.markdown("#### Additional behavioral responses")
-        behavior_left, behavior_right = st.columns(2)
-        with behavior_left:
-            include_licking = st.checkbox(
-                "Also generate licking PSTH and heatmaps",
-                value=False,
-                key=f"{workflow}_include_licking_psth",
-            )
-        with behavior_right:
-            include_running = st.checkbox(
-                "Also generate running PSTH and heatmaps",
-                value=False,
-                help=(
-                    "Sessions without a saved running signal are skipped with a warning."
-                ),
-                key=f"{workflow}_include_running_psth",
-            )
         sort_options = [
             "event_order",
             "response_mean",
@@ -1054,7 +1075,7 @@ def _lifetime_gui(workflow: str) -> None:
                     event=event,
                     window=(window_start, window_end),
                     dt=dt,
-                    normalization=normalization,
+                    normalization="none",
                     baseline=(baseline_start, baseline_end),
                     heatmaps=save_heatmaps,
                     heatmap_sort=heatmap_sort,
@@ -1067,7 +1088,7 @@ def _lifetime_gui(workflow: str) -> None:
             )
             command_labels.append(behavior_label)
         if st.button(
-            "Run PSTH and heatmaps",
+            "Run PSTH analysis",
             type="primary",
             width="stretch",
             key=f"{workflow}_run_psth",
@@ -1319,9 +1340,25 @@ with psth_tab:
         window_end = st.number_input("Window end (s)", value=20.0)
         dt = st.number_input("Time bin (s)", min_value=0.001, value=0.02, format="%.3f")
     with third:
-        normalization = st.selectbox("Normalization", ("zscore", "subtract", "none"))
-        baseline_start = st.number_input("Baseline start (s)", value=-5.0)
-        baseline_end = st.number_input("Baseline end (s)", value=0.0)
+        normalization_options = (
+            ("none",) if signal == "licking" else ("zscore", "subtract", "none")
+        )
+        normalization = st.selectbox(
+            "Normalization",
+            normalization_options,
+            disabled=signal == "licking",
+            help=(
+                "Licking is always shown in licks/s."
+                if signal == "licking"
+                else None
+            ),
+        )
+        baseline_start = st.number_input(
+            "Baseline start (s)", value=-5.0, disabled=normalization == "none"
+        )
+        baseline_end = st.number_input(
+            "Baseline end (s)", value=0.0, disabled=normalization == "none"
+        )
 
     selection_left, selection_right = st.columns(2)
     with selection_left:
@@ -1392,27 +1429,32 @@ with psth_tab:
             ),
         )
 
-    st.markdown("#### Trial heatmaps")
-    save_heatmaps = st.checkbox(
-        "Save session, mouse-level, and pooled-trial heatmaps",
-        value=True,
-        help="Uses the same aligned and normalized trials as the PSTH.",
-    )
+    st.markdown("#### Additional behavioral responses")
     behavior_left, behavior_right = st.columns(2)
     with behavior_left:
         include_licking = st.checkbox(
-            "Also generate licking PSTH and heatmaps",
+            "Also generate licking PSTH",
             value=False,
             disabled=signal == "licking",
+            help="Saved in licks/s. Heatmaps are also saved when enabled below.",
             key="conventional_include_licking_psth",
         )
     with behavior_right:
         include_running = st.checkbox(
-            "Also generate running PSTH and heatmaps",
+            "Also generate running PSTH",
             value=False,
-            help="Sessions without saved running data are skipped with a warning.",
+            help=(
+                "Saved in cm/s. Sessions without running data are skipped. "
+                "Heatmaps are also saved when enabled below."
+            ),
             key="conventional_include_running_psth",
         )
+    st.markdown("#### Trial heatmaps")
+    save_heatmaps = st.checkbox(
+        "Save session, mouse-level, and pooled-trial heatmaps",
+        value=True,
+        help="Uses the same aligned trials as the corresponding PSTH.",
+    )
     heatmap_left, heatmap_right = st.columns(2)
     with heatmap_left:
         heatmap_sort_options = [
@@ -1541,7 +1583,7 @@ with psth_tab:
                 channel=channel,
                 window=(window_start, window_end),
                 dt=dt,
-                normalization=normalization,
+                normalization="none",
                 baseline=(baseline_start, baseline_end),
                 stratify=stratify,
                 null_method="none" if behavior_signal == "licking" else null_method,

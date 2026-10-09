@@ -255,17 +255,13 @@ def _mean_and_sem(rows):
 def _psth_ylabel(normalization, signal_type="photometry"):
     if signal_type == "licking":
         return {
-            "none": "Lick rate (Hz)",
-            None: "Lick rate (Hz)",
-            "subtract": "Baseline-subtracted lick rate (Hz)",
-            "zscore": "Trial z-score of lick rate",
+            "none": "Lick rate (licks/s)",
+            None: "Lick rate (licks/s)",
         }.get(normalization, str(normalization))
     if signal_type == "running":
         return {
-            "none": "Running speed (a.u.)",
-            None: "Running speed (a.u.)",
-            "subtract": "Baseline-subtracted running speed (a.u.)",
-            "zscore": "Trial z-score of running speed",
+            "none": "Running speed (cm/s)",
+            None: "Running speed (cm/s)",
         }.get(normalization, str(normalization))
     return {
         "none": "dF/F",
@@ -336,6 +332,8 @@ def compute_manifest_psth(
     """Compute session, mouse, and group PSTHs with mice as the group unit."""
     if signal_type not in ("photometry", "licking", "running"):
         raise ValueError("signal_type must be 'photometry', 'licking', or 'running'.")
+    if signal_type in ("licking", "running"):
+        normalization = "none"
     if signal_type == "licking" and null_method != "none":
         raise ValueError("Null alignment is not yet supported for the licking response.")
     if null_method not in ("none", "random_onsets", "circular_shift"):

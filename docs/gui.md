@@ -94,10 +94,13 @@ selection, time window, and normalization as their PSTH and can preserve event
 order or sort rows by their mean post-event response. PSTHs can align to
 lick-bout onset or offset, use only the first event in each session, and retain
 partial recording-boundary windows with unavailable samples left missing.
-Optional checkboxes generate matching licking-rate and running-speed PSTHs and
-heatmaps in separate output subdirectories during the same run. Sessions without
-running data are skipped only for the running output. A progress bar names the
-current session and reports progress across every selected output.
+Optional checkboxes generate matching licking-rate and running-speed PSTHs in
+separate output subdirectories during the same run. Licking remains in licks/s
+and running remains in cm/s; neither behavioral signal is normalized. Heatmaps
+are independently optional and, when enabled, are saved for every selected
+response. Sessions without running data are skipped only for the running output.
+A progress bar names the current session and reports progress across every
+selected output.
 Every run creates:
 
 - one trial heatmap per session;
@@ -190,14 +193,16 @@ The two lifetime modes share the sensor-independent session representation in
   every event or only the first event in each session. Long windows can retain
   the available portion of recordings that end before the requested window,
   representing the unavailable tail as missing data rather than excluding the
-  event. It writes the mouse-level mean and session, equally
+  event. Lifetime τ and MPET are displayed in picoseconds, either unchanged or
+  baseline-subtracted as Δτ/ΔMPET; lifetime PSTHs are not z-scored. It writes the
+  mouse-level mean and session, equally
   weighted mouse-level, and descriptive pooled-trial heatmaps. Lifetime
   heatmaps support recorded order, response magnitude, Ensure latency,
   first-lick latency, post-event lick count, and pre-event lick rate. Optional
-  checkboxes add licking-rate and running-speed PSTHs and heatmaps in separate
+  checkboxes add licking-rate (licks/s) and running-speed (cm/s) PSTHs in separate
   output subdirectories, with running omitted only for sessions that lack a
-  running trace. The GUI reports session-level progress across all selected
-  signals.
+  running trace. Heatmaps are controlled separately and apply to every selected
+  response. The GUI reports session-level progress across all selected signals.
 - **PSTH, heatmap, and GLM analyses** require and load the processed lifetime
   files. They do not reopen or recompute the raw sensor recordings.
 - **Lifetime GLM** estimates forward-time lick and Ensure kernels, a separate first
