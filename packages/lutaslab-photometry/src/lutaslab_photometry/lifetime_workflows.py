@@ -7,6 +7,7 @@ import json
 import os
 import re
 import tempfile
+import time
 import warnings
 from collections import defaultdict
 from dataclasses import dataclass
@@ -682,6 +683,29 @@ def _json_default(value):
     raise TypeError(f"Cannot serialize {type(value).__name__}")
 
 
+def _replace_with_retry(
+    source: Path,
+    destination: Path,
+    *,
+    attempts: int = 6,
+    initial_delay: float = 0.1,
+) -> None:
+    """Atomically replace a file, tolerating short-lived Windows/SMB locks."""
+
+    for attempt in range(attempts):
+        try:
+            os.replace(source, destination)
+            return
+        except PermissionError as error:
+            if attempt == attempts - 1:
+                raise PermissionError(
+                    f"Could not replace {destination} because it remained in use. "
+                    "Close any program reading that processed file, wait for any "
+                    "other analysis of the session to finish, and retry preprocessing."
+                ) from error
+            time.sleep(initial_delay * (2**attempt))
+
+
 def _save_processed_lifetime_session(
     workflow: str,
     session: AlignedSession,
@@ -718,7 +742,7 @@ def _save_processed_lifetime_session(
         ) as stream:
             temporary_path = Path(stream.name)
         np.savez_compressed(temporary_path, **arrays)
-        os.replace(temporary_path, destination)
+        _replace_with_retry(temporary_path, destination)
     finally:
         if temporary_path is not None and temporary_path.exists():
             temporary_path.unlink()

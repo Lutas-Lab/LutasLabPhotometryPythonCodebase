@@ -78,6 +78,36 @@ def test_lifetime_processed_file_embeds_structured_provenance():
     assert "dirty" in provenance["code"]
 
 
+def test_processed_file_replacement_retries_transient_lock(monkeypatch, tmp_path):
+    source = tmp_path / "temporary.npz"
+    destination = tmp_path / "session-processed.npz"
+    source.write_bytes(b"new")
+    destination.write_bytes(b"old")
+    real_replace = workflows.os.replace
+    attempts = []
+    delays = []
+
+    def transient_lock(current_source, current_destination):
+        attempts.append((current_source, current_destination))
+        if len(attempts) < 3:
+            raise PermissionError(13, "file is in use", str(current_destination))
+        real_replace(current_source, current_destination)
+
+    monkeypatch.setattr(workflows.os, "replace", transient_lock)
+    monkeypatch.setattr(workflows.time, "sleep", delays.append)
+
+    workflows._replace_with_retry(
+        source,
+        destination,
+        attempts=3,
+        initial_delay=0.25,
+    )
+
+    assert destination.read_bytes() == b"new"
+    assert len(attempts) == 3
+    assert delays == [0.25, 0.5]
+
+
 def test_iflip3_fit_preview_returns_quality_and_time_resolved_components(monkeypatch):
     from iflip3.models import periodic_exgaussian_basis
 
