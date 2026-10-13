@@ -1124,7 +1124,9 @@ def _lifetime_gui(workflow: str) -> None:
         )
         st.caption(
             "Ridge strength is selected with leave-one-session-out validation. At least "
-            "three sessions are required. Results describe predictive association, not causality."
+            "three sessions are required. Outputs include mouse-level kernel tables, "
+            "individual-mouse traces with mean ± SEM, and held-out performance. Lifetime "
+            "kernels use picoseconds. Results describe predictive association, not causality."
         )
         glm_group_filter, glm_condition_filter = _analysis_subset_controls(
             rows, f"{workflow}_glm"
@@ -1638,8 +1640,10 @@ with glm_tab:
         "behavior-only, and combined ridge models using nested forward validation."
     )
     st.caption(
-        "This is a predictive model comparison. It does not establish that a "
-        "behavior causes the photometry response."
+        "Outputs include held-out performance and combined-model predictor kernels "
+        "for photometry history, running, licking, cue onset, and Ensure onset. "
+        "Kernel figures show individual-mouse traces and mouse mean ± SEM. These are "
+        "predictive associations and do not establish causality."
     )
     glm_group_filter, glm_condition_filter = _analysis_subset_controls(
         editor_rows, "conventional_glm"
@@ -1660,13 +1664,29 @@ with glm_tab:
         )
     with glm_second:
         glm_history = st.number_input(
-            "Predictor history (s)", min_value=0.1, value=5.0, step=0.5
+            "Predictor kernel duration (s)",
+            min_value=0.1,
+            value=5.0,
+            step=0.5,
+            help=(
+                "How far after each predictor the GLM estimates its association with "
+                "photometry. For example, 5 s plots coefficients from 0 to 5 s after "
+                "licks, cues, Ensure deliveries, and running measurements."
+            ),
         )
         glm_lag_step = st.number_input(
-            "Lag spacing (s)", min_value=0.01, value=0.5, step=0.1
+            "Kernel point spacing (s)",
+            min_value=0.01,
+            value=0.5,
+            step=0.1,
+            help="Time spacing between adjacent points in each predictor kernel.",
         )
         glm_dt = st.number_input(
-            "GLM time bin (s)", min_value=0.01, value=0.1, step=0.05
+            "GLM time bin (s)",
+            min_value=0.01,
+            value=0.1,
+            step=0.05,
+            help="Common time grid used to bin events and resample continuous signals.",
         )
     with glm_third:
         glm_folds = st.number_input(

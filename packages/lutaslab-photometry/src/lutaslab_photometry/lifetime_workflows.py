@@ -1102,13 +1102,22 @@ def run_lifetime_glm(
     designs = []
     outcomes = []
     labels = []
+    response_units = None
     for row in rows:
         session, _ = load_processed_lifetime_session(workflow, row, data_root)
         response = session.continuous[signal]
+        plot_values, units = _lifetime_plot_values(signal, response)
+        if response_units is None:
+            response_units = units
+        elif units != response_units:
+            raise ValueError(
+                f"Lifetime GLM sessions have inconsistent {signal} units: "
+                f"{response_units!r} and {units!r}"
+            )
         uniform_time = np.linspace(
             response.timestamps[0], response.timestamps[-1], response.timestamps.size
         )
-        outcome = np.interp(uniform_time, response.timestamps, response.values)
+        outcome = np.interp(uniform_time, response.timestamps, plot_values)
         lick_counts = event_times_to_counts(session.events["licks"].timestamps, uniform_time)
         ensure_counts = event_times_to_counts(
             session.events["ensure"].timestamps, uniform_time
@@ -1149,7 +1158,9 @@ def run_lifetime_glm(
     selected_alphas = []
     for outer_fold, (outer_train, outer_test) in enumerate(group_folds(groups), start=1):
         training_groups = groups[outer_train]
-        inner_scores = np.full((alphas.size, len(np.unique(training_groups))))
+        inner_scores = np.full(
+            (alphas.size, len(np.unique(training_groups))), np.nan, dtype=float
+        )
         for inner_fold, (inner_train_local, inner_test_local) in enumerate(
             group_folds(training_groups)
         ):
@@ -1182,6 +1193,11 @@ def run_lifetime_glm(
             {
                 "outer_fold": outer_fold,
                 "held_out_session": held_out,
+                "mouse": next(
+                    str(row["mouse"])
+                    for row in rows
+                    if _session_id(row) == held_out
+                ),
                 "selected_alpha": best_alpha,
                 "baseline_r2": r2_score(
                     response[outer_test],
@@ -1205,10 +1221,73 @@ def run_lifetime_glm(
         / final_scale
     )
     kernels = reconstruct_adaptive_kernels(designs[0], final_coefficients)
+    reference_times = {
+        "lick": np.asarray(designs[0].lick_basis.lag_times, dtype=float),
+        "ensure": np.asarray(designs[0].ensure_basis.lag_times, dtype=float),
+    }
+    session_kernel_rows = []
+    for row, label, design, outcome in zip(
+        rows, labels, designs, outcomes, strict=True
+    ):
+        session_scale = np.sqrt(np.mean(design.matrix**2, axis=0))
+        session_scale[(session_scale == 0) | ~np.isfinite(session_scale)] = 1.0
+        session_coefficients = (
+            fit_ridge(
+                design.matrix / session_scale,
+                outcome,
+                final_alpha,
+                penalize=design.penalty_weights,
+            )
+            / session_scale
+        )
+        session_kernels = reconstruct_adaptive_kernels(design, session_coefficients)
+        for name, values in session_kernels.items():
+            time_key = "lick" if name == "lick" else "ensure"
+            source_time = (
+                design.lick_basis.lag_times
+                if time_key == "lick"
+                else design.ensure_basis.lag_times
+            )
+            reference_time = reference_times[time_key]
+            values = np.interp(reference_time, source_time, values)
+            for lag_s, coefficient in zip(reference_time, values, strict=True):
+                session_kernel_rows.append(
+                    {
+                        "mouse": str(row["mouse"]),
+                        "date": str(row.get("date", "")),
+                        "run": row.get("run", ""),
+                        "session": label,
+                        "kernel": name,
+                        "lag_s": float(lag_s),
+                        "coefficient": float(coefficient),
+                    }
+                )
+    mouse_kernel_rows, group_kernel_rows = _summarize_lifetime_kernel_rows(
+        session_kernel_rows
+    )
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
     score_path = destination / "glm_cross_validation.csv"
     _write_dict_rows(score_path, outer_rows)
+    mouse_score_path = destination / "glm_mouse_cross_validation.csv"
+    mouse_score_rows = []
+    for mouse in sorted({row["mouse"] for row in outer_rows}):
+        selected = [row for row in outer_rows if row["mouse"] == mouse]
+        mouse_score_rows.append(
+            {
+                "mouse": mouse,
+                "baseline_r2": float(np.mean([row["baseline_r2"] for row in selected])),
+                "r2": float(np.mean([row["r2"] for row in selected])),
+                "n_sessions": len(selected),
+            }
+        )
+    _write_dict_rows(mouse_score_path, mouse_score_rows)
+    session_kernel_path = destination / "glm_session_kernels.csv"
+    mouse_kernel_path = destination / "glm_mouse_kernels.csv"
+    group_kernel_path = destination / "glm_group_kernels.csv"
+    _write_dict_rows(session_kernel_path, session_kernel_rows)
+    _write_dict_rows(mouse_kernel_path, mouse_kernel_rows)
+    _write_dict_rows(group_kernel_path, group_kernel_rows)
     kernel_path = destination / "glm_kernels.npz"
     np.savez_compressed(
         kernel_path,
@@ -1219,20 +1298,38 @@ def run_lifetime_glm(
     import matplotlib.pyplot as plt
 
     figure_paths = []
+    ylabel = _lifetime_psth_ylabel(signal, "subtract", response_units or "")
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
-    axes[0].plot(designs[0].lick_basis.lag_times, kernels["lick"])
+    _plot_lifetime_kernel_summary(
+        axes[0], mouse_kernel_rows, group_kernel_rows, "lick", "Lick kernel", "C0"
+    )
     axes[0].axhline(0, color="black", linewidth=0.8)
-    axes[0].set(xlabel="Time from lick (s)", ylabel=signal, title="Lick kernel")
-    for name, values in kernels.items():
+    axes[0].set(xlabel="Time from lick (s)", ylabel=ylabel, title="Lick kernel")
+    ensure_colors = ("C1", "C2", "C3", "C4")
+    ensure_labels = (
+        "First Ensure",
+        "Subsequent Ensure: early",
+        "Subsequent Ensure: middle",
+        "Subsequent Ensure: late",
+    )
+    for color, name, label in zip(
+        ensure_colors,
+        ("ensure_first", "ensure_progress_0", "ensure_progress_0.5", "ensure_progress_1"),
+        ensure_labels,
+        strict=True,
+    ):
         if name.startswith("ensure"):
-            axes[1].plot(
-                designs[0].ensure_basis.lag_times,
-                values,
-                label=name.replace("ensure_", ""),
+            _plot_lifetime_kernel_summary(
+                axes[1],
+                mouse_kernel_rows,
+                group_kernel_rows,
+                name,
+                label,
+                color,
             )
     axes[1].axhline(0, color="black", linewidth=0.8)
     axes[1].set(
-        xlabel="Time from Ensure (s)", ylabel=signal, title="Ensure/adaptation kernels"
+        xlabel="Time from Ensure (s)", ylabel=ylabel, title="Ensure/adaptation kernels"
     )
     axes[1].legend()
     fig.suptitle(f"{workflow} lifetime GLM")
@@ -1242,12 +1339,49 @@ def run_lifetime_glm(
         fig.savefig(figure_path, dpi=300)
         figure_paths.append(figure_path)
     plt.close(fig)
+    performance_fig, performance_ax = plt.subplots(figsize=(5.5, 4.5))
+    for row in mouse_score_rows:
+        performance_ax.plot(
+            (0, 1),
+            (row["baseline_r2"], row["r2"]),
+            color="0.65",
+            marker="o",
+            linewidth=0.8,
+            alpha=0.7,
+        )
+    score_values = np.asarray(
+        [[row["baseline_r2"], row["r2"]] for row in mouse_score_rows], dtype=float
+    )
+    score_mean = np.nanmean(score_values, axis=0)
+    score_sem = (
+        np.nanstd(score_values, axis=0, ddof=1) / np.sqrt(score_values.shape[0])
+        if score_values.shape[0] > 1
+        else np.full(2, np.nan)
+    )
+    performance_ax.errorbar(
+        (0, 1), score_mean, yerr=score_sem, color="C0", marker="o", linewidth=2.2
+    )
+    performance_ax.axhline(0, color="black", linestyle=":", linewidth=0.8)
+    performance_ax.set(
+        xticks=(0, 1),
+        xticklabels=("Constant baseline", "Lick + Ensure GLM"),
+        ylabel="Held-out $R^2$",
+        title=f"{workflow} lifetime GLM performance",
+    )
+    performance_fig.tight_layout()
+    for suffix in ("png", "svg"):
+        performance_path = destination / f"{workflow}_{signal}_glm_performance.{suffix}"
+        performance_fig.savefig(performance_path, dpi=300)
+        figure_paths.append(performance_path)
+    plt.close(performance_fig)
     metadata_path = destination / "glm_metadata.json"
     metadata_path.write_text(
         json.dumps(
             {
                 "workflow": workflow,
                 "signal": signal,
+                "units": response_units,
+                "ylabel": ylabel,
                 "sessions": labels,
                 "final_alpha": final_alpha,
                 "selection": (
@@ -1255,12 +1389,98 @@ def run_lifetime_glm(
                     "the median outer-fold selection"
                 ),
                 "interpretation": "predictive association; not causal",
+                "kernel_summary": (
+                    "sessions averaged within mouse; individual mice and mean plus SEM "
+                    "are shown"
+                ),
             },
             indent=2,
         ),
         encoding="utf-8",
     )
-    return [score_path, kernel_path, metadata_path, *figure_paths]
+    return [
+        score_path,
+        mouse_score_path,
+        kernel_path,
+        session_kernel_path,
+        mouse_kernel_path,
+        group_kernel_path,
+        metadata_path,
+        *figure_paths,
+    ]
+
+
+def _summarize_lifetime_kernel_rows(rows):
+    mouse_groups = defaultdict(list)
+    for row in rows:
+        mouse_groups[(row["mouse"], row["kernel"], row["lag_s"])].append(
+            row["coefficient"]
+        )
+    mouse_rows = []
+    for (mouse, kernel, lag_s), values in mouse_groups.items():
+        mouse_rows.append(
+            {
+                "mouse": mouse,
+                "kernel": kernel,
+                "lag_s": lag_s,
+                "coefficient": float(np.nanmean(values)),
+                "n_sessions": len(values),
+            }
+        )
+    group_groups = defaultdict(list)
+    for row in mouse_rows:
+        group_groups[(row["kernel"], row["lag_s"])].append(row["coefficient"])
+    group_rows = []
+    for (kernel, lag_s), values in group_groups.items():
+        finite = np.asarray(values, dtype=float)
+        finite = finite[np.isfinite(finite)]
+        group_rows.append(
+            {
+                "kernel": kernel,
+                "lag_s": lag_s,
+                "mean": float(np.mean(finite)) if len(finite) else np.nan,
+                "sem": (
+                    float(np.std(finite, ddof=1) / np.sqrt(len(finite)))
+                    if len(finite) > 1
+                    else np.nan
+                ),
+                "n_mice": len(finite),
+            }
+        )
+    return mouse_rows, group_rows
+
+
+def _plot_lifetime_kernel_summary(
+    ax, mouse_rows, group_rows, kernel, label, color
+):
+    for mouse in sorted({row["mouse"] for row in mouse_rows}):
+        selected = sorted(
+            (
+                row
+                for row in mouse_rows
+                if row["mouse"] == mouse and row["kernel"] == kernel
+            ),
+            key=lambda row: row["lag_s"],
+        )
+        if selected:
+            ax.plot(
+                [row["lag_s"] for row in selected],
+                [row["coefficient"] for row in selected],
+                color=color,
+                linewidth=0.7,
+                alpha=0.2,
+            )
+    selected = sorted(
+        (row for row in group_rows if row["kernel"] == kernel),
+        key=lambda row: row["lag_s"],
+    )
+    if not selected:
+        return
+    lag = np.asarray([row["lag_s"] for row in selected], dtype=float)
+    mean = np.asarray([row["mean"] for row in selected], dtype=float)
+    sem = np.asarray([row["sem"] for row in selected], dtype=float)
+    ax.plot(lag, mean, color=color, linewidth=2.0, label=label)
+    ax.fill_between(lag, mean - sem, mean + sem, color=color, alpha=0.2)
 
 
 def _write_dict_rows(path: Path, rows: list[dict]) -> None:

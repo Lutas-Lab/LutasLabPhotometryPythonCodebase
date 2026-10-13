@@ -1,12 +1,19 @@
 import importlib.util
+import tempfile
 import unittest
+from pathlib import Path
 
 import numpy as np
 
+from lutaslab_photometry.cli.run_forecasting import (
+    _plot_group_performance,
+    _plot_predictor_kernels,
+)
 from lutaslab_photometry.forecasting import (
     build_forecast_dataset,
     fit_forecast_models,
     make_forward_folds,
+    summarize_forecast_kernels,
 )
 
 SKLEARN_AVAILABLE = importlib.util.find_spec("sklearn") is not None
@@ -49,6 +56,9 @@ class ForecastingTests(unittest.TestCase):
         assert "photometry[t-0s]" not in dataset["feature_names"]
         assert "photometry[t-0.1s]" in dataset["feature_names"]
         assert "locomotion[t-0s]" in dataset["feature_names"]
+        locomotion_index = dataset["feature_names"].index("locomotion[t-0s]")
+        assert dataset["feature_predictors"][locomotion_index] == "locomotion"
+        assert dataset["feature_lags"][locomotion_index] == 0.0
 
     def test_dataset_uses_only_present_and_past_features(self):
         signals = _signals(np.arange(20, dtype=float))
@@ -103,6 +113,115 @@ class ForecastingTests(unittest.TestCase):
         self.assertGreater(fitted["models"]["combined"]["metrics"]["r2"], 0.95)
         self.assertLess(fitted["models"]["history_only"]["metrics"]["r2"], 0.1)
         self.assertIn("constant_baseline", fitted["models"])
+        combined = fitted["models"]["combined"]
+        self.assertEqual(
+            len(combined["final_coefficients"]), len(combined["feature_names"])
+        )
+        self.assertIn("locomotion", combined["feature_predictors"])
+        locomotion_index = combined["feature_predictors"].index("locomotion")
+        self.assertAlmostEqual(
+            combined["final_coefficients"][locomotion_index], 2.0, places=2
+        )
+
+    def test_kernel_summary_averages_sessions_before_mice(self):
+        rows = []
+        for mouse, values in (("M1", (1.0, 3.0)), ("M2", (5.0,))):
+            for run, value in enumerate(values, start=1):
+                rows.append(
+                    {
+                        "mouse": mouse,
+                        "run": run,
+                        "horizon": 0.0,
+                        "model": "combined",
+                        "predictor": "licking",
+                        "lag_s": 0.5,
+                        "coefficient": value,
+                    }
+                )
+
+        mouse_rows, group_rows = summarize_forecast_kernels(rows)
+
+        by_mouse = {row["mouse"]: row["coefficient"] for row in mouse_rows}
+        assert by_mouse == {"M1": 2.0, "M2": 5.0}
+        assert group_rows[0]["mean"] == 3.5
+        assert group_rows[0]["n_mice"] == 2
+
+    def test_gui_glm_figures_support_single_horizon_and_predictor_kernels(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        tmp_path = Path(temporary.name)
+        metric_mouse_rows = []
+        metric_group_rows = []
+        for model_index, model in enumerate(
+            ("constant_baseline", "history_only", "cross_modal", "combined")
+        ):
+            values = []
+            for mouse_index, mouse in enumerate(("M1", "M2")):
+                value = 0.1 * model_index + 0.01 * mouse_index
+                values.append(value)
+                metric_mouse_rows.append(
+                    {
+                        "mouse": mouse,
+                        "horizon": 0.0,
+                        "model": model,
+                        "value": value,
+                    }
+                )
+            metric_group_rows.append(
+                {
+                    "horizon": 0.0,
+                    "model": model,
+                    "mean": float(np.mean(values)),
+                    "sem": float(np.std(values, ddof=1) / np.sqrt(len(values))),
+                }
+            )
+
+        performance_paths = _plot_group_performance(
+            metric_mouse_rows,
+            metric_group_rows,
+            "photometry",
+            "r2",
+            tmp_path / "performance",
+            ("png",),
+            100,
+        )
+
+        kernel_session_rows = []
+        for mouse_index, mouse in enumerate(("M1", "M2")):
+            for predictor in (
+                "photometry",
+                "locomotion",
+                "licking",
+                "cue",
+                "solenoid",
+            ):
+                for lag_s in (0.0, 0.5, 1.0):
+                    kernel_session_rows.append(
+                        {
+                            "mouse": mouse,
+                            "horizon": 0.0,
+                            "model": "combined",
+                            "predictor": predictor,
+                            "lag_s": lag_s,
+                            "coefficient": lag_s + mouse_index,
+                        }
+                    )
+        mouse_kernels, group_kernels = summarize_forecast_kernels(
+            kernel_session_rows
+        )
+        kernel_paths = _plot_predictor_kernels(
+            mouse_kernels,
+            group_kernels,
+            target="photometry",
+            photometry_source="dff",
+            output_base=tmp_path / "kernels",
+            formats=("png",),
+            dpi=100,
+        )
+
+        assert performance_paths == [tmp_path / "performance.png"]
+        assert kernel_paths == [tmp_path / "kernels.png"]
+        assert all(path.is_file() for path in (*performance_paths, *kernel_paths))
 
     @unittest.skipUnless(SKLEARN_AVAILABLE, "scikit-learn is not installed")
     def test_photometry_forecasts_synthetic_future_licks(self):

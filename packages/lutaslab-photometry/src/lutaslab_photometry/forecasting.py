@@ -118,6 +118,8 @@ def build_forecast_dataset(
 
     columns = []
     feature_names = []
+    feature_predictors = []
+    feature_lags = []
     feature_groups = {}
     target_group = {
         "photometry": "photometry",
@@ -138,7 +140,10 @@ def build_forecast_dataset(
         for lag in group_lags:
             group_indices.append(len(columns))
             columns.append(arrays[name][anchors - lag])
-            feature_names.append(f"{name}[t-{float(lag) * dt:g}s]")
+            lag_seconds = float(lag) * dt
+            feature_names.append(f"{name}[t-{lag_seconds:g}s]")
+            feature_predictors.append(name)
+            feature_lags.append(lag_seconds)
         feature_groups[name] = np.asarray(group_indices, dtype=int)
     X = np.column_stack(columns)
 
@@ -159,6 +164,8 @@ def build_forecast_dataset(
         "anchor_time": time[anchors][finite],
         "target_time": time[target_start][finite],
         "feature_names": tuple(feature_names),
+        "feature_predictors": tuple(feature_predictors),
+        "feature_lags": np.asarray(feature_lags, dtype=float),
         "feature_groups": feature_groups,
         "target": target,
         "horizon": float(horizon),
@@ -477,6 +484,35 @@ def fit_forecast_models(
             "selected_alphas": tuple(selected_alphas),
             "inner_alpha_scores": tuple(inner_alpha_scores),
         }
+        final_alpha = (
+            float(alpha)
+            if alpha is not None
+            else float(np.median(selected_alphas))
+        )
+        final_scaler = StandardScaler().fit(X)
+        final_model = _fit_estimator(
+            dataset["target"],
+            final_alpha,
+            final_scaler.transform(X),
+            dataset["y"],
+        )
+        if final_model is not None:
+            standardized = np.asarray(final_model.coef_, dtype=float).reshape(-1)
+            results[model_name].update(
+                {
+                    "final_alpha": final_alpha,
+                    # Convert coefficients from effects per predictor SD back to
+                    # effects per native predictor unit for interpretable kernels.
+                    "final_coefficients": standardized / final_scaler.scale_,
+                    "feature_predictors": tuple(
+                        dataset["feature_predictors"][index] for index in columns
+                    ),
+                    "feature_lags": np.asarray(
+                        [dataset["feature_lags"][index] for index in columns],
+                        dtype=float,
+                    ),
+                }
+            )
     return {
         "models": results,
         "gap_seconds": float(gap_seconds),
@@ -513,9 +549,11 @@ def forecast_manifest(
     n_inner_folds=3,
     gap_seconds=None,
     initial_train_fraction=0.5,
+    return_kernels=False,
 ):
     """Run leakage-safe within-session forecasts for every manifest session."""
     rows = []
+    kernel_rows = []
     for info in sessions:
         selected_channel = resolve_session_channel(info, channel)
         path = processed_session_path(data_root, info)
@@ -579,7 +617,88 @@ def forecast_manifest(
                         **model_result["metrics"],
                     }
                 )
-    return rows
+                if "final_coefficients" not in model_result:
+                    continue
+                for predictor, lag, coefficient in zip(
+                    model_result["feature_predictors"],
+                    model_result["feature_lags"],
+                    model_result["final_coefficients"],
+                    strict=True,
+                ):
+                    kernel_rows.append(
+                        {
+                            **info,
+                            "path": str(path),
+                            "target": target,
+                            "channel": selected_channel,
+                            "horizon": float(horizon),
+                            "model": model_name,
+                            "predictor": predictor,
+                            "lag_s": float(lag),
+                            "coefficient": float(coefficient),
+                            "final_alpha": model_result["final_alpha"],
+                        }
+                    )
+    return (rows, kernel_rows) if return_kernels else rows
+
+
+def summarize_forecast_kernels(rows):
+    """Average session kernels within mouse, then summarize across mice."""
+
+    mouse_groups = defaultdict(list)
+    for row in rows:
+        key = (
+            row["mouse"],
+            row["horizon"],
+            row["model"],
+            row["predictor"],
+            row["lag_s"],
+        )
+        mouse_groups[key].append(row)
+
+    mouse_rows = []
+    for (mouse, horizon, model, predictor, lag_s), session_rows in mouse_groups.items():
+        values = np.asarray(
+            [row["coefficient"] for row in session_rows], dtype=float
+        )
+        mouse_rows.append(
+            {
+                "mouse": mouse,
+                "horizon": horizon,
+                "model": model,
+                "predictor": predictor,
+                "lag_s": lag_s,
+                "coefficient": float(np.nanmean(values)),
+                "n_sessions": len(session_rows),
+            }
+        )
+
+    group_groups = defaultdict(list)
+    for row in mouse_rows:
+        key = (row["horizon"], row["model"], row["predictor"], row["lag_s"])
+        group_groups[key].append(row["coefficient"])
+
+    group_rows = []
+    for (horizon, model, predictor, lag_s), values in group_groups.items():
+        finite = np.asarray(values, dtype=float)
+        finite = finite[np.isfinite(finite)]
+        sem = (
+            float(np.std(finite, ddof=1) / np.sqrt(len(finite)))
+            if len(finite) > 1
+            else np.nan
+        )
+        group_rows.append(
+            {
+                "horizon": horizon,
+                "model": model,
+                "predictor": predictor,
+                "lag_s": lag_s,
+                "mean": float(np.mean(finite)) if len(finite) else np.nan,
+                "sem": sem,
+                "n_mice": len(finite),
+            }
+        )
+    return mouse_rows, group_rows
 
 
 def summarize_forecasts(rows, metric):

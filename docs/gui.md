@@ -172,8 +172,13 @@ folds. The present response is never included among its own predictors:
 photometry-history features are strictly in the past, while behavioral features
 may include the current time bin. Raw 465 fluorescence is the default response;
 processed dF/F is available as a sensitivity analysis. Results include
-session-, mouse-, and group-level metrics, an editable performance figure, and
-analysis metadata.
+session-, mouse-, and group-level metrics and predictor-kernel tables. The GUI
+also saves editable SVG and PNG figures for held-out performance and for the
+combined model's photometry-history, running, licking, cue-onset, and
+Ensure-onset kernels. Kernel figures show individual-mouse traces together with
+the mouse mean and SEM; sessions are first averaged within each mouse. Kernel
+coefficients are converted back to native predictor units after fitting. The
+saved metadata records the modeling and summarization choices.
 
 Statistics, specialized figure assembly, and result browsing remain
 command-line or notebook workflows. The GUI is a focused front end, not a
@@ -212,8 +217,12 @@ The two lifetime modes share the sensor-independent session representation in
   Ensure response, and adaptation across subsequent deliveries. Ridge strength
   is selected inside each outer leave-one-session-out fold; performance is
   reported only on the untouched session and compared with a train-mean
-  baseline. At least three sessions are required. The exported kernels and
-  figures describe predictive associations, not causal effects.
+  baseline. At least three sessions are required. Outputs include held-out
+  session and mouse performance, session/mouse/group kernel tables, an editable
+  performance figure, and lick/Ensure kernel figures showing individual mice
+  with mouse mean and SEM. Lifetime τ and MPET kernels are expressed in
+  picoseconds. The exported kernels and figures describe predictive
+  associations, not causal effects.
 
 The conventional random-onset/circular-shift null diagnostics currently apply
 only to conventional photometry. Lifetime modes do not silently reuse those

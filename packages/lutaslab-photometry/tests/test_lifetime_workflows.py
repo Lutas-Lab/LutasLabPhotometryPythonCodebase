@@ -351,6 +351,61 @@ def test_processed_lifetime_file_is_required_for_downstream_analysis(tmp_path):
         load_processed_lifetime_session("fluopulse", row, tmp_path)
 
 
+def test_lifetime_glm_saves_mouse_level_kernels_in_picoseconds(
+    monkeypatch, tmp_path
+):
+    time = np.arange(0.0, 35.0, 0.1)
+    rows = [
+        {"mouse": "M1", "date": "260101", "run": 1},
+        {"mouse": "M1", "date": "260102", "run": 1},
+        {"mouse": "M2", "date": "260103", "run": 1},
+    ]
+
+    def fake_load(workflow, row, data_root):
+        del workflow, data_root
+        ensure = np.array([10.0, 20.0, 30.0])
+        licks = ensure + 0.5
+        values = 2.4 + 0.01 * np.sin(time) + 0.001 * int(row["run"])
+        return (
+            AlignedSession(
+                session_id=f"{row['mouse']}_{row['date']}_{row['run']}",
+                continuous={"tau": ContinuousSignal(time, values, "ns")},
+                events={
+                    "licks": EventSeries(licks),
+                    "ensure": EventSeries(ensure),
+                },
+                metadata={},
+            ),
+            {},
+        )
+
+    monkeypatch.setattr(workflows, "load_processed_lifetime_session", fake_load)
+    monkeypatch.setattr(
+        workflows,
+        "fit_ridge",
+        lambda design, response, alpha, penalize: np.zeros(design.shape[1]),
+    )
+
+    outputs = workflows.run_lifetime_glm(
+        "fluopulse",
+        rows,
+        tmp_path,
+        tmp_path / "glm",
+        signal="tau",
+        lick_kernel_seconds=2.0,
+        ensure_kernel_seconds=3.0,
+    )
+
+    output_names = {path.name for path in outputs}
+    assert "glm_session_kernels.csv" in output_names
+    assert "glm_mouse_kernels.csv" in output_names
+    assert "glm_group_kernels.csv" in output_names
+    assert "fluopulse_tau_glm_performance.svg" in output_names
+    metadata = json.loads((tmp_path / "glm" / "glm_metadata.json").read_text())
+    assert metadata["units"] == "ps"
+    assert metadata["ylabel"] == "Δτ (ps)"
+
+
 def test_lifetime_psth_writes_mouse_and_pooled_heatmaps(monkeypatch, tmp_path):
     time = np.arange(0.0, 40.0, 0.1)
 
