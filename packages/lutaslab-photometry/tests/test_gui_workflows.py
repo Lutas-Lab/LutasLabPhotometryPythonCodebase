@@ -8,6 +8,7 @@ import pytest
 
 from lutaslab_photometry.gui_workflows import (
     build_behavior_glm_command,
+    build_flmm_command,
     build_lifetime_command,
     build_preprocess_command,
     build_psth_command,
@@ -167,6 +168,29 @@ def test_build_behavior_glm_command_uses_zero_horizon_nested_model():
     assert command[command.index("--inner-folds") + 1] == "2"
     assert command[command.index("--group") + 1] == "Control"
     assert command[command.index("--condition") + 1] == "Ensure"
+
+
+def test_build_flmm_command_supports_prepare_only_across_workflows():
+    command = build_flmm_command(
+        ".",
+        "iflip3",
+        "sessions.csv",
+        "data",
+        "output",
+        signal="mpet",
+        event="ensure",
+        effect="condition",
+        window=(-2, 5),
+        dt=0.2,
+        prepare_only=True,
+        cores=3,
+    )
+
+    assert command[:3] == [command[0], "-m", "lutaslab_photometry.cli.run_flmm"]
+    assert command[command.index("--workflow") + 1] == "iflip3"
+    assert command[command.index("--effect") + 1] == "condition"
+    assert command[command.index("--cores") + 1] == "3"
+    assert "--prepare-only" in command
 
 
 def test_build_lifetime_command_includes_sensor_specific_options():

@@ -17,6 +17,7 @@ def test_streamlit_app_loads_without_exceptions():
         "2. Batch preprocessing",
         "3. Event-aligned PSTH",
         "4. Behavioral GLM",
+        "5. Functional mixed model",
     ]
     assert {button.label for button in app.button} >= {
         "Validate sessions",
@@ -27,6 +28,8 @@ def test_streamlit_app_loads_without_exceptions():
         "Run PSTH and plots",
         "Preview GLM command",
         "Run behavioral GLM",
+        "Prepare FLMM dataset",
+        "Run functional mixed model",
     }
 
 
@@ -48,6 +51,7 @@ def test_streamlit_lifetime_modes_load(workflow, expected_signal):
         "2. Preprocess and align",
         "3. Event-aligned PSTH",
         "4. Lifetime GLM",
+        "5. Functional mixed model",
     ]
     assert app.selectbox(key=f"{workflow}_signal").value == expected_signal
     assert {button.label for button in app.button} >= {
@@ -56,4 +60,6 @@ def test_streamlit_lifetime_modes_load(workflow, expected_signal):
         "Run preprocessing",
         "Run PSTH and heatmaps",
         "Run lifetime GLM",
+        "Prepare FLMM dataset",
+        "Run functional mixed model",
     }

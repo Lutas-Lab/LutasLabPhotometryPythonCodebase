@@ -299,6 +299,72 @@ def build_behavior_glm_command(
     return command
 
 
+def build_flmm_command(
+    project_root,
+    workflow,
+    manifest,
+    data_root,
+    output_dir,
+    *,
+    signal,
+    event,
+    effect="condition",
+    channel="manifest",
+    window=(-5.0, 20.0),
+    dt=0.1,
+    normalization="zscore",
+    baseline=(-5.0, 0.0),
+    group_filter=None,
+    condition_filter=None,
+    prepare_only=False,
+    cores=1,
+):
+    """Build the cross-acquisition non-concurrent FLMM command."""
+
+    if workflow not in {"conventional", "fluopulse", "iflip3"}:
+        raise ValueError("workflow must be conventional, fluopulse, or iflip3")
+    command = _python_command(project_root, "run_flmm.py")
+    command.extend(
+        [
+            "--workflow",
+            str(workflow),
+            "--manifest",
+            str(Path(manifest)),
+            "--data-root",
+            str(Path(data_root)),
+            "--output-dir",
+            str(Path(output_dir)),
+            "--signal",
+            str(signal),
+            "--event",
+            str(event),
+            "--effect",
+            str(effect),
+            "--channel",
+            str(channel),
+            "--window",
+            str(float(window[0])),
+            str(float(window[1])),
+            "--dt",
+            str(float(dt)),
+            "--normalization",
+            str(normalization),
+            "--baseline",
+            str(float(baseline[0])),
+            str(float(baseline[1])),
+            "--cores",
+            str(int(cores)),
+        ]
+    )
+    if group_filter is not None:
+        command.extend(["--group", str(group_filter)])
+    if condition_filter is not None:
+        command.extend(["--condition", str(condition_filter)])
+    if prepare_only:
+        command.append("--prepare-only")
+    return command
+
+
 def build_lifetime_command(
     project_root,
     action,

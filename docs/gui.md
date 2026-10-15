@@ -202,3 +202,27 @@ The two lifetime modes share the sensor-independent session representation in
 The conventional random-onset/circular-shift null diagnostics currently apply
 only to conventional photometry. Lifetime modes do not silently reuse those
 controls because their sampling and correction pipelines differ.
+
+## Functional mixed-effects model pilot
+
+All three acquisition modes include a fifth **Functional mixed model** tab. This
+is the scalar-covariate FLMM described in the accompanying implementation guide;
+it is intentionally separate from the Behavioral/Lifetime GLM tabs. It estimates
+condition, group, or within-session trial-progress coefficient curves over an
+event-aligned response while using mouse as a random-effect unit. It does not
+estimate lagged behavioral kernels, and the concurrent FLMM extension is not part
+of this pilot.
+
+Use **Prepare FLMM dataset** first. Preparation validates the model, requires
+complete event windows, and writes the exact trial-by-time table, time grid,
+formula, exclusions, and preflight counts without requiring R. **Run functional
+mixed model** then fits that frozen input and requires a separate R installation
+with `fastFMM`. Missing R support does not affect preprocessing, PSTH, GLM, or the
+rest of the GUI. See [Functional mixed-effects models](flmm.md) for installation,
+outputs, and interpretation.
+
+Condition/group fits require at least two mice in every retained level. The tab
+shows the reference-level response, reconstructed comparison responses, direct
+effect curves with confidence bands, and mouse-specific deviation curves. It also
+reports retained replication by level and exposes the corresponding CSV/JSON
+artifacts for download.

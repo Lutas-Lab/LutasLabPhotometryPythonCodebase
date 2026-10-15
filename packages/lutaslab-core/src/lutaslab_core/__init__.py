@@ -9,6 +9,7 @@ from .events import (
     find_ttl_pulses,
     sample_lick_bout_features,
 )
+from .functional_trials import FunctionalTrialDataset
 from .glm import (
     RidgeCVResult,
     TemporalBasis,
@@ -62,6 +63,7 @@ __all__ = [
     "ContinuousSignal",
     "DEFAULT_CHANNEL_ROWS",
     "EventSeries",
+    "FunctionalTrialDataset",
     "GammaTransferFit",
     "IntervalSeries",
     "LickBouts",

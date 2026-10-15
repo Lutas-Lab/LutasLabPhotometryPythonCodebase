@@ -48,6 +48,7 @@ lutaslab-plot-figure5-reanalysis = "lutaslab_photometry.cli.plot_figure5_reanaly
 lutaslab-run-figure5-bout-analysis = "lutaslab_photometry.cli.run_figure5_bout_analysis:main"
 lutaslab-run-figure5-reanalysis = "lutaslab_photometry.cli.run_figure5_reanalysis:main"
 lutaslab-run-forecasting = "lutaslab_photometry.cli.run_forecasting:main"
+lutaslab-run-flmm = "lutaslab_photometry.cli.run_flmm:main"
 lutaslab-run-lickbout-delivery-analysis = "lutaslab_photometry.cli.run_lickbout_delivery_analysis:main"
 lutaslab-run-lifetime-workflow = "lutaslab_photometry.cli.run_lifetime_workflow:main"
 lutaslab-run-multitastant-analysis = "lutaslab_photometry.cli.run_multitastant_analysis:main"
@@ -62,7 +63,7 @@ lutaslab-validate-notebooks = "lutaslab_photometry.cli.validate_notebooks:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-lutaslab_photometry = ["data/*.json"]
+lutaslab_photometry = ["data/*.json", "r/*.R"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

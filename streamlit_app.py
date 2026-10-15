@@ -4,15 +4,23 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 from collections import deque
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
+from lutaslab_photometry.functional_mixed import (
+    CONVENTIONAL_FLMM_EVENTS,
+    CONVENTIONAL_FLMM_SIGNALS,
+    FLMM_EFFECTS,
+    flmm_runtime_status,
+)
 from lutaslab_photometry.gui_workflows import (
     MANIFEST_COLUMNS,
     build_behavior_glm_command,
+    build_flmm_command,
     build_lifetime_command,
     build_preprocess_command,
     build_psth_command,
@@ -75,6 +83,13 @@ def _cached_update_status(project_root: str) -> UpdateStatus:
     """Limit the public GitHub check to once every six hours."""
 
     return check_for_update(project_root)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_flmm_runtime_status():
+    """Avoid repeatedly starting R while Streamlit reruns widget interactions."""
+
+    return flmm_runtime_status()
 
 
 def _show_update_status() -> None:
@@ -453,6 +468,355 @@ def _run_lifetime_workflow(
         st.error(f"{workflow_name} exited with code {return_code}.")
 
 
+def _render_flmm_results(output_dir: str | Path) -> None:
+    """Show prepared-model diagnostics and fitted artifacts when they exist."""
+
+    destination = Path(output_dir).expanduser()
+    preflight_path = destination / "flmm_preflight.json"
+    specification_path = destination / "flmm_specification.json"
+    if not preflight_path.is_file() or not specification_path.is_file():
+        return
+
+    preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    st.divider()
+    st.subheader("Prepared-model summary")
+    metrics = st.columns(5)
+    for column, label, key in zip(
+        metrics,
+        ("Mice", "Sessions", "Trials", "Time points", "Excluded"),
+        ("n_mice", "n_sessions", "n_trials", "n_timepoints", "excluded_trials"),
+        strict=True,
+    ):
+        column.metric(label, preflight.get(key, "—"))
+    st.code(specification.get("formula", "Formula unavailable"), language="r")
+    levels = specification.get("levels", {})
+    references = specification.get("reference_levels", {})
+    if levels:
+        st.caption(
+            "Categorical levels: "
+            + "; ".join(
+                f"{name}={values} (reference: {references.get(name, '—')})"
+                for name, values in levels.items()
+            )
+        )
+    level_counts = preflight.get("level_counts", {})
+    focal_effect = specification.get("effect")
+    if focal_effect in level_counts:
+        st.markdown(f"**Retained {focal_effect} replication**")
+        st.dataframe(
+            [
+                {focal_effect.title(): level, **counts}
+                for level, counts in level_counts[focal_effect].items()
+            ],
+            hide_index=True,
+            width="stretch",
+        )
+    for warning in preflight.get("warnings", []):
+        st.warning(warning)
+
+    fitted_plot = destination / "flmm_fitted_responses.png"
+    mouse_plot = destination / "flmm_mouse_deviations.png"
+    fixed_plots = [
+        path
+        for path in sorted(destination.glob("flmm_*.png"))
+        if path not in {fitted_plot, mouse_plot}
+    ]
+    if fitted_plot.is_file():
+        st.markdown("#### Modeled responses")
+        st.image(str(fitted_plot), width="stretch")
+        st.caption(
+            "These curves reconstruct the reference and comparison conditions/groups, "
+            "or earlier/middle/later trials. Formal inference belongs to the direct "
+            "coefficient plots below."
+        )
+    if fixed_plots:
+        st.markdown("#### Population response and direct effects")
+        for path in fixed_plots:
+            st.image(str(path), width="stretch")
+        st.caption(
+            "The intercept is the modeled reference response. Difference/progression "
+            "curves show how that response changes; the joint band is the whole-window "
+            "inference."
+        )
+    if mouse_plot.is_file():
+        st.markdown("#### Mouse-to-mouse variation")
+        st.image(str(mouse_plot), width="stretch")
+        st.caption(
+            "Each line is a mouse's estimated random-intercept deviation from the "
+            "population curve, not a separate pairwise mouse test."
+        )
+
+    downloadable = [
+        destination / name
+        for name in (
+            "flmm_specification.json",
+            "flmm_preflight.json",
+            "flmm_exclusions.csv",
+            "flmm_coefficients.csv",
+            "flmm_fitted_responses.csv",
+            "flmm_mouse_random_effects.csv",
+            "flmm_backend_info.csv",
+        )
+        if (destination / name).is_file()
+    ]
+    with st.expander("Download or inspect model artifacts"):
+        for path in downloadable:
+            st.download_button(
+                f"Download {path.name}",
+                data=path.read_bytes(),
+                file_name=path.name,
+                key=f"flmm_download_{path.resolve()}",
+            )
+
+
+def _render_flmm_tab(workflow, rows, manifest_path, data_root) -> None:
+    """Render the shared non-concurrent FLMM controls for one acquisition mode."""
+
+    st.subheader("Event-aligned functional mixed-effects model")
+    st.write(
+        "Estimates an entire event-aligned response curve while accounting for "
+        "repeated trials from the same mouse. Use this beside the predictive GLM: "
+        "the two analyses answer different questions."
+    )
+    st.caption(
+        "This pilot uses the established scalar-covariate fastFMM model, not the "
+        "experimental concurrent/lagged model. Dataset preparation works without R; "
+        "fitting requires R, Rscript on PATH, and the fastFMM package."
+    )
+    prefix = f"{workflow}_flmm"
+    group_filter, condition_filter = _analysis_subset_controls(rows, prefix)
+
+    if workflow == "conventional":
+        signals = CONVENTIONAL_FLMM_SIGNALS
+        events = CONVENTIONAL_FLMM_EVENTS
+    else:
+        signals = LIFETIME_SIGNALS[workflow]
+        events = LIFETIME_EVENTS
+
+    first, second, third = st.columns(3)
+    with first:
+        signal = st.selectbox("FLMM response", signals, key=f"{prefix}_signal")
+        event = st.selectbox("Alignment event", events, key=f"{prefix}_event")
+        effect = st.selectbox(
+            "Primary effect",
+            FLMM_EFFECTS,
+            format_func=lambda value: {
+                "condition": "Condition",
+                "group": "Group",
+                "progress": "Within-session trial progress",
+            }[value],
+            key=f"{prefix}_effect",
+        )
+        channel = (
+            st.selectbox(
+                "Photoreceiver channel",
+                ("manifest", "1", "2"),
+                key=f"{prefix}_channel",
+            )
+            if workflow == "conventional"
+            else "manifest"
+        )
+        formula = (
+            f"outcome ~ {effect} + trial_z + session_z + (1 | mouse)"
+            if effect in {"condition", "group"}
+            else "outcome ~ trial_z + session_z + (1 | mouse)"
+        )
+        st.caption("Candidate model")
+        st.code(formula, language="r")
+        st.caption(
+            "Preparation omits trial/session progression terms if the retained data "
+            "contain no variation. The exact fitted formula appears in the report."
+        )
+    with second:
+        window_start = st.number_input(
+            "Window start (s)", value=-5.0, key=f"{prefix}_window_start"
+        )
+        window_end = st.number_input(
+            "Window end (s)", value=20.0, key=f"{prefix}_window_end"
+        )
+        dt = st.number_input(
+            "Time bin (s)", min_value=0.01, value=0.1, key=f"{prefix}_dt"
+        )
+    with third:
+        normalization = st.selectbox(
+            "Normalization",
+            ("zscore", "subtract", "none"),
+            key=f"{prefix}_normalization",
+        )
+        baseline_start = st.number_input(
+            "Baseline start (s)", value=-5.0, key=f"{prefix}_baseline_start"
+        )
+        baseline_end = st.number_input(
+            "Baseline end (s)", value=0.0, key=f"{prefix}_baseline_end"
+        )
+        cores = st.number_input(
+            "R worker cores", min_value=1, value=1, step=1, key=f"{prefix}_cores"
+        )
+
+    output_dir = st.text_input(
+        "FLMM output directory",
+        value=str(PROJECT_ROOT / "analysis" / workflow / "flmm"),
+        key=f"{prefix}_output",
+    )
+    filtered_rows = [
+        row
+        for row in rows
+        if (group_filter is None or str(row.get("group", "")) == group_filter)
+        and (
+            condition_filter is None
+            or str(row.get("condition", "")) == condition_filter
+        )
+    ]
+    mice = {
+        str(row.get("mouse", "")).strip()
+        for row in filtered_rows
+        if str(row.get("mouse", "")).strip()
+    }
+    effect_levels = {
+        str(row.get(effect, "") or "unspecified").strip() or "unspecified"
+        for row in filtered_rows
+    }
+    mice_per_level = {
+        level: {
+            str(row.get("mouse", "")).strip()
+            for row in filtered_rows
+            if (str(row.get(effect, "") or "unspecified").strip() or "unspecified")
+            == level
+            and str(row.get("mouse", "")).strip()
+        }
+        for level in effect_levels
+    }
+    design_errors = []
+    if len(mice) < 2:
+        design_errors.append("At least two mice are required.")
+    if effect in {"condition", "group"} and len(effect_levels) < 2:
+        design_errors.append(f"The {effect} model requires at least two retained levels.")
+    if effect in {"condition", "group"}:
+        if "unspecified" in effect_levels:
+            design_errors.append(
+                f"Populate {effect} for every retained session before fitting this model."
+            )
+        under_replicated = [
+            level for level, level_mice in mice_per_level.items() if len(level_mice) < 2
+        ]
+        if under_replicated:
+            design_errors.append(
+                f"Every {effect} level requires at least two mice; under-replicated "
+                f"levels: {sorted(under_replicated)}."
+            )
+    if effect == "group" and group_filter is not None:
+        design_errors.append("Remove the group filter to estimate a group difference.")
+    if effect == "condition" and condition_filter is not None:
+        design_errors.append(
+            "Remove the condition filter to estimate a condition difference."
+        )
+    if design_errors:
+        for message in dict.fromkeys(design_errors):
+            st.error(message)
+    elif effect in {"condition", "group"}:
+        reference = sorted(effect_levels)[0]
+        st.info(
+            f"The alphabetical reference {effect} will be {reference!r}. The report "
+            "will show each modeled response plus direct difference curves."
+        )
+
+    runtime = _cached_flmm_runtime_status()
+    if runtime["ready"]:
+        st.success(
+            f"FLMM backend ready: fastFMM {runtime['fastfmm_version']} via "
+            f"{runtime['rscript']}"
+        )
+    else:
+        st.warning(
+            "Rscript/fastFMM is unavailable. You can prepare and inspect inputs after "
+            "the design is valid, but fitting is disabled."
+        )
+    common = dict(
+        signal=signal,
+        event=event,
+        effect=effect,
+        channel=channel,
+        window=(window_start, window_end),
+        dt=dt,
+        normalization=normalization,
+        baseline=(baseline_start, baseline_end),
+        group_filter=group_filter,
+        condition_filter=condition_filter,
+        cores=int(cores),
+    )
+    prepare_command = build_flmm_command(
+        PROJECT_ROOT,
+        workflow,
+        manifest_path,
+        data_root,
+        output_dir,
+        prepare_only=True,
+        **common,
+    )
+    fit_command = build_flmm_command(
+        PROJECT_ROOT,
+        workflow,
+        manifest_path,
+        data_root,
+        output_dir,
+        **common,
+    )
+
+    prepare_col, fit_col = st.columns(2)
+    with prepare_col:
+        if st.button(
+            "Prepare FLMM dataset",
+            width="stretch",
+            key=f"{prefix}_prepare",
+            disabled=bool(design_errors),
+        ):
+            if workflow == "conventional":
+                _run_workflow(
+                    prepare_command,
+                    rows,
+                    manifest_path,
+                    data_root,
+                    "FLMM dataset preparation",
+                )
+            else:
+                _run_lifetime_workflow(
+                    prepare_command,
+                    workflow,
+                    rows,
+                    manifest_path,
+                    data_root,
+                    "FLMM dataset preparation",
+                )
+    with fit_col:
+        if st.button(
+            "Run functional mixed model",
+            type="primary",
+            width="stretch",
+            key=f"{prefix}_run",
+            disabled=bool(design_errors) or not runtime["ready"],
+        ):
+            if workflow == "conventional":
+                _run_workflow(
+                    fit_command, rows, manifest_path, data_root, "Functional mixed model"
+                )
+            else:
+                _run_lifetime_workflow(
+                    fit_command,
+                    workflow,
+                    rows,
+                    manifest_path,
+                    data_root,
+                    "Functional mixed model",
+                )
+    with st.expander("Advanced: inspect or copy commands"):
+        if st.button("Preview preparation command", key=f"{prefix}_preview_prepare"):
+            _preview_command(prepare_command)
+        if st.button("Preview fit command", key=f"{prefix}_preview_fit"):
+            _preview_command(fit_command)
+    _render_flmm_results(output_dir)
+
+
 def _lifetime_gui(workflow: str) -> None:
     label = "FluoPulse" if workflow == "fluopulse" else "iFLIP3"
     state_key = f"{workflow}_manifest_rows"
@@ -485,12 +849,13 @@ def _lifetime_gui(workflow: str) -> None:
             "discovery."
         )
 
-    sessions_tab, align_tab, psth_tab, glm_tab = st.tabs(
+    sessions_tab, align_tab, psth_tab, glm_tab, flmm_tab = st.tabs(
         [
             "1. Sessions",
             "2. Preprocess and align",
             "3. Event-aligned PSTH",
             "4. Lifetime GLM",
+            "5. Functional mixed model",
         ]
     )
     with sessions_tab:
@@ -1061,6 +1426,9 @@ def _lifetime_gui(workflow: str) -> None:
             if st.button("Preview GLM command", key=f"{workflow}_preview_glm"):
                 _preview_command(command)
 
+    with flmm_tab:
+        _render_flmm_tab(workflow, rows, manifest_path, data_root)
+
 
 st.set_page_config(page_title="Lutas Lab Photometry", page_icon="📈", layout="wide")
 st.title("Lutas Lab Photometry")
@@ -1100,12 +1468,13 @@ with st.sidebar:
 if "manifest_rows" not in st.session_state:
     st.session_state.manifest_rows = DEFAULT_ROWS
 
-sessions_tab, preprocess_tab, psth_tab, glm_tab = st.tabs(
+sessions_tab, preprocess_tab, psth_tab, glm_tab, flmm_tab = st.tabs(
     [
         "1. Sessions",
         "2. Batch preprocessing",
         "3. Event-aligned PSTH",
         "4. Behavioral GLM",
+        "5. Functional mixed model",
     ]
 )
 
@@ -1505,3 +1874,8 @@ with glm_tab:
     with st.expander("Advanced: inspect or copy command"):
         if st.button("Preview GLM command", width="stretch"):
             _preview_command(glm_command)
+
+with flmm_tab:
+    _render_flmm_tab(
+        "conventional", editor_rows, manifest_path_text, data_root
+    )

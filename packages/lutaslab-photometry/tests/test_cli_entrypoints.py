@@ -14,6 +14,7 @@ EXPECTED_COMMANDS = {
     "lutaslab-run-figure5-bout-analysis",
     "lutaslab-run-figure5-reanalysis",
     "lutaslab-run-forecasting",
+    "lutaslab-run-flmm",
     "lutaslab-run-lickbout-delivery-analysis",
     "lutaslab-run-lifetime-workflow",
     "lutaslab-run-multitastant-analysis",
@@ -42,6 +43,7 @@ def test_console_command_starts_and_handles_help(command, monkeypatch, capsys):
     main = getattr(import_module(module_name), function_name)
 
     if command == "lutaslab-check-install":
+        monkeypatch.setattr(sys, "argv", [command])
         main()
     else:
         monkeypatch.setattr(sys, "argv", [command, "--help"])

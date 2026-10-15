@@ -176,6 +176,7 @@ the current working directory.
 | [Conventional analysis](packages/lutaslab-photometry/docs/analysis-guide.md) | Raw-data layout, preprocessing, manifests, PSTHs, figures, notebooks, and platforms |
 | [Command-line workflows](docs/cli.md) | Commands, options, outputs, trial filters, and null controls |
 | [GUI](docs/gui.md) | Isolated Windows installer, Streamlit workflows, and run safeguards |
+| [Functional mixed models](docs/flmm.md) | Scalar FLMM pilot, optional R setup, CLI, outputs, and interpretation |
 | [Modeling and forecasting](packages/lutaslab-photometry/docs/modeling.md) | Ridge GLMs, temporal models, validation, regularization, and forecasting |
 | [Architecture](docs/architecture.md) | Package ownership, API policy, and compatibility |
 | [Statistical policy](docs/statistical-analysis-policy.md) | Biological units, deposited-data tests, and interpretation |
