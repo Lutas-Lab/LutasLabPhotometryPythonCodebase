@@ -109,6 +109,26 @@ class AlignedSession:
                     if self.alignment is not None
                     else None
                 ),
+                "clock_max_residual_seconds": (
+                    self.alignment.max_residual_seconds
+                    if self.alignment is not None
+                    else None
+                ),
+                "clock_matched_pulses": (
+                    self.alignment.matched_pulses
+                    if self.alignment is not None
+                    else None
+                ),
+                "clock_unmatched_iflip_marker_indices": (
+                    self.alignment.unmatched_iflip_marker_indices.tolist()
+                    if self.alignment is not None
+                    else []
+                ),
+                "clock_unmatched_nidaq_pulse_indices": (
+                    self.alignment.unmatched_nidaq_pulse_indices.tolist()
+                    if self.alignment is not None
+                    else []
+                ),
             },
         )
 

@@ -769,23 +769,35 @@ def preprocess_lifetime_sessions(
         if output.exists() and not overwrite:
             outputs.append(output)
             continue
-        if workflow == "iflip3" and iflip3_fit_settings is not None:
-            session, paths = load_lifetime_session(
-                workflow,
-                row,
-                data_root,
-                iflip3_fit_settings=iflip3_fit_settings,
-            )
-        else:
-            session, paths = load_lifetime_session(workflow, row, data_root)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        _save_processed_lifetime_session(
-            workflow,
-            session,
-            paths,
-            output,
-            preprocessing_parameters,
+        identity = (
+            f"{row.get('mouse', '<unknown>')} {row.get('date', '<unknown>')} "
+            f"run {row.get('run', '<unknown>')}"
         )
+        source_column = "iflip_path" if workflow == "iflip3" else "doric_path"
+        try:
+            if workflow == "iflip3" and iflip3_fit_settings is not None:
+                session, paths = load_lifetime_session(
+                    workflow,
+                    row,
+                    data_root,
+                    iflip3_fit_settings=iflip3_fit_settings,
+                )
+            else:
+                session, paths = load_lifetime_session(workflow, row, data_root)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            _save_processed_lifetime_session(
+                workflow,
+                session,
+                paths,
+                output,
+                preprocessing_parameters,
+            )
+        except Exception as error:
+            raise RuntimeError(
+                f"Failed to preprocess {workflow} session {identity}; "
+                f"source={row.get(source_column, '<missing>')!r}, "
+                f"nidaq={row.get('nidaq_path', '<missing>')!r}: {error}"
+            ) from error
         outputs.append(output)
     return outputs
 

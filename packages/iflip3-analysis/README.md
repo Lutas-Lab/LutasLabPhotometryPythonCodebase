@@ -135,6 +135,14 @@ clock conversion, which corrects both the acquisition offset and clock drift.
 The resulting MPET samples and behavior events are all expressed on the NI-DAQ
 clock.
 
+The iFLiP matcher tolerates the expected 100/300 ms quantization excursions
+that occur when a 5 Hz marker is represented on the 10 Hz lifetime sample grid.
+It assigns ordered pulse identities, skips isolated genuinely missing or
+duplicated pulses, and rejects fits with excessive residuals or implausible
+clock drift. Processed metadata records matched counts, residual diagnostics,
+and unmatched pulse indices so every repair remains auditable. Extra NI-DAQ
+pulses after the iFLiP recording ends are retained as unmatched trailing pulses.
+
 NI-DAQ is optional per recording. Passing `None` preserves MPET and raw
 intensity on the native iFLiP clock. Because iFLiP files do not contain the
 NI-DAQ behavioral channels, licking, cue, Ensure, and running data are empty or

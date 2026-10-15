@@ -21,3 +21,16 @@ def test_clock_alignment_recovers_offset_and_drift():
     np.testing.assert_allclose(alignment.intercept_seconds, truth_intercept)
     np.testing.assert_allclose(alignment.nidaq_to_iflip(nidaq), iflip)
     assert alignment.max_residual_seconds < 1e-12
+
+
+def test_iflip_alignment_tolerates_100_300_ms_marker_quantization():
+    iflip = np.arange(30, dtype=float) * 0.2 + 0.05
+    iflip[8:12] += 0.1
+    nidaq = np.arange(30, dtype=float) * 0.2 + 0.4
+
+    alignment = fit_clock_alignment(iflip, nidaq)
+
+    assert alignment.matched_pulses == 30
+    assert alignment.unmatched_iflip_marker_indices.size == 0
+    assert alignment.unmatched_nidaq_pulse_indices.size == 0
+    assert alignment.max_residual_seconds < 0.1

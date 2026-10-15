@@ -406,6 +406,34 @@ def test_lifetime_glm_saves_mouse_level_kernels_in_picoseconds(
     assert metadata["ylabel"] == "Δτ (ps)"
 
 
+def test_lifetime_preprocessing_error_identifies_session_and_paths(monkeypatch, tmp_path):
+    row = {
+        "mouse": "AL166",
+        "date": "261013",
+        "run": 4,
+        "iflip_path": "FLIM FLIP/AL166/session.iFLiP3",
+        "nidaq_path": "Photometry/AL166/session-nidaq.mat",
+        "running_path": "",
+        "background_path": "",
+    }
+    monkeypatch.setattr(
+        workflows,
+        "load_lifetime_session",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            ValueError("Source pulse interval after index 64 is 0.3 s")
+        ),
+    )
+
+    with pytest.raises(RuntimeError) as error:
+        preprocess_lifetime_sessions("iflip3", [row], tmp_path)
+
+    message = str(error.value)
+    assert "AL166 261013 run 4" in message
+    assert row["iflip_path"] in message
+    assert row["nidaq_path"] in message
+    assert "index 64" in message
+
+
 def test_lifetime_psth_writes_mouse_and_pooled_heatmaps(monkeypatch, tmp_path):
     time = np.arange(0.0, 40.0, 0.1)
 

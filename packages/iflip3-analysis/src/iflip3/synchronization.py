@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from lutaslab_core.synchronization import fit_clock_alignment as _fit_clock_alignment
@@ -27,6 +27,18 @@ class ClockAlignment:
     matched_pulses: int
     iflip_marker_times: np.ndarray
     nidaq_pulse_times: np.ndarray
+    iflip_marker_indices: np.ndarray = field(
+        default_factory=lambda: np.array([], dtype=int)
+    )
+    nidaq_pulse_indices: np.ndarray = field(
+        default_factory=lambda: np.array([], dtype=int)
+    )
+    unmatched_iflip_marker_indices: np.ndarray = field(
+        default_factory=lambda: np.array([], dtype=int)
+    )
+    unmatched_nidaq_pulse_indices: np.ndarray = field(
+        default_factory=lambda: np.array([], dtype=int)
+    )
 
     def iflip_to_nidaq(self, times: np.ndarray) -> np.ndarray:
         return self.intercept_seconds + self.scale * np.asarray(times, dtype=float)
@@ -61,6 +73,11 @@ def fit_clock_alignment(
         nidaq_pulse_times,
         source_start_index=iflip_start_index,
         target_start_index=nidaq_start_index,
+        allow_unmatched_pulses=True,
+        interval_jitter_fraction=0.5,
+        max_rms_residual_fraction=0.35,
+        max_residual_fraction=0.6,
+        max_abs_drift_ppm=5000.0,
     )
     return ClockAlignment(
         intercept_seconds=alignment.intercept_seconds,
@@ -69,6 +86,10 @@ def fit_clock_alignment(
         matched_pulses=alignment.matched_pulses,
         iflip_marker_times=alignment.source_times,
         nidaq_pulse_times=alignment.target_times,
+        iflip_marker_indices=alignment.source_indices,
+        nidaq_pulse_indices=alignment.target_indices,
+        unmatched_iflip_marker_indices=alignment.unmatched_source_indices,
+        unmatched_nidaq_pulse_indices=alignment.unmatched_target_indices,
     )
 
 
