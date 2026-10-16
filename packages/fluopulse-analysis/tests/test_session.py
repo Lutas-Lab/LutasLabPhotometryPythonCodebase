@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 from fluopulse_analysis.events import TTLPulses
 from fluopulse_analysis.io import FluoPulseRecording
 from fluopulse_analysis.nidaq import NIDAQRecording, RunningData
@@ -120,3 +121,51 @@ def test_process_session_without_nidaq_uses_doric_clock_and_events(monkeypatch):
     np.testing.assert_allclose(common.events["ensure"].timestamps, [0.25])
     assert common.metadata["timebase"] == "doric_native"
     assert common.metadata["nidaq_aligned"] is False
+
+
+def test_flat_zero_running_is_flagged_and_omitted(monkeypatch):
+    doric_sync = np.arange(0.01, 2.01, 1 / 30)
+    doric = FluoPulseRecording(
+        path=Path("recording.doric"),
+        time=np.arange(0.1, 2.0, 0.1),
+        tau_ns=np.ones(19) * 2.5,
+        amplitude=np.ones(19) * 80,
+        chi_square=np.ones(19) * 0.01,
+        r_square=np.ones(19) * 0.999,
+        irf_time_ns=np.arange(4),
+        irf_raw=np.ones(4),
+        irf_values=np.ones(4),
+        digital_channels={"sync": "DIO02"},
+        digital_pulses={"sync": _pulses(doric_sync)},
+        waveform_points=4,
+    )
+    nidaq_sync = 0.2 + doric_sync
+    nidaq_time = np.arange(0, 2.5, 0.001)
+    data = np.zeros((8, nidaq_time.size))
+    for time in nidaq_sync:
+        index = np.searchsorted(nidaq_time, time)
+        data[1, index : index + 2] = 3
+    nidaq = NIDAQRecording(
+        Path("nidaq.mat"), data, nidaq_time, 1000.0,
+        {"photoreceiver_1": 0, "sync": 1, "photoreceiver_2": 2,
+         "licking": 3, "visual_cue": 4, "ttl_465": 5, "ttl_405": 6,
+         "ensure": 7},
+    )
+    monkeypatch.setattr("fluopulse_analysis.session.read_doric", lambda *a, **k: doric)
+    monkeypatch.setattr("fluopulse_analysis.session.read_nidaq", lambda *a, **k: nidaq)
+    monkeypatch.setattr(
+        "fluopulse_analysis.session.read_running",
+        lambda *a, **k: RunningData(np.zeros(doric_sync.size), None, None),
+    )
+
+    with pytest.warns(RuntimeWarning, match="flat line at zero"):
+        session = process_aligned_session(
+            "recording.doric", "nidaq.mat", running_path="running.mat"
+        )
+
+    assert session.running_speed is None
+    assert session.running_time_nidaq is None
+    common = session.to_core_session()
+    assert "running_speed" not in common.continuous
+    assert common.metadata["running_data_valid"] is False
+    assert common.metadata["running_data_status"] == "invalid_flat_zero"

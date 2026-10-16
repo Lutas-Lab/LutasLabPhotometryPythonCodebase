@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from lutaslab_core.nidaq import RunningQuality, assess_running_quality
 from lutaslab_core.session import (
     AlignedSession as CoreAlignedSession,
 )
@@ -48,6 +50,7 @@ class AlignedSession:
     doric_ensure_pulses: TTLPulses | None
     running_time_nidaq: np.ndarray | None = None
     running_speed: np.ndarray | None = None
+    running_quality: RunningQuality | None = None
 
     @property
     def nidaq_coverage_mask(self) -> np.ndarray:
@@ -120,26 +123,29 @@ class AlignedSession:
                 self.doric_ensure_pulses.offset_times,
                 "doric_ensure",
             )
+        metadata = {
+            "sensor": "fluopulse",
+            "source_path": str(self.doric.path),
+            "timebase": "nidaq_aligned" if self.alignment is not None else "doric_native",
+            "nidaq_aligned": self.alignment is not None,
+            "clock_drift_ppm": (
+                self.alignment.drift_ppm if self.alignment is not None else None
+            ),
+            "clock_rms_residual_seconds": (
+                self.alignment.rms_residual_seconds
+                if self.alignment is not None
+                else None
+            ),
+            "nidaq_coverage_fraction": self.nidaq_coverage_fraction,
+        }
+        if self.running_quality is not None:
+            metadata.update(self.running_quality.as_metadata())
         return CoreAlignedSession(
             session_id=session_id or self.doric.path.stem,
             continuous=continuous,
             events=events,
             intervals=intervals,
-            metadata={
-                "sensor": "fluopulse",
-                "source_path": str(self.doric.path),
-                "timebase": "nidaq_aligned" if self.alignment is not None else "doric_native",
-                "nidaq_aligned": self.alignment is not None,
-                "clock_drift_ppm": (
-                    self.alignment.drift_ppm if self.alignment is not None else None
-                ),
-                "clock_rms_residual_seconds": (
-                    self.alignment.rms_residual_seconds
-                    if self.alignment is not None
-                    else None
-                ),
-                "nidaq_coverage_fraction": self.nidaq_coverage_fraction,
-            },
+            metadata=metadata,
         )
 
     def to_pynapple(self) -> dict[str, Any]:
@@ -263,17 +269,26 @@ def process_aligned_session(
 
     running_time = None
     running_speed = None
+    running_quality = None
     if running_path is not None:
         running = read_running(running_path)
-        if running.timestamps is not None:
-            running_time = running.timestamps.copy()
-        elif running.speed.size == nidaq_sync.onset_times.size:
-            running_time = nidaq_sync.onset_times.copy()
+        running_quality = assess_running_quality(running.speed)
+        if running_quality.is_valid:
+            if running.timestamps is not None:
+                running_time = running.timestamps.copy()
+            elif running.speed.size == nidaq_sync.onset_times.size:
+                running_time = nidaq_sync.onset_times.copy()
+            else:
+                duration = nidaq.timestamps[-1] - nidaq.timestamps[0]
+                inferred_rate = running.speed.size / duration
+                running_time = nidaq.timestamps[0] + np.arange(running.speed.size) / inferred_rate
+            running_speed = running.speed.copy()
         else:
-            duration = nidaq.timestamps[-1] - nidaq.timestamps[0]
-            inferred_rate = running.speed.size / duration
-            running_time = nidaq.timestamps[0] + np.arange(running.speed.size) / inferred_rate
-        running_speed = running.speed.copy()
+            warnings.warn(
+                f"{running_quality.reason} File: {running_path}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
     return AlignedSession(
         doric=doric,
@@ -287,4 +302,5 @@ def process_aligned_session(
         doric_ensure_pulses=doric_ensure,
         running_time_nidaq=running_time,
         running_speed=running_speed,
+        running_quality=running_quality,
     )

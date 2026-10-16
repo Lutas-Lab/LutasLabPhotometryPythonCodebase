@@ -1,5 +1,8 @@
+import warnings
+
 import numpy as np
 from lutaslab_core.events import find_ttl_pulses as _find_ttl_pulses_core
+from lutaslab_core.nidaq import assess_running_quality
 
 from .trial_classification import classify_cue_licking
 
@@ -913,15 +916,27 @@ def preprocess_session(
     # Locomotion
     # -------------------------
 
-    loco_time, locomotion = preprocess_locomotion(
-        session["locomotion"],
-        session["locomotion_ttlpulses"],
-        session["timestamps"],
-        threshold=ttl_threshold,
-        min_width=locomotion_min_width,
-        max_width=locomotion_max_width,
-        invert=locomotion_invert,
-    )
+    running_quality = assess_running_quality(session["locomotion"])
+    session.update(running_quality.as_metadata())
+    if running_quality.is_valid:
+        loco_time, locomotion = preprocess_locomotion(
+            session["locomotion"],
+            session["locomotion_ttlpulses"],
+            session["timestamps"],
+            threshold=ttl_threshold,
+            min_width=locomotion_min_width,
+            max_width=locomotion_max_width,
+            invert=locomotion_invert,
+        )
+    else:
+        source = session.get("locomotion_path", "unknown running file")
+        warnings.warn(
+            f"{running_quality.reason} File: {source}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        loco_time = np.array([], dtype=float)
+        locomotion = np.array([], dtype=float)
 
     session["locomotion_time"] = loco_time
     session["processed_locomotion"] = locomotion

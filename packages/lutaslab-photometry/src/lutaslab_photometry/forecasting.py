@@ -1,3 +1,4 @@
+import warnings
 from collections import defaultdict
 
 import numpy as np
@@ -47,6 +48,9 @@ def prepare_forecast_signals(session, *, dt=0.1, channel=1, photometry_source="r
     missing = required.difference(session)
     if missing:
         raise ValueError(f"Processed session is missing forecast keys: {sorted(missing)}")
+    if session.get("running_data_valid") is False:
+        reason = session.get("running_data_reason", "running data failed quality control")
+        raise ValueError(f"Forecasting cannot use this session: {reason}")
 
     photometry_time = np.asarray(session[time_key], dtype=float)
     photometry = np.asarray(session[signal_key], dtype=float)
@@ -54,6 +58,8 @@ def prepare_forecast_signals(session, *, dt=0.1, channel=1, photometry_source="r
     locomotion = np.asarray(session["processed_locomotion"], dtype=float)
     if len(photometry_time) != len(photometry) or len(locomotion_time) != len(locomotion):
         raise ValueError("Forecast signal time and value arrays must have equal lengths.")
+    if locomotion_time.size == 0:
+        raise ValueError("Forecasting cannot use this session: running data are empty.")
     if np.any(np.diff(photometry_time) <= 0) or np.any(np.diff(locomotion_time) <= 0):
         raise ValueError("Forecast signal timestamps must be strictly increasing.")
 
@@ -558,6 +564,14 @@ def forecast_manifest(
         selected_channel = resolve_session_channel(info, channel)
         path = processed_session_path(data_root, info)
         session = load_session(path)
+        if session.get("running_data_valid") is False:
+            warnings.warn(
+                f"Skipping {info['mouse']} {info['date']} run {info['run']}: "
+                f"{session.get('running_data_reason', 'running data failed quality control')}",
+                UserWarning,
+                stacklevel=2,
+            )
+            continue
         signals = prepare_forecast_signals(
             session,
             dt=dt,

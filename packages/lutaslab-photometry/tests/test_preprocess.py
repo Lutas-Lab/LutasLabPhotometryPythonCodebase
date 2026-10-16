@@ -109,3 +109,38 @@ class PreprocessTests(unittest.TestCase):
         self.assertEqual(processed["processed_schema_version"], "1.0")
         self.assertEqual(processed["n_465_pulses"], len(range(10, 480, 20)))
         self.assertTrue(np.all(np.isfinite(processed["dff_ch1"])))
+
+    def test_flat_zero_running_is_flagged_and_excluded(self):
+        n_samples = 500
+        timestamps = np.arange(n_samples, dtype=float) / 100.0
+        ttl_465 = np.zeros(n_samples)
+        ttl_405 = np.zeros(n_samples)
+        for start in range(10, 480, 20):
+            ttl_465[start : start + 8] = 5.0
+        for start in range(20, 490, 20):
+            ttl_405[start : start + 8] = 5.0
+        visual_cue = np.zeros(n_samples)
+        licking = np.zeros(n_samples)
+        solenoid = np.zeros(n_samples)
+        base = 2.0 + 0.001 * np.arange(n_samples)
+        session = {
+            "raw_photometry_ch1": base,
+            "raw_photometry_ch2": 1.2 * base,
+            "visual_cue": visual_cue,
+            "licking": licking,
+            "solenoid_opening": solenoid,
+            "ttl_465": ttl_465,
+            "ttl_405": ttl_405,
+            "timestamps": timestamps,
+            "locomotion_ttlpulses": np.zeros(n_samples),
+            "locomotion": np.zeros(49),
+        }
+
+        with self.assertWarnsRegex(RuntimeWarning, "flat line at zero"):
+            processed = preprocess_session(session)
+
+        self.assertFalse(processed["running_data_valid"])
+        self.assertEqual(processed["running_data_status"], "invalid_flat_zero")
+        self.assertEqual(processed["n_locomotion_samples"], 0)
+        self.assertEqual(processed["locomotion_time"].size, 0)
+        self.assertEqual(processed["processed_locomotion"].size, 0)

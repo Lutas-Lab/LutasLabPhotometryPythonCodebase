@@ -61,6 +61,95 @@ class RunningData:
     timestamps: np.ndarray | None = None
 
 
+@dataclass(frozen=True)
+class RunningQuality:
+    """Quality-control result for a running-speed trace."""
+
+    is_valid: bool
+    status: str
+    reason: str
+    sample_count: int
+    minimum: float
+    maximum: float
+    peak_to_peak: float
+    standard_deviation: float
+    maximum_absolute_value: float
+
+    def as_metadata(self, *, prefix: str = "running_data") -> dict[str, object]:
+        """Return scalar fields suitable for session metadata or NPZ output."""
+
+        return {
+            f"{prefix}_valid": self.is_valid,
+            f"{prefix}_status": self.status,
+            f"{prefix}_reason": self.reason,
+            f"{prefix}_sample_count": self.sample_count,
+            f"{prefix}_minimum": self.minimum,
+            f"{prefix}_maximum": self.maximum,
+            f"{prefix}_peak_to_peak": self.peak_to_peak,
+            f"{prefix}_standard_deviation": self.standard_deviation,
+            f"{prefix}_maximum_absolute_value": self.maximum_absolute_value,
+        }
+
+
+def assess_running_quality(
+    speed: np.ndarray,
+    *,
+    zero_tolerance: float = 1e-12,
+) -> RunningQuality:
+    """Flag empty or effectively all-zero running traces.
+
+    The test is deliberately specific to the acquisition failure in which the
+    running channel is a perfectly flat line at zero. Stationary periods with
+    ordinary acquisition noise, and constant nonzero values, remain valid.
+    """
+
+    if not np.isfinite(zero_tolerance) or zero_tolerance < 0:
+        raise ValueError("zero_tolerance must be finite and nonnegative")
+    values = np.atleast_1d(np.asarray(speed, dtype=float).squeeze())
+    if values.ndim != 1 or not np.all(np.isfinite(values)):
+        raise ValueError("Running speed must be a finite one-dimensional array")
+    if values.size == 0:
+        nan = float("nan")
+        return RunningQuality(
+            is_valid=False,
+            status="invalid_empty",
+            reason="Running speed is empty; running data were excluded from downstream analysis.",
+            sample_count=0,
+            minimum=nan,
+            maximum=nan,
+            peak_to_peak=nan,
+            standard_deviation=nan,
+            maximum_absolute_value=nan,
+        )
+
+    minimum = float(np.min(values))
+    maximum = float(np.max(values))
+    peak_to_peak = float(np.ptp(values))
+    standard_deviation = float(np.std(values))
+    maximum_absolute_value = float(np.max(np.abs(values)))
+    is_flat_zero = maximum_absolute_value <= zero_tolerance
+    if is_flat_zero:
+        status = "invalid_flat_zero"
+        reason = (
+            "Running speed is a flat line at zero; running data were excluded "
+            "from downstream analysis."
+        )
+    else:
+        status = "valid"
+        reason = "Running speed passed the flat-zero quality check."
+    return RunningQuality(
+        is_valid=not is_flat_zero,
+        status=status,
+        reason=reason,
+        sample_count=int(values.size),
+        minimum=minimum,
+        maximum=maximum,
+        peak_to_peak=peak_to_peak,
+        standard_deviation=standard_deviation,
+        maximum_absolute_value=maximum_absolute_value,
+    )
+
+
 def read_nidaq(
     path: str | Path,
     *,

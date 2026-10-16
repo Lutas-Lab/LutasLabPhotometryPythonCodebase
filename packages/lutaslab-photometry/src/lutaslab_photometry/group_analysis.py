@@ -409,6 +409,14 @@ def compute_manifest_psth(
         time_key = signal_spec["time_key"].format(channel=selected_channel)
         path = processed_session_path(data_root, info)
         session = load_session(path)
+        if signal_type == "running" and session.get("running_data_valid") is False:
+            warnings.warn(
+                f"Skipping {info['mouse']} {info['date']} run {info['run']}: "
+                f"{session.get('running_data_reason', 'running data failed quality control')}",
+                UserWarning,
+                stacklevel=2,
+            )
+            continue
         if event_key == "lick_bout_offset" and event_key not in session:
             if "lick_bout_onset" in session and "lick_bout_duration" in session:
                 session[event_key] = np.asarray(
@@ -432,6 +440,17 @@ def compute_manifest_psth(
                 )
                 continue
             raise ValueError(f"{path} is missing analysis keys: {sorted(missing)}")
+        if signal_type == "running" and (
+            np.asarray(session["locomotion_time"]).size == 0
+            or np.asarray(session["processed_locomotion"]).size == 0
+        ):
+            warnings.warn(
+                f"Skipping {info['mouse']} {info['date']} run {info['run']}: "
+                "running data are empty.",
+                UserWarning,
+                stacklevel=2,
+            )
+            continue
         event_times = np.asarray(session[event_key], dtype=float)
         if trial_class != "all":
             mask = cue_trial_mask(session, trial_class, post_cue_window)

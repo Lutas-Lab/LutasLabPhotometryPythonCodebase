@@ -1,8 +1,10 @@
 import sys
 import types
+from pathlib import Path
 
 import numpy as np
-from iflip3.nidaq import TTLPulses
+import pytest
+from iflip3.nidaq import RunningData, TTLPulses
 from iflip3.session import AlignedSession, process_aligned_session
 from iflip3.synchronization import ClockAlignment
 
@@ -109,3 +111,57 @@ def test_process_session_without_nidaq_uses_iflip_clock(monkeypatch):
     assert common.metadata["nidaq_aligned"] is False
     assert common.metadata["measured_background_applied"] is False
     assert observed["measured_background"] is None
+
+
+def test_flat_zero_running_is_flagged_and_omitted(monkeypatch):
+    sample_time = np.array([0.0, 0.2, 0.4])
+    recording = types.SimpleNamespace(
+        sample_time=sample_time,
+        marks=np.array([4, 4, 4], dtype=np.uint32),
+        data=np.ones((2, 3, 1), dtype=float),
+        header=types.SimpleNamespace(get_path=lambda path: 1.0),
+    )
+    nidaq = types.SimpleNamespace(
+        timestamps=np.linspace(0.0, 1.0, 1001),
+        signal=lambda name: name,
+    )
+    pulse_map = {
+        "sync": _pulses([0.1, 0.3, 0.5], [0.11, 0.31, 0.51]),
+        "licking": TTLPulses.empty(),
+        "visual_cue": TTLPulses.empty(),
+        "ensure": TTLPulses.empty(),
+    }
+    alignment = ClockAlignment(
+        intercept_seconds=0.1,
+        scale=1.0,
+        residuals_seconds=np.zeros(3),
+        matched_pulses=3,
+        iflip_marker_times=sample_time,
+        nidaq_pulse_times=np.array([0.1, 0.3, 0.5]),
+    )
+    monkeypatch.setattr("iflip3.session.read_iflip3", lambda *a, **k: recording)
+    monkeypatch.setattr(
+        "iflip3.session.calculate_mpet",
+        lambda *a, **k: (np.array([1.1, 1.2, 1.3]), None),
+    )
+    monkeypatch.setattr("iflip3.session.read_nidaq", lambda *a, **k: nidaq)
+    monkeypatch.setattr(
+        "iflip3.session.find_ttl_pulses", lambda signal, *a, **k: pulse_map[signal]
+    )
+    monkeypatch.setattr("iflip3.session.fit_clock_alignment", lambda *a, **k: alignment)
+    monkeypatch.setattr(
+        "iflip3.session.read_running",
+        lambda *a, **k: RunningData(Path("running.mat"), np.zeros(3), None),
+    )
+
+    with pytest.warns(RuntimeWarning, match="flat line at zero"):
+        session = process_aligned_session(
+            "recording.iFLiP3", "nidaq.mat", running_path="running.mat"
+        )
+
+    assert session.running_speed is None
+    assert session.running_time_nidaq is None
+    common = session.to_core_session()
+    assert "running_speed" not in common.continuous
+    assert common.metadata["running_data_valid"] is False
+    assert common.metadata["running_data_status"] == "invalid_flat_zero"

@@ -11,25 +11,34 @@ def session_to_core(session, session_id=None):
 
     metadata = dict(session.get("metadata", {}))
     metadata.setdefault("sensor", "fiber_photometry")
+    metadata.update(
+        {
+            key: value
+            for key, value in session.items()
+            if key.startswith("running_data_")
+        }
+    )
+    continuous = {
+        "dff_ch1": ContinuousSignal(
+            session["photo_time_465_ch1"],
+            session["dff_ch1"],
+            "dF/F",
+        ),
+        "dff_ch2": ContinuousSignal(
+            session["photo_time_465_ch2"],
+            session["dff_ch2"],
+            "dF/F",
+        ),
+    }
+    if session.get("running_data_valid") is not False:
+        continuous["locomotion"] = ContinuousSignal(
+            session["locomotion_time"],
+            session["processed_locomotion"],
+            "a.u.",
+        )
     return AlignedSession(
         session_id=session_id or str(metadata.get("session_id", "photometry-session")),
-        continuous={
-            "dff_ch1": ContinuousSignal(
-                session["photo_time_465_ch1"],
-                session["dff_ch1"],
-                "dF/F",
-            ),
-            "dff_ch2": ContinuousSignal(
-                session["photo_time_465_ch2"],
-                session["dff_ch2"],
-                "dF/F",
-            ),
-            "locomotion": ContinuousSignal(
-                session["locomotion_time"],
-                session["processed_locomotion"],
-                "a.u.",
-            ),
-        },
+        continuous=continuous,
         events={"licks": EventSeries(session["lick_times"], "licks")},
         intervals={
             "visual_cues": IntervalSeries(
@@ -90,11 +99,12 @@ def session_to_pynapple(session):
     # Locomotion
     # -------------------------
 
-    data["locomotion"] = nap.Tsd(
-        t=session["locomotion_time"],
-        d=session["processed_locomotion"],
-        time_units="s"
-    )
+    if session.get("running_data_valid") is not False:
+        data["locomotion"] = nap.Tsd(
+            t=session["locomotion_time"],
+            d=session["processed_locomotion"],
+            time_units="s"
+        )
 
 
     # -------------------------

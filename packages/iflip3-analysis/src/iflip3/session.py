@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from lutaslab_core.nidaq import RunningQuality, assess_running_quality
 from lutaslab_core.session import (
     AlignedSession as CoreAlignedSession,
 )
@@ -45,6 +47,7 @@ class AlignedSession:
     measured_background_applied: bool = True
     running_time_nidaq: np.ndarray | None = None
     running_speed: np.ndarray | None = None
+    running_quality: RunningQuality | None = None
 
     def to_core_session(self, session_id: str = "iflip3-session") -> CoreAlignedSession:
         """Return the sensor-independent representation used by shared analyses."""
@@ -67,6 +70,40 @@ class AlignedSession:
                 self.running_speed,
                 "cm/s",
             )
+        metadata = {
+            "sensor": "iflip3",
+            "timebase": "nidaq_aligned" if self.alignment is not None else "iflip_native",
+            "nidaq_aligned": self.alignment is not None,
+            "measured_background_applied": self.measured_background_applied,
+            "clock_drift_ppm": (
+                self.alignment.drift_ppm if self.alignment is not None else None
+            ),
+            "clock_rms_residual_seconds": (
+                self.alignment.rms_residual_seconds
+                if self.alignment is not None
+                else None
+            ),
+            "clock_max_residual_seconds": (
+                self.alignment.max_residual_seconds
+                if self.alignment is not None
+                else None
+            ),
+            "clock_matched_pulses": (
+                self.alignment.matched_pulses if self.alignment is not None else None
+            ),
+            "clock_unmatched_iflip_marker_indices": (
+                self.alignment.unmatched_iflip_marker_indices.tolist()
+                if self.alignment is not None
+                else []
+            ),
+            "clock_unmatched_nidaq_pulse_indices": (
+                self.alignment.unmatched_nidaq_pulse_indices.tolist()
+                if self.alignment is not None
+                else []
+            ),
+        }
+        if self.running_quality is not None:
+            metadata.update(self.running_quality.as_metadata())
         return CoreAlignedSession(
             session_id=session_id,
             continuous=continuous,
@@ -96,40 +133,7 @@ class AlignedSession:
                     "sync",
                 ),
             },
-            metadata={
-                "sensor": "iflip3",
-                "timebase": "nidaq_aligned" if self.alignment is not None else "iflip_native",
-                "nidaq_aligned": self.alignment is not None,
-                "measured_background_applied": self.measured_background_applied,
-                "clock_drift_ppm": (
-                    self.alignment.drift_ppm if self.alignment is not None else None
-                ),
-                "clock_rms_residual_seconds": (
-                    self.alignment.rms_residual_seconds
-                    if self.alignment is not None
-                    else None
-                ),
-                "clock_max_residual_seconds": (
-                    self.alignment.max_residual_seconds
-                    if self.alignment is not None
-                    else None
-                ),
-                "clock_matched_pulses": (
-                    self.alignment.matched_pulses
-                    if self.alignment is not None
-                    else None
-                ),
-                "clock_unmatched_iflip_marker_indices": (
-                    self.alignment.unmatched_iflip_marker_indices.tolist()
-                    if self.alignment is not None
-                    else []
-                ),
-                "clock_unmatched_nidaq_pulse_indices": (
-                    self.alignment.unmatched_nidaq_pulse_indices.tolist()
-                    if self.alignment is not None
-                    else []
-                ),
-            },
+            metadata=metadata,
         )
 
     def to_pynapple(self) -> dict[str, Any]:
@@ -283,12 +287,21 @@ def process_aligned_session(
 
     running_time = None
     running_speed = None
+    running_quality = None
     if running_path is not None:
         running: RunningData = read_running(running_path)
         if running.speed.size != sync_pulses.onset_times.size:
             raise ValueError("Running speed length does not match the number of NI-DAQ sync pulses")
-        running_time = sync_pulses.onset_times.copy()
-        running_speed = running.speed.copy()
+        running_quality = assess_running_quality(running.speed)
+        if running_quality.is_valid:
+            running_time = sync_pulses.onset_times.copy()
+            running_speed = running.speed.copy()
+        else:
+            warnings.warn(
+                f"{running_quality.reason} File: {running_path}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
     return AlignedSession(
         lifetime_time_nidaq=alignment.iflip_to_nidaq(iflip.sample_time),
@@ -303,4 +316,5 @@ def process_aligned_session(
         measured_background_applied=measured_background is not None,
         running_time_nidaq=running_time,
         running_speed=running_speed,
+        running_quality=running_quality,
     )
