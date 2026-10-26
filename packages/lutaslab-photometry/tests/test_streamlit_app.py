@@ -62,5 +62,10 @@ def test_streamlit_lifetime_modes_load(workflow, expected_signal):
         "Run PSTH analysis",
         "Run lifetime GLM",
     }
+    if workflow == "iflip3":
+        assert {button.label for button in app.button} >= {
+            "Run multi-session calibration",
+            "Load saved calibration",
+        }
     assert app.checkbox(key=f"{workflow}_include_licking_psth").value is False
     assert app.checkbox(key=f"{workflow}_include_running_psth").value is False

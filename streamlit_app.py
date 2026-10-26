@@ -30,6 +30,7 @@ from lutaslab_photometry.lifetime_workflows import (
     IFLIP3_FIT_PARAMETER_DEFAULTS,
     LIFETIME_EVENTS,
     LIFETIME_SIGNALS,
+    apply_iflip3_calibration,
     calibrate_iflip3_sessions,
     discover_lifetime_paths,
     lifetime_manifest_columns,
@@ -263,13 +264,6 @@ def _iflip3_fit_controls() -> dict[str, dict[str, float | str]]:
         "Bounded fits only within the entered minimum and maximum."
     )
     return settings
-
-
-def _lock_iflip3_preview_lifetimes(lifetimes) -> None:
-    st.session_state["iflip3_fit_tau1_mode"] = "Fixed"
-    st.session_state["iflip3_fit_tau2_mode"] = "Fixed"
-    st.session_state["iflip3_fit_tau1_value"] = float(lifetimes[0])
-    st.session_state["iflip3_fit_tau2_value"] = float(lifetimes[1])
 
 
 def _show_iflip3_fit_preview(preview) -> None:
@@ -957,76 +951,133 @@ def _lifetime_gui(workflow: str) -> None:
                 "axes, detectors, optical paths, or acquisition configurations."
             )
             st.divider()
-            st.markdown("#### Single-session diagnostic fit")
+            st.markdown("#### Inspect the calibration on one session")
             st.write(
-                "Choose a session, preview the aggregate decay fit, and adjust its "
-                "parameters for diagnosis or legacy per-session fitting. Previewing is read-only."
+                "Apply the current shared calibration to one recording and inspect the exact "
+                "fixed-basis decomposition used during calibrated preprocessing."
             )
-            if preview_rows:
-                preview_index = st.selectbox(
-                    "Session to inspect",
+            diagnostic_calibration = active_iflip3_calibration or calibration
+            if preview_rows and diagnostic_calibration is not None:
+                calibrated_preview_index = st.selectbox(
+                    "Session to inspect with the calibration",
                     range(len(preview_rows)),
                     format_func=lambda index: preview_labels[index],
-                    key="iflip3_fit_preview_session",
+                    key="iflip3_calibrated_preview_session",
                 )
-                with st.expander("Fit parameters", expanded=True):
-                    iflip3_fit_settings = _iflip3_fit_controls()
+                if active_iflip3_calibration is None:
+                    st.info(
+                        "This previews the calibration result shown above. Save and enable it "
+                        "before preprocessing to use the same values in the batch."
+                    )
                 if st.button(
-                    "Preview fit",
+                    "Inspect calibrated session",
                     type="primary",
-                    key="iflip3_preview_fit",
+                    key="iflip3_preview_calibrated_session",
                 ):
                     try:
-                        with st.spinner("Loading the recording and fitting its decay..."):
-                            preview = preview_iflip3_fit(
-                                preview_rows[preview_index],
+                        with st.spinner("Applying the shared calibration to this recording..."):
+                            calibrated_preview = apply_iflip3_calibration(
+                                preview_rows[calibrated_preview_index],
                                 data_root,
-                                iflip3_fit_settings,
+                                diagnostic_calibration,
                             )
                     except (OSError, ValueError, RuntimeError) as error:
-                        st.error(f"The fit preview could not be generated: {error}")
+                        st.error(f"The calibrated session preview failed: {error}")
                     else:
-                        st.session_state["iflip3_fit_preview_result"] = preview
-                        st.session_state["iflip3_fit_preview_identity"] = preview_labels[
-                            preview_index
+                        st.session_state["iflip3_calibrated_preview_result"] = calibrated_preview
+                        st.session_state["iflip3_calibrated_preview_identity"] = preview_labels[
+                            calibrated_preview_index
                         ]
-                        st.session_state["iflip3_fit_preview_settings"] = iflip3_fit_settings
-                preview = st.session_state.get("iflip3_fit_preview_result")
-                preview_identity = st.session_state.get("iflip3_fit_preview_identity")
-                if preview is not None:
-                    st.caption(f"Previewed session: {preview_identity}")
+                        st.session_state["iflip3_calibrated_preview_created_utc"] = (
+                            diagnostic_calibration.created_utc
+                        )
+                calibrated_preview = st.session_state.get(
+                    "iflip3_calibrated_preview_result"
+                )
+                calibrated_identity = st.session_state.get(
+                    "iflip3_calibrated_preview_identity"
+                )
+                if calibrated_preview is not None:
+                    st.caption(f"Calibrated session: {calibrated_identity}")
                     if (
-                        preview_identity != preview_labels[preview_index]
-                        or st.session_state.get("iflip3_fit_preview_settings")
-                        != iflip3_fit_settings
+                        calibrated_identity != preview_labels[calibrated_preview_index]
+                        or st.session_state.get("iflip3_calibrated_preview_created_utc")
+                        != diagnostic_calibration.created_utc
                     ):
                         st.warning(
-                            "The selected session or fit controls changed after this preview. "
-                            "Click Preview fit again before preprocessing."
+                            "The selected session or calibration changed after this preview. "
+                            "Inspect the calibrated session again."
                         )
-                    _show_iflip3_fit_preview(preview)
-                    if preview.success:
-                        st.success(
-                            "The optimizer converged. Inspect the residual plot before proceeding."
-                        )
-                    else:
-                        st.warning(f"The optimizer reported: {preview.message}")
-                    st.button(
-                        "Use preview τ1 and τ2 as fixed shared lifetimes",
-                        on_click=_lock_iflip3_preview_lifetimes,
-                        args=(preview.lifetimes,),
-                        key="iflip3_lock_preview_lifetimes",
+                    _show_iflip3_fit_preview(calibrated_preview)
+                    st.success(
+                        "This view uses fixed τ1, τ2, t0, and IRF σ with residual "
+                        "background fixed at zero."
                     )
-                    st.caption(
-                        "This copies the previewed lifetimes into the controls above and "
-                        "fixes them for every session in this preprocessing run."
-                    )
+            elif not preview_rows:
+                st.info("Add a complete session row before inspecting an iFLIP3 fit.")
             else:
-                st.info("Add a complete session row before previewing an iFLIP3 fit.")
+                st.info("Run or load a multi-session calibration to inspect a session.")
+
+            with st.expander("Advanced: unconstrained single-session fit"):
+                st.write(
+                    "Use this only to diagnose an outlier or support a legacy dataset without "
+                    "a multi-session calibration. Its fitted values are not used when a saved "
+                    "calibration is enabled."
+                )
+                iflip3_fit_settings = _iflip3_fit_controls()
+                if preview_rows:
+                    preview_index = st.selectbox(
+                        "Session for unconstrained comparison",
+                        range(len(preview_rows)),
+                        format_func=lambda index: preview_labels[index],
+                        key="iflip3_fit_preview_session",
+                    )
+                    if st.button(
+                        "Run unconstrained diagnostic fit",
+                        key="iflip3_preview_fit",
+                    ):
+                        try:
+                            with st.spinner("Loading the recording and fitting its decay..."):
+                                preview = preview_iflip3_fit(
+                                    preview_rows[preview_index],
+                                    data_root,
+                                    iflip3_fit_settings,
+                                )
+                        except (OSError, ValueError, RuntimeError) as error:
+                            st.error(f"The unconstrained fit could not be generated: {error}")
+                        else:
+                            st.session_state["iflip3_fit_preview_result"] = preview
+                            st.session_state["iflip3_fit_preview_identity"] = preview_labels[
+                                preview_index
+                            ]
+                            st.session_state["iflip3_fit_preview_settings"] = iflip3_fit_settings
+                    preview = st.session_state.get("iflip3_fit_preview_result")
+                    preview_identity = st.session_state.get("iflip3_fit_preview_identity")
+                    if preview is not None:
+                        st.caption(f"Unconstrained session: {preview_identity}")
+                        if (
+                            preview_identity != preview_labels[preview_index]
+                            or st.session_state.get("iflip3_fit_preview_settings")
+                            != iflip3_fit_settings
+                        ):
+                            st.warning(
+                                "The selected session or fit controls changed after this preview. "
+                                "Run the unconstrained fit again."
+                            )
+                        _show_iflip3_fit_preview(preview)
+                        if preview.success:
+                            st.success(
+                                "The local optimizer converged. Differences from the shared "
+                                "calibration are diagnostic and do not override it."
+                            )
+                        else:
+                            st.warning(f"The optimizer reported: {preview.message}")
+                else:
+                    st.info("Add a complete session row before previewing an iFLIP3 fit.")
             st.divider()
             st.caption(
-                "These controls are used only when a saved multi-session calibration "
-                "is not selected."
+                "When a saved calibration is enabled, preprocessing ignores the advanced "
+                "single-session controls."
             )
         _processed_provenance_panel(
             workflow,

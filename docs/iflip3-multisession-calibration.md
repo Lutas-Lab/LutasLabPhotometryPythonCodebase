@@ -136,7 +136,15 @@ should use the new calibration.
 
 ## Single-session preview
 
-The single-session preview remains available as a diagnostic and as a legacy
-per-session fitting path. It is useful for inspecting an individual recording,
-but it should not be used as the sole source of experiment-wide `t0`, IRF width,
-or lifetime values when a multi-session calibration is available.
+The default single-session diagnostic applies the current shared calibration to
+the selected recording. It therefore displays the same fixed-basis model used
+during calibrated preprocessing: shared lifetimes, t0, and IRF width; zero
+residual fit background; and only short- and long-component counts varying over
+time.
+
+An **Advanced: unconstrained single-session fit** expander remains available to
+diagnose an outlier or support a legacy dataset without a multi-session
+calibration. Differences between its locally fitted parameters and the shared
+calibration are diagnostic; they do not override the saved calibration. When a
+saved calibration is enabled, preprocessing ignores all advanced local-fit
+controls.
