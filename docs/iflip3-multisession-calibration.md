@@ -4,10 +4,10 @@
 
 Multi-session calibration estimates one decay-shape basis for a compatible set
 of iFLIP3 recordings. The calibration shares short and long lifetimes, decay
-start (`t0`), and IRF width (`sigma`) across the selected sessions. During
-subsequent preprocessing those four values remain fixed. Only the nonnegative
-short- and long-component photon counts are solved at each photometry time
-point.
+IRF width (`sigma`) across the selected sessions and estimates one decay start
+(`t0`) for each recording. During subsequent preprocessing those shape values
+and the recording's `t0` remain fixed. Only the nonnegative short- and
+long-component photon counts are solved at each photometry time point.
 
 The parameter-sharing strategy follows the global fluorescence-decay analysis
 concept introduced by Jay R. Knutson, Joseph M. Beechem, and Ludwig Brand:
@@ -33,14 +33,19 @@ before calibration or decomposition.
 6. If one or more sessions have structured residuals or markedly poorer QC,
    investigate them. Exclude a session only for a documented technical reason,
    then rerun the calibration.
-7. Give the calibration a descriptive JSON path and click **Save calibration**.
+7. Review the proposed descriptive, timestamped JSON path and click
+   **Save calibration**. You may replace `shared.json` in the path field with a
+   custom descriptive stem before saving.
 8. Enable **Apply this saved calibration during preprocessing**.
 9. Run preprocessing. Enable overwrite only for existing processed sessions
    that should be regenerated with the calibration.
 
-Saved calibrations are ordinary versioned JSON files. A name such as
-`analysis/iflip3/calibrations/80mhz-standard-2026.json` is more informative
-than `shared.json` when multiple configurations exist.
+Saved calibrations are ordinary versioned JSON files. The GUI creates a new file
+by default and expands the placeholder `shared.json` to a name containing the
+pulse frequency, session count, and UTC timestamp. A custom stem such as
+`80mhz-standard` is useful when multiple optical or detector configurations use
+the same repetition rate. Replacing an exact existing JSON requires disabling
+versioned saving and confirming the replacement warning.
 
 ## How the fit is performed
 
@@ -54,8 +59,8 @@ For each selected session, the software:
    comparable influence; and
 6. contributes that normalized decay to a joint two-component fit.
 
-The joint fit shares `tau1`, `tau2`, `t0`, and IRF `sigma`. Each calibration
-session receives its own two aggregate component amplitudes. No residual
+The joint fit shares `tau1`, `tau2`, and IRF `sigma`. Each calibration session
+receives its own `t0` and two aggregate component amplitudes. No residual
 background term is included. Unweighted residuals are used because corrected
 decays may contain negative bins and the session normalization is intended to
 balance session influence.
@@ -98,9 +103,11 @@ calibration, include multiple mice and recording dates where possible.
 ## Interpreting QC
 
 The decay overlay shows normalized observed curves and their fitted curves. The
-residual heatmap makes session-specific timing shifts or systematic late-bin
-offsets easier to detect. The table reports normalized RMSE and R-squared plus
-aggregate component fractions.
+residual heatmap makes systematic late-bin offsets easier to detect. The table
+reports each session's decay peak, fitted `t0`, offset from the cohort median,
+normalized RMSE, R-squared, and aggregate component fractions. Large `t0`
+offsets are highlighted for review; they are retained in the fit and are not
+silently excluded.
 
 Pay particular attention to:
 
@@ -124,10 +131,12 @@ session-level QC, code commit, and creation time. Keep this file with the
 analysis configuration and do not edit values manually.
 
 When a saved calibration is selected, preprocessing bypasses the per-session
-nonlinear aggregate fit. It fixes `tau1`, `tau2`, `t0`, and IRF `sigma`, fixes
-residual background to zero, and solves only short- and long-component counts
-at each time point. The calibration identity and parameters are embedded in
-each processed file's provenance.
+lifetimes/IRF fit. It fixes `tau1`, `tau2`, and IRF `sigma`, uses the saved `t0`
+for a contributing calibration session, or estimates one bounded `t0` from a
+new session's aggregate decay. That session-level `t0` is then fixed while only
+short- and long-component counts are solved at each time point. Residual
+background remains zero. The calibration identity, fitted session `t0`, and
+parameters are embedded in each processed file's provenance.
 
 Existing processed files are not changed unless **Overwrite existing processed
 files** is enabled. This permits incremental batch processing, but sessions
@@ -138,9 +147,9 @@ should use the new calibration.
 
 The default single-session diagnostic applies the current shared calibration to
 the selected recording. It therefore displays the same fixed-basis model used
-during calibrated preprocessing: shared lifetimes, t0, and IRF width; zero
-residual fit background; and only short- and long-component counts varying over
-time.
+during calibrated preprocessing: shared lifetimes and IRF width; one fixed
+recording-level `t0`; zero residual fit background; and only short- and
+long-component counts varying over time.
 
 An **Advanced: unconstrained single-session fit** expander remains available to
 diagnose an outlier or support a legacy dataset without a multi-session

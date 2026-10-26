@@ -39,6 +39,7 @@ from lutaslab_photometry.lifetime_workflows import (
     lifetime_preprocessing_parameters,
     lifetime_processed_path,
     load_iflip3_calibration,
+    next_iflip3_calibration_path,
     normalize_lifetime_manifest_rows,
     preview_iflip3_fit,
     save_iflip3_calibration,
@@ -319,16 +320,38 @@ def _show_iflip3_calibration(calibration) -> None:
     import numpy as np
 
     metrics = st.columns(5)
+    session_specific_t0 = calibration.schema_version != "1.0"
     values = (
         ("τ1", f"{calibration.lifetimes[0]:.4g} ns"),
         ("τ2", f"{calibration.lifetimes[1]:.4g} ns"),
-        ("t0", f"{calibration.t0:.4g} ns"),
+        (
+            "Median t0" if session_specific_t0 else "Shared t0",
+            f"{calibration.t0:.4g} ns",
+        ),
         ("IRF σ", f"{calibration.irf_sigma:.4g} ns"),
         ("Sessions", str(len(calibration.session_qc))),
     )
     for column, (name, value) in zip(metrics, values, strict=True):
         column.metric(name, value)
-    st.caption("Residual fit background is fixed at zero.")
+    if session_specific_t0:
+        st.caption(
+            "τ1, τ2, and IRF σ are shared. Each session has its own fixed t0; "
+            "residual fit background is fixed at zero."
+        )
+    else:
+        st.caption(
+            "Legacy calibration: τ1, τ2, t0, and IRF σ are shared; residual fit "
+            "background is fixed at zero."
+        )
+    flagged_sessions = [
+        item["session_id"]
+        for item in calibration.session_qc
+        if item.get("t0_offset_flag")
+    ]
+    if flagged_sessions:
+        st.warning(
+            "Large t0 offsets require review: " + ", ".join(flagged_sessions)
+        )
 
     figure, (fit_axis, residual_axis) = plt.subplots(
         2,
@@ -342,7 +365,10 @@ def _show_iflip3_calibration(calibration) -> None:
     for item in calibration.session_qc:
         observed = np.asarray(item["normalized_decay"], dtype=float)
         fitted = np.asarray(item["fitted_decay"], dtype=float)
-        fit_axis.plot(calibration.lifetime_time, observed, color="0.7", alpha=0.55)
+        observed_color = "#ff7f0e" if item.get("t0_offset_flag") else "0.7"
+        fit_axis.plot(
+            calibration.lifetime_time, observed, color=observed_color, alpha=0.7
+        )
         fit_axis.plot(calibration.lifetime_time, fitted, color="#d62728", alpha=0.25)
         residual_rows.append(np.asarray(item["residuals"], dtype=float))
     fit_axis.set_ylabel("Normalized aggregate decay")
@@ -360,6 +386,11 @@ def _show_iflip3_calibration(calibration) -> None:
     )
     residual_axis.set_xlabel("Time after excitation pulse (ns)")
     residual_axis.set_ylabel("Session")
+    if len(calibration.session_qc) <= 20:
+        residual_axis.set_yticks(range(len(calibration.session_qc)))
+        residual_axis.set_yticklabels(
+            [item["session_id"] for item in calibration.session_qc], fontsize=7
+        )
     figure.colorbar(residual_image, ax=residual_axis, label="Residual")
     st.pyplot(figure, clear_figure=True)
     plt.close(figure)
@@ -370,6 +401,10 @@ def _show_iflip3_calibration(calibration) -> None:
             "measured background": item["measured_background_applied"],
             "R²": item["r_squared"],
             "RMSE": item["rmse_normalized"],
+            "peak time (ns)": item.get("peak_time_ns"),
+            "t0 (ns)": item.get("t0_ns", calibration.t0),
+            "t0 offset (ns)": item.get("t0_offset_from_median_ns", 0.0),
+            "t0 review": item.get("t0_offset_flag", False),
             "short fraction": item["short_fraction_aggregate"],
             "long fraction": item["long_fraction_aggregate"],
         }
@@ -859,8 +894,8 @@ def _lifetime_gui(workflow: str) -> None:
         if workflow == "iflip3":
             st.markdown("#### Multi-session calibration")
             st.write(
-                "Estimate shared τ1, τ2, t0, and IRF σ from multiple compatible "
-                "recordings. Residual fit background is fixed at zero."
+                "Estimate shared τ1, τ2, and IRF σ plus one t0 per recording from "
+                "multiple compatible recordings. Residual fit background is fixed at zero."
             )
             try:
                 preview_rows = normalize_lifetime_manifest_rows(workflow, rows)
@@ -882,6 +917,11 @@ def _lifetime_gui(workflow: str) -> None:
                     "subset when acquisition hardware/settings changed or QC identifies an outlier."
                 ),
             )
+            pending_calibration_path = st.session_state.pop(
+                "iflip3_pending_calibration_path", None
+            )
+            if pending_calibration_path is not None:
+                st.session_state["iflip3_calibration_path"] = pending_calibration_path
             calibration_path_text = st.text_input(
                 "Calibration JSON",
                 value=str(PROJECT_ROOT / "analysis" / "iflip3" / "calibrations" / "shared.json"),
@@ -923,13 +963,58 @@ def _lifetime_gui(workflow: str) -> None:
             calibration = st.session_state.get("iflip3_calibration_result")
             if calibration is not None:
                 _show_iflip3_calibration(calibration)
+                save_new_version = st.checkbox(
+                    "Save as a new versioned calibration file",
+                    value=True,
+                    key="iflip3_version_calibration_save",
+                    help=(
+                        "Recommended. Creates a timestamped JSON and never replaces an "
+                        "existing calibration."
+                    ),
+                )
+                save_target = (
+                    next_iflip3_calibration_path(calibration_path, calibration)
+                    if save_new_version
+                    else calibration_path
+                )
+                confirm_calibration_replace = False
+                if save_new_version:
+                    st.caption(f"New calibration file: {save_target}")
+                elif calibration_path.exists():
+                    st.warning(f"The existing calibration will be replaced: {calibration_path}")
+                    confirm_calibration_replace = st.checkbox(
+                        "I understand that saving will replace this calibration JSON",
+                        value=False,
+                        key="iflip3_confirm_calibration_replace",
+                    )
                 if st.button("Save calibration", key="iflip3_save_calibration"):
-                    try:
-                        saved_calibration = save_iflip3_calibration(calibration, calibration_path)
-                    except OSError as error:
-                        st.error(f"Calibration could not be saved: {error}")
+                    if (
+                        not save_new_version
+                        and calibration_path.exists()
+                        and not confirm_calibration_replace
+                    ):
+                        st.error(
+                            "Confirm replacement, choose a different path, or save as a "
+                            "new versioned file."
+                        )
                     else:
-                        st.success(f"Saved {saved_calibration}")
+                        try:
+                            saved_calibration = save_iflip3_calibration(calibration, save_target)
+                        except OSError as error:
+                            st.error(f"Calibration could not be saved: {error}")
+                        else:
+                            st.session_state["iflip3_pending_calibration_path"] = str(
+                                saved_calibration
+                            )
+                            st.session_state["iflip3_calibration_saved_message"] = (
+                                f"Saved {saved_calibration}"
+                            )
+                            st.rerun()
+            saved_calibration_message = st.session_state.pop(
+                "iflip3_calibration_saved_message", None
+            )
+            if saved_calibration_message:
+                st.success(saved_calibration_message)
             calibration_file_exists = calibration_path.is_file()
             use_calibration = st.checkbox(
                 "Apply this saved calibration during preprocessing",
@@ -945,8 +1030,9 @@ def _lifetime_gui(workflow: str) -> None:
                 else:
                     iflip3_calibration_path = calibration_path
                     st.success(
-                        "Preprocessing will fix τ1, τ2, t0, and IRF σ to this calibration; "
-                        "only component counts will vary over time."
+                        "Preprocessing will use shared τ1, τ2, and IRF σ, estimate or "
+                        "reuse one fixed t0 per session, and vary only component counts "
+                        "over time."
                     )
             st.caption(
                 "Create separate calibration files for different pulse intervals, lifetime-bin "

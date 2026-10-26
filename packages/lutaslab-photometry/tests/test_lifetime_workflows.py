@@ -1,6 +1,7 @@
 import csv
 import json
 import types
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +19,25 @@ from lutaslab_photometry.lifetime_workflows import (
     preview_iflip3_fit,
     write_lifetime_manifest,
 )
+
+
+def test_next_iflip3_calibration_path_is_descriptive_and_unique(tmp_path):
+    calibration = types.SimpleNamespace(
+        pulse_interval=12.5,
+        session_qc=tuple({"session_id": f"S{index}"} for index in range(3)),
+    )
+    now = datetime(2026, 10, 26, 19, 15, tzinfo=UTC)
+    first = workflows.next_iflip3_calibration_path(
+        tmp_path / "shared.json", calibration, now=now
+    )
+    first.write_text("{}", encoding="utf-8")
+
+    second = workflows.next_iflip3_calibration_path(
+        first, calibration, now=now
+    )
+
+    assert first.name == "iflip3_80mhz_3sessions__2026-10-26_191500Z.json"
+    assert second.name == "iflip3_80mhz_3sessions__2026-10-26_191500Z__r02.json"
 
 
 def _touch(path):
@@ -55,12 +75,13 @@ def test_multi_session_iflip3_calibration_roundtrips_and_fixes_background(
 
     time = np.arange(0.4, 12.31, 0.1)
     tau = (0.7, 2.6)
-    short = periodic_exgaussian_basis(time, tau[0], 1.0, 0.14, 12.5)
-    long = periodic_exgaussian_basis(time, tau[1], 1.0, 0.14, 12.5)
 
     def corrected(row, root, *, spc_range, afterpulse_ratio):
         del root, spc_range, afterpulse_ratio
         scale = float(row["run"])
+        session_t0 = {1: 1.0, 2: 1.05, 3: 3.0, 4: 1.4}[int(row["run"])]
+        short = periodic_exgaussian_basis(time, tau[0], session_t0, 0.14, 12.5)
+        long = periodic_exgaussian_basis(time, tau[1], session_t0, 0.14, 12.5)
         aggregate = (1000.0 * scale) * short + (2500.0 / scale) * long
         curves = np.column_stack([aggregate * 0.45, aggregate * 0.55])
         return (
@@ -78,6 +99,7 @@ def test_multi_session_iflip3_calibration_roundtrips_and_fixes_background(
     rows = [
         {"mouse": "M1", "date": "260101", "run": 1},
         {"mouse": "M2", "date": "260102", "run": 2},
+        {"mouse": "M3", "date": "260103", "run": 3},
     ]
     calibration = workflows.calibrate_iflip3_sessions(rows, tmp_path)
     destination = workflows.save_iflip3_calibration(
@@ -87,15 +109,56 @@ def test_multi_session_iflip3_calibration_roundtrips_and_fixes_background(
 
     assert loaded.success
     np.testing.assert_allclose(loaded.lifetimes, tau, atol=0.25)
-    assert loaded.t0 == pytest.approx(1.0, abs=0.15)
+    assert loaded.t0 == pytest.approx(1.05, abs=0.2)
     assert loaded.irf_sigma == pytest.approx(0.14, abs=0.12)
     assert loaded.to_dict()["model"]["residual_background_counts_per_bin"] == 0.0
-    assert len(loaded.session_qc) == 2
+    assert loaded.to_dict()["model"]["shared_parameters"] == [
+        "tau1",
+        "tau2",
+        "irf_sigma",
+    ]
+    assert len(loaded.session_qc) == 3
+    assert loaded.session_qc[0]["t0_ns"] == pytest.approx(1.0, abs=0.2)
+    assert loaded.session_qc[1]["t0_ns"] == pytest.approx(1.05, abs=0.2)
+    assert loaded.session_qc[2]["t0_ns"] == pytest.approx(3.0, abs=0.2)
+    assert [item["t0_offset_flag"] for item in loaded.session_qc] == [
+        False,
+        False,
+        True,
+    ]
     decomposition = workflows.apply_iflip3_calibration(rows[0], tmp_path, loaded)
     assert decomposition.background == 0.0
+    assert decomposition.t0 == pytest.approx(loaded.session_qc[0]["t0_ns"])
     np.testing.assert_allclose(decomposition.lifetimes, loaded.lifetimes)
     assert decomposition.short_component_counts.shape == (2,)
     assert decomposition.long_component_counts.shape == (2,)
+    new_session = workflows.apply_iflip3_calibration(
+        {"mouse": "M4", "date": "260104", "run": 4}, tmp_path, loaded
+    )
+    assert new_session.t0 == pytest.approx(1.4, abs=0.2)
+    assert "estimated from this session" in new_session.message
+
+    legacy_payload = loaded.to_dict()
+    legacy_payload["calibration_schema_version"] = "1.0"
+    legacy_payload["model"]["t0_ns"] = loaded.t0
+    legacy_payload["model"].pop("reference_t0_ns")
+    legacy_payload["model"].pop("session_specific_parameters")
+    legacy_payload["model"]["shared_parameters"] = [
+        "tau1",
+        "tau2",
+        "t0",
+        "irf_sigma",
+    ]
+    for item in legacy_payload["fit"]["session_qc"]:
+        item.pop("t0_ns")
+        item.pop("t0_offset_from_median_ns")
+        item.pop("t0_offset_flag")
+    legacy_path = tmp_path / "legacy.json"
+    legacy_path.write_text(json.dumps(legacy_payload), encoding="utf-8")
+    legacy = workflows.load_iflip3_calibration(legacy_path)
+    legacy_preview = workflows.apply_iflip3_calibration(rows[0], tmp_path, legacy)
+    assert legacy.schema_version == "1.0"
+    assert legacy_preview.t0 == loaded.t0
 
 
 def test_iflip3_pulse_interval_comparison_accepts_small_sync_rate_variation():
