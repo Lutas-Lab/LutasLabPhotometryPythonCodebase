@@ -27,9 +27,11 @@ all time points share the same lifetime basis, but it avoids fitting an
 independent background at every time point. The latter was found to be nearly
 non-identifiable with the long-lifetime component.
 
-The package retains `fit_global` as an experimental advanced method for cases
-where shared lifetimes truly need to be estimated from several low-count decay
-matrices simultaneously.
+The package's `fit_global` method estimates shared nonlinear parameters across
+multiple decay matrices with local component amplitudes. This is a custom
+variable-projection implementation of the global-analysis concept introduced
+by Knutson, Beechem, and Brand, *Chemical Physics Letters* 102:501-507 (1983),
+[doi:10.1016/0009-2614(83)87454-5](https://doi.org/10.1016/0009-2614(83)87454-5).
 
 ## Installation
 

@@ -54,6 +54,10 @@ LIFETIME_EVENTS = (
 )
 LIFETIME_PROCESSED_SCHEMA_VERSION = "1.0"
 IFLIP3_CALIBRATION_SCHEMA_VERSION = "1.0"
+# The header sync rate may be a measured rather than nominal value. Differences
+# below 0.1% are small relative to the 0.1 ns lifetime-bin grid used by current
+# recordings, while material changes such as 80 MHz versus 40 MHz remain clear.
+IFLIP3_PULSE_INTERVAL_RTOL = 1e-3
 
 IFLIP3_FIT_PARAMETER_DEFAULTS = {
     "tau1": {"mode": "auto", "value": 0.6, "lower": 0.03, "upper": 5.0},
@@ -655,6 +659,23 @@ def _load_corrected_iflip3_curves(
     )
 
 
+def _pulse_intervals_compatible(first: float, second: float) -> bool:
+    """Accept small measured sync-rate variation, not a changed repetition rate."""
+
+    return bool(
+        np.isclose(
+            first,
+            second,
+            rtol=IFLIP3_PULSE_INTERVAL_RTOL,
+            atol=0.0,
+        )
+    )
+
+
+def _pulse_interval_description(interval: float) -> str:
+    return f"{interval:.9g} ns ({1e3 / interval:.9g} MHz)"
+
+
 def calibrate_iflip3_sessions(
     rows: list[dict] | tuple[dict, ...],
     data_root: str | Path,
@@ -682,6 +703,7 @@ def calibrate_iflip3_sessions(
     loaded: list[dict[str, Any]] = []
     reference_time = None
     reference_pulse_interval = None
+    reference_session_id = None
     for row in rows:
         time_axis, curves, pulse_interval, has_background, resolved = (
             _load_corrected_iflip3_curves(
@@ -694,6 +716,7 @@ def calibrate_iflip3_sessions(
         if reference_time is None:
             reference_time = time_axis
             reference_pulse_interval = pulse_interval
+            reference_session_id = _session_id(row)
         elif time_axis.shape != reference_time.shape or not np.allclose(
             time_axis, reference_time, rtol=0.0, atol=1e-9
         ):
@@ -701,9 +724,12 @@ def calibrate_iflip3_sessions(
                 f"Session {_session_id(row)} has a different lifetime-bin axis; "
                 "create a separate calibration for that acquisition configuration"
             )
-        elif not np.isclose(pulse_interval, reference_pulse_interval, rtol=0.0, atol=1e-9):
+        elif not _pulse_intervals_compatible(pulse_interval, reference_pulse_interval):
             raise ValueError(
-                f"Session {_session_id(row)} has a different pulse interval; "
+                f"Session {_session_id(row)} has pulse interval "
+                f"{_pulse_interval_description(pulse_interval)}, but reference session "
+                f"{reference_session_id} has "
+                f"{_pulse_interval_description(reference_pulse_interval)}. "
                 "create a separate calibration for that acquisition configuration"
             )
         aggregate = np.sum(curves, axis=1)
@@ -914,9 +940,11 @@ def apply_iflip3_calibration(
         raise ValueError(
             f"Session {_session_id(row)} does not match the calibration lifetime-bin axis"
         )
-    if not np.isclose(pulse_interval, calibration.pulse_interval, rtol=0.0, atol=1e-9):
+    if not _pulse_intervals_compatible(pulse_interval, calibration.pulse_interval):
         raise ValueError(
-            f"Session {_session_id(row)} does not match the calibration pulse interval"
+            f"Session {_session_id(row)} has pulse interval "
+            f"{_pulse_interval_description(pulse_interval)}, but the calibration uses "
+            f"{_pulse_interval_description(calibration.pulse_interval)}"
         )
     weighting = "none" if np.any(curves < 0) else "poisson"
     target = fit_target(

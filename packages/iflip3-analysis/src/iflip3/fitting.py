@@ -270,6 +270,11 @@ def fit_global(
     Component coefficients are solved linearly for every photometry time point
     at each nonlinear iteration (variable projection / semi-linear fitting).
     With area-normalized bases, component coefficients represent fitted counts.
+
+    This is a custom variable-projection implementation of the global
+    fluorescence-decay analysis concept introduced by Knutson, Beechem, and
+    Brand (Chemical Physics Letters 102:501-507, 1983;
+    https://doi.org/10.1016/0009-2614(83)87454-5).
     """
 
     if n_components not in (1, 2):

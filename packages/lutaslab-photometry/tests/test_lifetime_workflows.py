@@ -98,6 +98,34 @@ def test_multi_session_iflip3_calibration_roundtrips_and_fixes_background(
     assert decomposition.long_component_counts.shape == (2,)
 
 
+def test_iflip3_pulse_interval_comparison_accepts_small_sync_rate_variation():
+    assert workflows._pulse_intervals_compatible(12.5, 12.51)
+    assert not workflows._pulse_intervals_compatible(12.5, 25.0)
+
+
+def test_iflip3_calibration_reports_material_pulse_rate_difference(monkeypatch):
+    time = np.arange(0.4, 12.31, 0.1)
+
+    def corrected(row, root, *, spc_range, afterpulse_ratio):
+        del root, spc_range, afterpulse_ratio
+        interval = 12.5 if int(row["run"]) == 1 else 25.0
+        return (
+            time,
+            np.ones((time.size, 2)),
+            interval,
+            True,
+            {"source_path": Path("recording.iFLiP3"), "background_path": None},
+        )
+
+    monkeypatch.setattr(workflows, "_load_corrected_iflip3_curves", corrected)
+    rows = [
+        {"mouse": "M1", "date": "260101", "run": 1},
+        {"mouse": "M1", "date": "260101", "run": 2},
+    ]
+    with pytest.raises(ValueError, match=r"25 ns \(40 MHz\).+12.5 ns \(80 MHz\)"):
+        workflows.calibrate_iflip3_sessions(rows, ".")
+
+
 def test_lifetime_processed_file_embeds_structured_provenance():
     path = Path("packages/lutaslab-photometry/tests/_lifetime-provenance.npz")
     session = AlignedSession(

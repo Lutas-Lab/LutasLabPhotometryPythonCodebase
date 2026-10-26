@@ -9,6 +9,14 @@ subsequent preprocessing those four values remain fixed. Only the nonnegative
 short- and long-component photon counts are solved at each photometry time
 point.
 
+The parameter-sharing strategy follows the global fluorescence-decay analysis
+concept introduced by Jay R. Knutson, Joseph M. Beechem, and Ludwig Brand:
+Knutson JR, Beechem JM, Brand L. “Simultaneous analysis of multiple fluorescence
+decay curves: a global approach.” *Chemical Physics Letters* 102:501-507 (1983).
+[doi:10.1016/0009-2614(83)87454-5](https://doi.org/10.1016/0009-2614(83)87454-5).
+The repository uses its own variable-projection implementation rather than code
+from the original work.
+
 The residual fit background is fixed at zero. This is deliberate: a free
 constant offset can trade off against the long lifetime. The optional measured
 background recording and the configured afterpulse correction are applied
@@ -55,6 +63,12 @@ balance session influence.
 The calibration records its acquisition time axis and excitation pulse
 interval. Preprocessing rejects a recording that does not match either value,
 rather than silently applying an incompatible basis.
+
+The sync rate stored in an iFLIP3 header can be a measured value, so nominally
+identical hardware may report very small differences. Pulse intervals within
+0.1% are treated as the same acquisition rate. Material changes, such as 80 MHz
+(12.5 ns) versus 40 MHz (25 ns), are rejected and require separate calibration
+files. A rejection message reports both pulse intervals and sync rates.
 
 ## Choosing calibration sessions
 
