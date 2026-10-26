@@ -78,6 +78,17 @@ label filters only that analysis run; it does not alter the master manifest or
 reprocess the recordings. These selectors are available for conventional
 photometry, FluoPulse, and iFLIP3.
 
+Every GUI PSTH run is saved in a new timestamped folder below the selected
+**Figure/output base directory**. The suggested folder label records the selected
+group or condition, signal, alignment event, and time window; enter a custom
+**Run label** when a more descriptive experimental name is useful. For example,
+separate BLA and NAc selections produce separate run folders even when every
+other setting is unchanged. Lifetime runs also write `analysis_metadata.json`
+with the complete plotting configuration, included sessions, subset labels,
+generation time, and code commit. The advanced option to save directly into the
+base directory restores the older behavior and can replace matching files, so it
+should be selected only for an intentional overwrite.
+
 Explicit relative paths are resolved from the selected data root. Absolute
 paths override discovery. Running files remain optional for lifetime analyses;
 the recording inputs are required. NI-DAQ is optional for both lifetime sensors:

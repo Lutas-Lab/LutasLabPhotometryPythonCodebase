@@ -413,6 +413,11 @@ def test_lifetime_preprocessing_saves_beside_raw_and_roundtrips(monkeypatch, tmp
     )
     assert psth_metadata["units"] == "ps"
     assert psth_metadata["ylabel"] == "τ (ps)"
+    assert psth_metadata["run_label"] == "psth"
+    assert psth_metadata["heatmaps"]["enabled"] is False
+    assert psth_metadata["sessions"][0]["session_id"] == session.session_id
+    assert "generated_utc" in psth_metadata
+    assert "code_commit" in psth_metadata
 
 
 def test_processed_lifetime_file_is_required_for_downstream_analysis(tmp_path):

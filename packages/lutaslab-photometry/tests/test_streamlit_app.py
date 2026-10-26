@@ -30,6 +30,7 @@ def test_streamlit_app_loads_without_exceptions():
     }
     assert app.checkbox(key="conventional_include_licking_psth").value is False
     assert app.checkbox(key="conventional_include_running_psth").value is False
+    assert app.checkbox(key="conventional_reuse_psth_output").value is False
     assert app.selectbox(key="conventional_photometry_signal").value == "dff"
     assert "Signal" not in {selectbox.label for selectbox in app.selectbox}
 
@@ -69,3 +70,4 @@ def test_streamlit_lifetime_modes_load(workflow, expected_signal):
         }
     assert app.checkbox(key=f"{workflow}_include_licking_psth").value is False
     assert app.checkbox(key=f"{workflow}_include_running_psth").value is False
+    assert app.checkbox(key=f"{workflow}_reuse_psth_output").value is False

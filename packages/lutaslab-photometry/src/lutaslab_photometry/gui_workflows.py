@@ -10,9 +10,62 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
 MANIFEST_COLUMNS = ("mouse", "date", "run", "group", "condition", "channel")
+
+
+def safe_analysis_run_label(value):
+    """Return a compact, Windows-safe label for an analysis-run directory."""
+
+    safe = "".join(
+        character if character.isalnum() or character in "-_" else "_"
+        for character in str(value).strip()
+    )
+    safe = "_".join(part for part in safe.split("_") if part)
+    return safe[:80] or "psth"
+
+
+def suggest_psth_run_label(
+    signal,
+    event,
+    window,
+    *,
+    group_filter=None,
+    condition_filter=None,
+):
+    """Build a readable default label from the settings that identify a PSTH."""
+
+    def number_label(value):
+        text = f"{abs(float(value)):g}".replace(".", "p")
+        return f"m{text}" if float(value) < 0 else text
+
+    subset = [value for value in (group_filter, condition_filter) if value]
+    parts = [
+        *subset,
+        signal,
+        event,
+        f"{number_label(window[0])}to{number_label(window[1])}s",
+    ]
+    return "__".join(safe_analysis_run_label(part) for part in parts)
+
+
+def next_analysis_run_directory(base_dir, label, *, now=None):
+    """Return a unique timestamped child path without modifying the filesystem."""
+
+    timestamp = (now or datetime.now()).strftime("%Y-%m-%d_%H%M%S")
+    base = Path(base_dir).expanduser()
+    safe_label = "__".join(
+        safe_analysis_run_label(part) for part in str(label).split("__")
+    )
+    stem = f"{timestamp}__{safe_label}"
+    candidate = base / stem
+    revision = 2
+    while candidate.exists():
+        candidate = base / f"{stem}__r{revision:02d}"
+        revision += 1
+    return candidate
 
 
 def normalize_manifest_rows(rows):

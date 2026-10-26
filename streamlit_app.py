@@ -18,8 +18,10 @@ from lutaslab_photometry.gui_workflows import (
     build_psth_command,
     display_command,
     manifest_csv_text,
+    next_analysis_run_directory,
     normalize_manifest_rows,
     run_command,
+    suggest_psth_run_label,
     write_manifest,
 )
 from lutaslab_photometry.heatmap_ordering import (
@@ -1197,10 +1199,49 @@ def _lifetime_gui(workflow: str) -> None:
                 key=f"{workflow}_allow_partial_windows",
             )
         output = st.text_input(
-            "Figure/output directory",
+            "Figure/output base directory",
             value=str(PROJECT_ROOT / "analysis" / workflow / "psth"),
             key=f"{workflow}_psth_output",
         )
+        suggested_run_label = suggest_psth_run_label(
+            signal,
+            event,
+            (window_start, window_end),
+            group_filter=psth_group_filter,
+            condition_filter=psth_condition_filter,
+        )
+        run_label = st.text_input(
+            "Run label (optional)",
+            value="",
+            placeholder=suggested_run_label,
+            help=(
+                "Used in the new run-folder name. Leave blank to use the suggested "
+                "label derived from the selected subset, signal, event, and window."
+            ),
+            key=f"{workflow}_psth_run_label",
+        )
+        with st.expander("Advanced: output-folder behavior"):
+            reuse_output_directory = st.checkbox(
+                "Save directly into the base directory and replace matching files",
+                value=False,
+                key=f"{workflow}_reuse_psth_output",
+                help=(
+                    "Legacy behavior. Use only when you intentionally want to replace "
+                    "figures from an earlier run."
+                ),
+            )
+            if reuse_output_directory:
+                st.warning(
+                    "Matching files will be replaced, and unrelated files left by an "
+                    "older run may remain in this directory."
+                )
+        resolved_run_label = run_label.strip() or suggested_run_label
+        run_output = (
+            Path(output).expanduser()
+            if reuse_output_directory
+            else next_analysis_run_directory(output, resolved_run_label)
+        )
+        st.caption(f"This run will be saved to: {run_output}")
         st.markdown("#### Additional behavioral responses")
         behavior_left, behavior_right = st.columns(2)
         with behavior_left:
@@ -1262,7 +1303,7 @@ def _lifetime_gui(workflow: str) -> None:
             workflow,
             manifest_path,
             data_root,
-            output,
+            run_output,
             signal=signal,
             event=event,
             window=(window_start, window_end),
@@ -1292,7 +1333,7 @@ def _lifetime_gui(workflow: str) -> None:
                     workflow,
                     manifest_path,
                     data_root,
-                    Path(output) / behavior_signal,
+                    run_output / behavior_signal,
                     signal=behavior_signal,
                     event=event,
                     window=(window_start, window_end),
@@ -1627,9 +1668,48 @@ with psth_tab:
         st.caption("Cue-trial classification is available for cue-onset alignment.")
 
     output_dir = st.text_input(
-        "Figure/output directory",
+        "Figure/output base directory",
         value=str(PROJECT_ROOT / "analysis" / "gui_psth"),
     )
+    suggested_run_label = suggest_psth_run_label(
+        photometry_signal,
+        event_key,
+        (window_start, window_end),
+        group_filter=psth_group_filter,
+        condition_filter=psth_condition_filter,
+    )
+    run_label = st.text_input(
+        "Run label (optional)",
+        value="",
+        placeholder=suggested_run_label,
+        help=(
+            "Used in the new run-folder name. Leave blank to use the suggested "
+            "label derived from the selected subset, signal, event, and window."
+        ),
+        key="conventional_psth_run_label",
+    )
+    with st.expander("Advanced: output-folder behavior"):
+        reuse_output_directory = st.checkbox(
+            "Save directly into the base directory and replace matching files",
+            value=False,
+            key="conventional_reuse_psth_output",
+            help=(
+                "Legacy behavior. Use only when you intentionally want to replace "
+                "figures from an earlier run."
+            ),
+        )
+        if reuse_output_directory:
+            st.warning(
+                "Matching files will be replaced, and unrelated files left by an "
+                "older run may remain in this directory."
+            )
+    resolved_run_label = run_label.strip() or suggested_run_label
+    run_output_dir = (
+        Path(output_dir).expanduser()
+        if reuse_output_directory
+        else next_analysis_run_directory(output_dir, resolved_run_label)
+    )
+    st.caption(f"This run will be saved to: {run_output_dir}")
     stratify = st.checkbox("Separate group and condition", value=True)
     null_method = st.selectbox(
         "Random-alignment control",
@@ -1761,7 +1841,7 @@ with psth_tab:
         PROJECT_ROOT,
         manifest_path_text,
         data_root,
-        output_dir,
+        run_output_dir,
         event_key=event_key,
         signal="photometry",
         photometry_signal=photometry_signal,
@@ -1803,7 +1883,7 @@ with psth_tab:
                 PROJECT_ROOT,
                 manifest_path_text,
                 data_root,
-                Path(output_dir) / behavior_signal,
+                run_output_dir / behavior_signal,
                 event_key=event_key,
                 signal=behavior_signal,
                 channel=channel,

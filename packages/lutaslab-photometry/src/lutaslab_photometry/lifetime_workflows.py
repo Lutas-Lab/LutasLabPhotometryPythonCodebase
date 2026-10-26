@@ -27,6 +27,7 @@ from lutaslab_core.session import AlignedSession, ContinuousSignal, EventSeries
 
 from .group_analysis import extract_perievent_event_rate, save_psth_heatmaps
 from .processed_provenance import build_processed_provenance, provenance_json
+from .update_check import local_git_commit
 
 LIFETIME_COMMON_COLUMNS = ("mouse", "date", "run", "group", "condition")
 LIFETIME_PATH_COLUMNS = {
@@ -1536,7 +1537,30 @@ def run_lifetime_psth(
                 cmap=heatmap_cmap,
             )
         )
+    session_metadata = []
+    for item in results:
+        record = {}
+        for key in (
+            "session_id",
+            "mouse",
+            "date",
+            "run",
+            "group",
+            "condition",
+            "source_path",
+            "nidaq_path",
+            "running_path",
+            "processed_path",
+        ):
+            if key in item and item[key] not in (None, ""):
+                value = item[key]
+                record[key] = str(value) if isinstance(value, Path) else value
+        session_metadata.append(record)
     metadata = {
+        "generated_utc": datetime.now(UTC).isoformat(),
+        "run_label": destination.name,
+        "output_directory": str(destination.resolve()),
+        "code_commit": local_git_commit(Path(__file__).resolve().parents[4]),
         "workflow": workflow,
         "signal": signal,
         "event": event,
@@ -1548,8 +1572,31 @@ def run_lifetime_psth(
         "baseline": list(baseline),
         "first_event_only": bool(first_event_only),
         "allow_partial_windows": bool(allow_partial_windows),
+        "heatmaps": {
+            "enabled": bool(heatmaps),
+            "sort": heatmap_sort,
+            "sort_window": (
+                None
+                if heatmap_sort_window is None
+                else list(heatmap_sort_window)
+            ),
+            "sort_direction": heatmap_sort_direction,
+            "unmatched": heatmap_unmatched,
+            "color_map": heatmap_cmap,
+        },
+        "selected_groups": sorted(
+            {str(item.get("group", "")) for item in results if item.get("group")}
+        ),
+        "selected_conditions": sorted(
+            {
+                str(item.get("condition", ""))
+                for item in results
+                if item.get("condition")
+            }
+        ),
         "session_count": len(results),
         "mouse_count": len(mouse_names),
+        "sessions": session_metadata,
     }
     metadata_path = destination / "analysis_metadata.json"
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")

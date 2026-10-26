@@ -2,6 +2,7 @@ import csv
 import io
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -12,8 +13,11 @@ from lutaslab_photometry.gui_workflows import (
     build_preprocess_command,
     build_psth_command,
     manifest_csv_text,
+    next_analysis_run_directory,
     normalize_manifest_rows,
     run_command,
+    safe_analysis_run_label,
+    suggest_psth_run_label,
     write_manifest,
 )
 
@@ -29,6 +33,27 @@ def sample_rows():
             "channel": "2",
         }
     ]
+
+
+def test_psth_run_label_is_readable_and_windows_safe():
+    assert suggest_psth_run_label(
+        "long_lifetime_fraction",
+        "ensure",
+        (-5, 20),
+        condition_filter="BLA input",
+    ) == "BLA_input__long_lifetime_fraction__ensure__m5to20s"
+    assert safe_analysis_run_label(" custom: label? ") == "custom_label"
+
+
+def test_next_analysis_run_directory_avoids_existing_run(tmp_path):
+    now = datetime(2026, 10, 26, 14, 32, 10)
+    first = next_analysis_run_directory(tmp_path, "BLA", now=now)
+    first.mkdir()
+
+    second = next_analysis_run_directory(tmp_path, "BLA", now=now)
+
+    assert first.name == "2026-10-26_143210__BLA"
+    assert second.name == "2026-10-26_143210__BLA__r02"
 
 
 def test_normalize_manifest_rows_preserves_analysis_fields():
