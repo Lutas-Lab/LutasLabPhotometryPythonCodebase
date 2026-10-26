@@ -153,6 +153,11 @@ do not have one; measured-background subtraction is then skipped, while the
 configured afterpulse correction is still applied. Processed metadata records
 whether a measured background was used.
 
+For experiment-wide component decomposition, use the GUI's saved
+[multi-session calibration](../../docs/iflip3-multisession-calibration.md)
+workflow. It estimates shared lifetimes, t0, and IRF width from compatible
+sessions and applies them with residual fit background fixed at zero.
+
 Because a uniform 5 Hz train does not encode pulse identity, the default clock
 fit assumes that the first saved iFLiP marker and first saved NI-DAQ pulse are
 the same physical pulse. This is appropriate when both pulse trains are already

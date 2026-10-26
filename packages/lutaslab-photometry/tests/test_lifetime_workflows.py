@@ -48,6 +48,56 @@ def test_iflip3_manifest_allows_missing_background():
     assert rows[0]["background_path"] == ""
 
 
+def test_multi_session_iflip3_calibration_roundtrips_and_fixes_background(
+    monkeypatch, tmp_path
+):
+    from iflip3 import periodic_exgaussian_basis
+
+    time = np.arange(0.4, 12.31, 0.1)
+    tau = (0.7, 2.6)
+    short = periodic_exgaussian_basis(time, tau[0], 1.0, 0.14, 12.5)
+    long = periodic_exgaussian_basis(time, tau[1], 1.0, 0.14, 12.5)
+
+    def corrected(row, root, *, spc_range, afterpulse_ratio):
+        del root, spc_range, afterpulse_ratio
+        scale = float(row["run"])
+        aggregate = (1000.0 * scale) * short + (2500.0 / scale) * long
+        curves = np.column_stack([aggregate * 0.45, aggregate * 0.55])
+        return (
+            time,
+            curves,
+            12.5,
+            True,
+            {
+                "source_path": Path(f"recording-{row['run']}.iFLiP3"),
+                "background_path": Path("background.iFLiP3"),
+            },
+        )
+
+    monkeypatch.setattr(workflows, "_load_corrected_iflip3_curves", corrected)
+    rows = [
+        {"mouse": "M1", "date": "260101", "run": 1},
+        {"mouse": "M2", "date": "260102", "run": 2},
+    ]
+    calibration = workflows.calibrate_iflip3_sessions(rows, tmp_path)
+    destination = workflows.save_iflip3_calibration(
+        calibration, tmp_path / "shared.json"
+    )
+    loaded = workflows.load_iflip3_calibration(destination)
+
+    assert loaded.success
+    np.testing.assert_allclose(loaded.lifetimes, tau, atol=0.25)
+    assert loaded.t0 == pytest.approx(1.0, abs=0.15)
+    assert loaded.irf_sigma == pytest.approx(0.14, abs=0.12)
+    assert loaded.to_dict()["model"]["residual_background_counts_per_bin"] == 0.0
+    assert len(loaded.session_qc) == 2
+    decomposition = workflows.apply_iflip3_calibration(rows[0], tmp_path, loaded)
+    assert decomposition.background == 0.0
+    np.testing.assert_allclose(decomposition.lifetimes, loaded.lifetimes)
+    assert decomposition.short_component_counts.shape == (2,)
+    assert decomposition.long_component_counts.shape == (2,)
+
+
 def test_lifetime_processed_file_embeds_structured_provenance():
     path = Path("packages/lutaslab-photometry/tests/_lifetime-provenance.npz")
     session = AlignedSession(

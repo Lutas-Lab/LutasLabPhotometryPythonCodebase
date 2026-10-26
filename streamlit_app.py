@@ -30,12 +30,15 @@ from lutaslab_photometry.lifetime_workflows import (
     IFLIP3_FIT_PARAMETER_DEFAULTS,
     LIFETIME_EVENTS,
     LIFETIME_SIGNALS,
+    calibrate_iflip3_sessions,
     discover_lifetime_paths,
     lifetime_manifest_columns,
     lifetime_preprocessing_parameters,
     lifetime_processed_path,
+    load_iflip3_calibration,
     normalize_lifetime_manifest_rows,
     preview_iflip3_fit,
+    save_iflip3_calibration,
     write_lifetime_manifest,
 )
 from lutaslab_photometry.processed_provenance import classify_processed_provenance
@@ -311,6 +314,72 @@ def _show_iflip3_fit_preview(preview) -> None:
     for column, (name, value) in zip(metrics, metric_values, strict=True):
         column.metric(name, value)
     st.caption(f"Residual background: {preview.background:.5g} aggregate counts/bin")
+
+
+def _show_iflip3_calibration(calibration) -> None:
+    """Display shared parameters and session-level calibration diagnostics."""
+
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    metrics = st.columns(5)
+    values = (
+        ("τ1", f"{calibration.lifetimes[0]:.4g} ns"),
+        ("τ2", f"{calibration.lifetimes[1]:.4g} ns"),
+        ("t0", f"{calibration.t0:.4g} ns"),
+        ("IRF σ", f"{calibration.irf_sigma:.4g} ns"),
+        ("Sessions", str(len(calibration.session_qc))),
+    )
+    for column, (name, value) in zip(metrics, values, strict=True):
+        column.metric(name, value)
+    st.caption("Residual fit background is fixed at zero.")
+
+    figure, (fit_axis, residual_axis) = plt.subplots(
+        2,
+        1,
+        figsize=(8.5, 6.5),
+        sharex=True,
+        gridspec_kw={"height_ratios": (2, 1)},
+        constrained_layout=True,
+    )
+    residual_rows = []
+    for item in calibration.session_qc:
+        observed = np.asarray(item["normalized_decay"], dtype=float)
+        fitted = np.asarray(item["fitted_decay"], dtype=float)
+        fit_axis.plot(calibration.lifetime_time, observed, color="0.7", alpha=0.55)
+        fit_axis.plot(calibration.lifetime_time, fitted, color="#d62728", alpha=0.25)
+        residual_rows.append(np.asarray(item["residuals"], dtype=float))
+    fit_axis.set_ylabel("Normalized aggregate decay")
+    residual_image = residual_axis.imshow(
+        np.asarray(residual_rows),
+        aspect="auto",
+        interpolation="nearest",
+        extent=(
+            calibration.lifetime_time[0],
+            calibration.lifetime_time[-1],
+            len(residual_rows) - 0.5,
+            -0.5,
+        ),
+        cmap="coolwarm",
+    )
+    residual_axis.set_xlabel("Time after excitation pulse (ns)")
+    residual_axis.set_ylabel("Session")
+    figure.colorbar(residual_image, ax=residual_axis, label="Residual")
+    st.pyplot(figure, clear_figure=True)
+    plt.close(figure)
+
+    table_rows = [
+        {
+            "session": item["session_id"],
+            "measured background": item["measured_background_applied"],
+            "R²": item["r_squared"],
+            "RMSE": item["rmse_normalized"],
+            "short fraction": item["short_fraction_aggregate"],
+            "long fraction": item["long_fraction_aggregate"],
+        }
+        for item in calibration.session_qc
+    ]
+    st.dataframe(pd.DataFrame(table_rows), hide_index=True, width="stretch")
 
 
 def _processed_provenance_panel(
@@ -789,22 +858,111 @@ def _lifetime_gui(workflow: str) -> None:
             "and GLM analyses use this processed file."
         )
         iflip3_fit_settings = None
+        iflip3_calibration_path = None
+        active_iflip3_calibration = None
         if workflow == "iflip3":
-            st.markdown("#### Inspect the biexponential fit")
+            st.markdown("#### Multi-session calibration")
             st.write(
-                "Choose a session, preview the aggregate decay fit, and adjust its "
-                "parameters before preprocessing. Previewing is read-only."
+                "Estimate shared τ1, τ2, t0, and IRF σ from multiple compatible "
+                "recordings. Residual fit background is fixed at zero."
             )
             try:
                 preview_rows = normalize_lifetime_manifest_rows(workflow, rows)
             except ValueError:
                 preview_rows = []
+            preview_labels = [
+                f"{row['mouse']} · {row['date']} · run {int(row['run']):03d}"
+                + (f" · {row['condition']}" if row.get("condition") else "")
+                for row in preview_rows
+            ]
+            selected_calibration_indices = st.multiselect(
+                "Sessions used to estimate the calibration",
+                range(len(preview_rows)),
+                default=range(len(preview_rows)),
+                format_func=lambda index: preview_labels[index],
+                key="iflip3_calibration_sessions",
+                help=(
+                    "Use all technically compatible sessions by default. Choose a custom "
+                    "subset when acquisition hardware/settings changed or QC identifies an outlier."
+                ),
+            )
+            calibration_path_text = st.text_input(
+                "Calibration JSON",
+                value=str(PROJECT_ROOT / "analysis" / "iflip3" / "calibrations" / "shared.json"),
+                key="iflip3_calibration_path",
+            ).strip()
+            calibration_path = Path(calibration_path_text).expanduser()
+            if not calibration_path.is_absolute():
+                calibration_path = PROJECT_ROOT / calibration_path
+            run_column, load_column = st.columns(2)
+            with run_column:
+                if st.button(
+                    "Run multi-session calibration",
+                    type="primary",
+                    disabled=len(selected_calibration_indices) < 2,
+                    key="iflip3_run_calibration",
+                ):
+                    try:
+                        with st.spinner(
+                            "Loading selected sessions and fitting shared parameters..."
+                        ):
+                            calibration = calibrate_iflip3_sessions(
+                                [preview_rows[index] for index in selected_calibration_indices],
+                                data_root,
+                            )
+                    except (OSError, ValueError, RuntimeError) as error:
+                        st.error(f"Multi-session calibration failed: {error}")
+                    else:
+                        st.session_state["iflip3_calibration_result"] = calibration
+                        st.success("Calibration converged. Review QC, then save it.")
+            with load_column:
+                if st.button("Load saved calibration", key="iflip3_load_calibration"):
+                    try:
+                        calibration = load_iflip3_calibration(calibration_path)
+                    except (OSError, ValueError) as error:
+                        st.error(f"Calibration could not be loaded: {error}")
+                    else:
+                        st.session_state["iflip3_calibration_result"] = calibration
+                        st.success(f"Loaded {calibration_path}")
+            calibration = st.session_state.get("iflip3_calibration_result")
+            if calibration is not None:
+                _show_iflip3_calibration(calibration)
+                if st.button("Save calibration", key="iflip3_save_calibration"):
+                    try:
+                        saved_calibration = save_iflip3_calibration(calibration, calibration_path)
+                    except OSError as error:
+                        st.error(f"Calibration could not be saved: {error}")
+                    else:
+                        st.success(f"Saved {saved_calibration}")
+            calibration_file_exists = calibration_path.is_file()
+            use_calibration = st.checkbox(
+                "Apply this saved calibration during preprocessing",
+                value=False,
+                disabled=not calibration_file_exists,
+                key="iflip3_use_calibration",
+            )
+            if use_calibration:
+                try:
+                    active_iflip3_calibration = load_iflip3_calibration(calibration_path)
+                except (OSError, ValueError) as error:
+                    st.error(f"Calibration cannot be used: {error}")
+                else:
+                    iflip3_calibration_path = calibration_path
+                    st.success(
+                        "Preprocessing will fix τ1, τ2, t0, and IRF σ to this calibration; "
+                        "only component counts will vary over time."
+                    )
+            st.caption(
+                "Create separate calibration files for different pulse intervals, lifetime-bin "
+                "axes, detectors, optical paths, or acquisition configurations."
+            )
+            st.divider()
+            st.markdown("#### Single-session diagnostic fit")
+            st.write(
+                "Choose a session, preview the aggregate decay fit, and adjust its "
+                "parameters for diagnosis or legacy per-session fitting. Previewing is read-only."
+            )
             if preview_rows:
-                preview_labels = [
-                    f"{row['mouse']} · {row['date']} · run {int(row['run']):03d}"
-                    + (f" · {row['condition']}" if row.get("condition") else "")
-                    for row in preview_rows
-                ]
                 preview_index = st.selectbox(
                     "Session to inspect",
                     range(len(preview_rows)),
@@ -867,14 +1025,18 @@ def _lifetime_gui(workflow: str) -> None:
                 st.info("Add a complete session row before previewing an iFLIP3 fit.")
             st.divider()
             st.caption(
-                "The settings currently shown above are applied to every iFLIP3 session "
-                "when preprocessing runs. Use fixed τ1/τ2 for a shared acquisition basis."
+                "These controls are used only when a saved multi-session calibration "
+                "is not selected."
             )
         _processed_provenance_panel(
             workflow,
             rows,
             data_root,
-            lifetime_preprocessing_parameters(workflow, iflip3_fit_settings),
+            lifetime_preprocessing_parameters(
+                workflow,
+                None if active_iflip3_calibration is not None else iflip3_fit_settings,
+                active_iflip3_calibration,
+            ),
         )
         overwrite_processed = st.checkbox(
             "Overwrite existing processed files",
@@ -893,7 +1055,10 @@ def _lifetime_gui(workflow: str) -> None:
             manifest_path,
             data_root,
             overwrite=overwrite_processed,
-            iflip3_fit_settings=iflip3_fit_settings,
+            iflip3_fit_settings=(
+                None if active_iflip3_calibration is not None else iflip3_fit_settings
+            ),
+            iflip3_calibration=iflip3_calibration_path,
         )
         if st.button(
             "Run preprocessing",

@@ -28,6 +28,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--iflip3-fit-settings",
         help="JSON fit controls produced by the GUI for iFLIP3 preprocessing.",
     )
+    parser.add_argument(
+        "--iflip3-calibration",
+        help="Saved multi-session iFLIP3 calibration JSON to apply during preprocessing.",
+    )
     parser.add_argument("--signal")
     parser.add_argument("--event", choices=(
         "ensure", "visual_cue", "licks", "lick_bout_onset", "lick_bout_offset"
@@ -56,6 +60,10 @@ def main(argv=None) -> int:
     rows = read_lifetime_manifest(args.workflow, args.manifest)
     rows = filter_manifest_sessions(rows, group=args.group, condition=args.condition)
     if args.action == "preprocess":
+        if args.iflip3_fit_settings is not None and args.iflip3_calibration is not None:
+            raise ValueError(
+                "Use either --iflip3-fit-settings or --iflip3-calibration, not both"
+            )
         outputs = preprocess_lifetime_sessions(
             args.workflow,
             rows,
@@ -66,6 +74,7 @@ def main(argv=None) -> int:
                 if args.iflip3_fit_settings is not None
                 else None
             ),
+            iflip3_calibration=args.iflip3_calibration,
         )
     elif args.action == "psth":
         if not args.signal or not args.event or not args.output_dir:

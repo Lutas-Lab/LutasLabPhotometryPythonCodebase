@@ -196,6 +196,10 @@ The two lifetime modes share the sensor-independent session representation in
   iFLIP3 stores background-corrected MPET and raw intensity for QC. Source paths,
   processing metadata, and behavior events are retained in the processed file.
   Existing processed files are reused unless overwrite is selected.
+  For iFLIP3, the recommended decay workflow is to create and review a saved
+  [multi-session calibration](iflip3-multisession-calibration.md). It shares
+  lifetimes, t0, and IRF width across compatible recordings, fixes residual fit
+  background to zero, and leaves only component counts time-point-specific.
 - **Event-aligned PSTH** aligns a selected lifetime/QC signal to Ensure, visual
   cue, individual lick, lick-bout onset, or lick-bout offset events. It can use
   every event or only the first event in each session. Long windows can retain

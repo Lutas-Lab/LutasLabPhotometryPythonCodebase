@@ -236,6 +236,20 @@ def test_build_iflip3_preprocess_command_includes_fit_controls():
     assert json.loads(encoded) == settings
 
 
+def test_build_iflip3_preprocess_command_accepts_saved_calibration():
+    command = build_lifetime_command(
+        ".",
+        "preprocess",
+        "iflip3",
+        "sessions.csv",
+        "Z:/",
+        iflip3_calibration="analysis/iflip3/calibrations/shared.json",
+    )
+    assert command[command.index("--iflip3-calibration") + 1] == str(
+        Path("analysis/iflip3/calibrations/shared.json")
+    )
+
+
 def test_run_command_streams_and_captures_output(tmp_path):
     streamed = []
     return_code, output = run_command(

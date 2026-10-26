@@ -71,7 +71,11 @@ def test_lifetime_cli_dispatches_preprocess(workflow_stubs, capsys):
     name, args, kwargs = calls.pop()
     assert name == "preprocess"
     assert args == ("iflip3", rows, "data")
-    assert kwargs == {"overwrite": True, "iflip3_fit_settings": None}
+    assert kwargs == {
+        "overwrite": True,
+        "iflip3_fit_settings": None,
+        "iflip3_calibration": None,
+    }
     assert str(output) in capsys.readouterr().out
 
 

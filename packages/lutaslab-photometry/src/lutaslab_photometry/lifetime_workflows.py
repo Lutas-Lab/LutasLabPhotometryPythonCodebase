@@ -11,6 +11,7 @@ import time
 import warnings
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +53,7 @@ LIFETIME_EVENTS = (
     "lick_bout_offset",
 )
 LIFETIME_PROCESSED_SCHEMA_VERSION = "1.0"
+IFLIP3_CALIBRATION_SCHEMA_VERSION = "1.0"
 
 IFLIP3_FIT_PARAMETER_DEFAULTS = {
     "tau1": {"mode": "auto", "value": 0.6, "lower": 0.03, "upper": 5.0},
@@ -86,6 +88,58 @@ class IFLIP3FitPreview:
     fit_rmse_by_sample: np.ndarray
 
 
+@dataclass(frozen=True)
+class IFLIP3Calibration:
+    """Saved shared decay-shape calibration for one acquisition configuration."""
+
+    lifetimes: np.ndarray
+    t0: float
+    irf_sigma: float
+    lifetime_time: np.ndarray
+    pulse_interval: float
+    spc_range: tuple[float, float]
+    afterpulse_ratio: float
+    session_qc: tuple[dict[str, Any], ...]
+    success: bool
+    message: str
+    cost: float
+    nfev: int
+    created_utc: str
+    code_commit: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "calibration_schema_version": IFLIP3_CALIBRATION_SCHEMA_VERSION,
+            "created_utc": self.created_utc,
+            "code_commit": self.code_commit,
+            "model": {
+                "n_components": 2,
+                "lifetimes_ns": self.lifetimes.tolist(),
+                "t0_ns": self.t0,
+                "irf_sigma_ns": self.irf_sigma,
+                "residual_background_counts_per_bin": 0.0,
+                "shared_parameters": ["tau1", "tau2", "t0", "irf_sigma"],
+                "time_point_specific_parameters": [
+                    "short_component_counts",
+                    "long_component_counts",
+                ],
+            },
+            "acquisition": {
+                "lifetime_time_ns": self.lifetime_time.tolist(),
+                "pulse_interval_ns": self.pulse_interval,
+                "spc_range_ns": list(self.spc_range),
+                "afterpulse_ratio": self.afterpulse_ratio,
+            },
+            "fit": {
+                "success": self.success,
+                "message": self.message,
+                "cost": self.cost,
+                "nfev": self.nfev,
+                "session_qc": list(self.session_qc),
+            },
+        }
+
+
 def normalize_iflip3_fit_settings(settings: dict | None) -> dict[str, dict[str, float | str]]:
     """Validate GUI/CLI controls for the aggregate iFLIP3 decay fit."""
 
@@ -117,9 +171,102 @@ def normalize_iflip3_fit_settings(settings: dict | None) -> dict[str, dict[str, 
     return normalized
 
 
+def _calibration_from_dict(payload: dict[str, Any]) -> IFLIP3Calibration:
+    """Validate and reconstruct a saved iFLIP3 calibration."""
+
+    schema = str(payload.get("calibration_schema_version", ""))
+    if schema != IFLIP3_CALIBRATION_SCHEMA_VERSION:
+        raise ValueError(
+            f"Unsupported iFLIP3 calibration schema {schema!r}; "
+            f"expected {IFLIP3_CALIBRATION_SCHEMA_VERSION!r}"
+        )
+    model = payload.get("model") or {}
+    acquisition = payload.get("acquisition") or {}
+    fit = payload.get("fit") or {}
+    lifetimes = np.asarray(model.get("lifetimes_ns"), dtype=float)
+    lifetime_time = np.asarray(acquisition.get("lifetime_time_ns"), dtype=float)
+    if lifetimes.shape != (2,) or np.any(~np.isfinite(lifetimes)) or np.any(lifetimes <= 0):
+        raise ValueError("Calibration must contain two positive finite lifetimes")
+    if lifetime_time.ndim != 1 or lifetime_time.size < 3 or np.any(~np.isfinite(lifetime_time)):
+        raise ValueError("Calibration lifetime-time axis is invalid")
+    background = float(model.get("residual_background_counts_per_bin", np.nan))
+    if background != 0.0:
+        raise ValueError("This calibration schema requires residual background fixed at zero")
+    spc_range = tuple(map(float, acquisition.get("spc_range_ns", ())))
+    if len(spc_range) != 2 or spc_range[0] >= spc_range[1]:
+        raise ValueError("Calibration SPC range is invalid")
+    calibration = IFLIP3Calibration(
+        lifetimes=np.sort(lifetimes),
+        t0=float(model.get("t0_ns")),
+        irf_sigma=float(model.get("irf_sigma_ns")),
+        lifetime_time=lifetime_time,
+        pulse_interval=float(acquisition.get("pulse_interval_ns")),
+        spc_range=(spc_range[0], spc_range[1]),
+        afterpulse_ratio=float(acquisition.get("afterpulse_ratio")),
+        session_qc=tuple(fit.get("session_qc") or ()),
+        success=bool(fit.get("success")),
+        message=str(fit.get("message", "")),
+        cost=float(fit.get("cost", np.nan)),
+        nfev=int(fit.get("nfev", 0)),
+        created_utc=str(payload.get("created_utc", "")),
+        code_commit=(
+            None if payload.get("code_commit") in (None, "") else str(payload["code_commit"])
+        ),
+    )
+    scalar_values = (
+        calibration.t0,
+        calibration.irf_sigma,
+        calibration.pulse_interval,
+        calibration.afterpulse_ratio,
+    )
+    if not all(np.isfinite(value) for value in scalar_values):
+        raise ValueError("Calibration contains non-finite instrument parameters")
+    if calibration.irf_sigma <= 0 or calibration.pulse_interval <= 0:
+        raise ValueError("Calibration IRF width and pulse interval must be positive")
+    if not calibration.success:
+        raise ValueError("Calibration does not record a successful global fit")
+    return calibration
+
+
+def save_iflip3_calibration(calibration: IFLIP3Calibration, path: str | Path) -> Path:
+    """Atomically save a versioned iFLIP3 calibration JSON artifact."""
+
+    destination = Path(path).expanduser()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        newline="\n",
+        suffix=".json",
+        prefix=f".{destination.stem}-",
+        dir=destination.parent,
+        delete=False,
+    ) as stream:
+        json.dump(calibration.to_dict(), stream, indent=2, sort_keys=True)
+        stream.write("\n")
+        temporary = Path(stream.name)
+    try:
+        _replace_with_retry(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return destination
+
+
+def load_iflip3_calibration(path: str | Path) -> IFLIP3Calibration:
+    """Load and validate a saved iFLIP3 calibration JSON artifact."""
+
+    source = Path(path).expanduser()
+    with source.open(encoding="utf-8") as stream:
+        payload = json.load(stream)
+    if not isinstance(payload, dict):
+        raise ValueError("Calibration JSON must contain an object")
+    return _calibration_from_dict(payload)
+
+
 def lifetime_preprocessing_parameters(
     workflow: str,
     iflip3_fit_settings: dict | None = None,
+    iflip3_calibration: IFLIP3Calibration | None = None,
 ) -> dict[str, Any]:
     """Return the effective defaults recorded with a lifetime processed file."""
 
@@ -138,9 +285,24 @@ def lifetime_preprocessing_parameters(
             "iflip_sync_start_index": 0,
             "nidaq_sync_start_index": 0,
             "lifetime_fit": (
-                None
-                if iflip3_fit_settings is None
-                else normalize_iflip3_fit_settings(iflip3_fit_settings)
+                {
+                    "mode": "shared_multi_session_calibration",
+                    "lifetimes_ns": iflip3_calibration.lifetimes.tolist(),
+                    "t0_ns": iflip3_calibration.t0,
+                    "irf_sigma_ns": iflip3_calibration.irf_sigma,
+                    "residual_background_counts_per_bin": 0.0,
+                    "calibration_created_utc": iflip3_calibration.created_utc,
+                    "calibration_code_commit": iflip3_calibration.code_commit,
+                    "calibration_session_ids": [
+                        item.get("session_id") for item in iflip3_calibration.session_qc
+                    ],
+                }
+                if iflip3_calibration is not None
+                else (
+                    None
+                    if iflip3_fit_settings is None
+                    else normalize_iflip3_fit_settings(iflip3_fit_settings)
+                )
             ),
         }
     raise ValueError("workflow must be 'fluopulse' or 'iflip3'")
@@ -457,28 +619,18 @@ def _iflip3_paths(row: dict, data_root: Path) -> dict[str, Path | None]:
     }
 
 
-def preview_iflip3_fit(
+def _load_corrected_iflip3_curves(
     row: dict,
-    data_root: str | Path,
-    settings: dict | None = None,
+    data_root: Path,
     *,
-    spc_range: tuple[float, float] = (0.4, 12.3),
-    afterpulse_ratio: float = 0.03,
-) -> IFLIP3FitPreview:
-    """Fit one session aggregate decay and decompose every photometry sample."""
+    spc_range: tuple[float, float],
+    afterpulse_ratio: float,
+) -> tuple[np.ndarray, np.ndarray, float, bool, dict[str, Path | None]]:
+    """Load one recording and return its corrected curves inside the fit window."""
 
-    from iflip3 import (
-        average_background,
-        calculate_mpet,
-        fit_decay,
-        fit_target,
-        lifetime_window,
-        periodic_exgaussian_basis,
-        read_iflip3,
-    )
+    from iflip3 import average_background, calculate_mpet, lifetime_window, read_iflip3
 
-    root = Path(data_root).expanduser()
-    resolved = _iflip3_paths(row, root)
+    resolved = _iflip3_paths(row, data_root)
     recording = read_iflip3(resolved["source_path"])
     measured_background = None
     if resolved["background_path"] is not None:
@@ -494,8 +646,171 @@ def preview_iflip3_fit(
     if corrected.ndim == 3:
         corrected = corrected[:, :, 0]
     use = lifetime_window(recording.lifetime_time, spc_range)
-    time = np.asarray(recording.lifetime_time[use], dtype=float)
-    curves = corrected[use]
+    return (
+        np.asarray(recording.lifetime_time[use], dtype=float),
+        corrected[use],
+        float(recording.header.pulse_interval_ns),
+        measured_background is not None,
+        resolved,
+    )
+
+
+def calibrate_iflip3_sessions(
+    rows: list[dict] | tuple[dict, ...],
+    data_root: str | Path,
+    *,
+    spc_range: tuple[float, float] = (0.4, 12.3),
+    afterpulse_ratio: float = 0.03,
+    initial_lifetimes: tuple[float, float] = (0.6, 2.5),
+    initial_t0: float | None = 1.0,
+    initial_sigma: float = 0.13,
+) -> IFLIP3Calibration:
+    """Jointly estimate shared lifetimes, t0, and IRF width across sessions.
+
+    Each selected session contributes one positive-area-normalized aggregate
+    decay. Residual fit background is deliberately excluded. This gives each
+    session comparable influence while allowing a separate pair of aggregate
+    component amplitudes for every recording.
+    """
+
+    from iflip3 import fit_global
+
+    if len(rows) < 2:
+        raise ValueError("Multi-session calibration requires at least two sessions")
+    root = Path(data_root).expanduser()
+    normalized_decays: list[np.ndarray] = []
+    loaded: list[dict[str, Any]] = []
+    reference_time = None
+    reference_pulse_interval = None
+    for row in rows:
+        time_axis, curves, pulse_interval, has_background, resolved = (
+            _load_corrected_iflip3_curves(
+                row,
+                root,
+                spc_range=spc_range,
+                afterpulse_ratio=afterpulse_ratio,
+            )
+        )
+        if reference_time is None:
+            reference_time = time_axis
+            reference_pulse_interval = pulse_interval
+        elif time_axis.shape != reference_time.shape or not np.allclose(
+            time_axis, reference_time, rtol=0.0, atol=1e-9
+        ):
+            raise ValueError(
+                f"Session {_session_id(row)} has a different lifetime-bin axis; "
+                "create a separate calibration for that acquisition configuration"
+            )
+        elif not np.isclose(pulse_interval, reference_pulse_interval, rtol=0.0, atol=1e-9):
+            raise ValueError(
+                f"Session {_session_id(row)} has a different pulse interval; "
+                "create a separate calibration for that acquisition configuration"
+            )
+        aggregate = np.sum(curves, axis=1)
+        positive_area = float(np.sum(np.clip(aggregate, 0.0, None)))
+        if not np.isfinite(positive_area) or positive_area <= 0:
+            raise ValueError(f"Session {_session_id(row)} has no positive aggregate decay area")
+        normalized = aggregate / positive_area
+        normalized_decays.append(normalized[:, None])
+        loaded.append(
+            {
+                "session_id": _session_id(row),
+                "mouse": str(row["mouse"]),
+                "date": str(row["date"]),
+                "run": int(row["run"]),
+                "source_path": str(resolved["source_path"]),
+                "background_path": (
+                    "" if resolved["background_path"] is None else str(resolved["background_path"])
+                ),
+                "measured_background_applied": has_background,
+                "positive_aggregate_area": positive_area,
+            }
+        )
+    assert reference_time is not None and reference_pulse_interval is not None
+    result = fit_global(
+        reference_time,
+        normalized_decays,
+        n_components=2,
+        pulse_interval=reference_pulse_interval,
+        initial_lifetimes=initial_lifetimes,
+        initial_t0=initial_t0,
+        initial_sigma=initial_sigma,
+        shared_t0=True,
+        shared_sigma=True,
+        include_background=False,
+        nonnegative=True,
+        weighting="none",
+        normalize="area",
+        max_nfev=250,
+    )
+    if not result.success:
+        raise RuntimeError(f"Multi-session calibration did not converge: {result.message}")
+    session_qc = []
+    for info, recording, normalized in zip(
+        loaded, result.recordings, normalized_decays, strict=True
+    ):
+        observed = normalized[:, 0]
+        fitted = recording.fitted[:, 0]
+        residuals = observed - fitted
+        total_sum_squares = float(np.sum((observed - observed.mean()) ** 2))
+        residual_sum_squares = float(np.sum(residuals**2))
+        session_qc.append(
+            {
+                **info,
+                "rmse_normalized": float(np.sqrt(np.mean(residuals**2))),
+                "r_squared": (
+                    1.0 - residual_sum_squares / total_sum_squares
+                    if total_sum_squares > 0
+                    else float("nan")
+                ),
+                "short_fraction_aggregate": float(recording.component_fractions[0, 0]),
+                "long_fraction_aggregate": float(recording.component_fractions[0, 1]),
+                "normalized_decay": observed.tolist(),
+                "fitted_decay": fitted.tolist(),
+                "residuals": residuals.tolist(),
+            }
+        )
+    from .update_check import local_git_commit
+
+    project_root = Path(__file__).resolve().parents[4]
+    first_recording = result.recordings[0]
+    return IFLIP3Calibration(
+        lifetimes=np.asarray(result.lifetimes, dtype=float),
+        t0=first_recording.t0,
+        irf_sigma=first_recording.irf_sigma,
+        lifetime_time=reference_time,
+        pulse_interval=reference_pulse_interval,
+        spc_range=tuple(map(float, spc_range)),
+        afterpulse_ratio=float(afterpulse_ratio),
+        session_qc=tuple(session_qc),
+        success=result.success,
+        message=result.message,
+        cost=result.cost,
+        nfev=result.nfev,
+        created_utc=datetime.now(UTC).isoformat(),
+        code_commit=local_git_commit(project_root),
+    )
+
+
+def preview_iflip3_fit(
+    row: dict,
+    data_root: str | Path,
+    settings: dict | None = None,
+    *,
+    spc_range: tuple[float, float] = (0.4, 12.3),
+    afterpulse_ratio: float = 0.03,
+) -> IFLIP3FitPreview:
+    """Fit one session aggregate decay and decompose every photometry sample."""
+
+    from iflip3 import fit_decay, fit_target, periodic_exgaussian_basis
+
+    root = Path(data_root).expanduser()
+    time, curves, pulse_interval, _, _ = _load_corrected_iflip3_curves(
+        row,
+        root,
+        spc_range=spc_range,
+        afterpulse_ratio=afterpulse_ratio,
+    )
     aggregate = curves.sum(axis=1)
     controls = normalize_iflip3_fit_settings(settings)
     initial = {name: float(control["value"]) for name, control in controls.items()}
@@ -514,7 +829,7 @@ def preview_iflip3_fit(
         time,
         aggregate,
         n_components=2,
-        pulse_interval=recording.header.pulse_interval_ns,
+        pulse_interval=pulse_interval,
         initial=initial,
         fixed=fixed,
         bounds=bounds,
@@ -527,7 +842,7 @@ def preview_iflip3_fit(
         lifetimes=fit.lifetimes,
         t0=fit.t0,
         irf_sigma=fit.irf_sigma,
-        pulse_interval=recording.header.pulse_interval_ns,
+        pulse_interval=pulse_interval,
         residual_background_per_bin=per_sample_background,
         weighting="none" if np.any(curves < 0) else "poisson",
     )
@@ -536,14 +851,14 @@ def preview_iflip3_fit(
         fit.lifetimes[0],
         fit.t0,
         fit.irf_sigma,
-        recording.header.pulse_interval_ns,
+        pulse_interval,
     )
     long_basis = periodic_exgaussian_basis(
         time,
         fit.lifetimes[1],
         fit.t0,
         fit.irf_sigma,
-        recording.header.pulse_interval_ns,
+        pulse_interval,
     )
     short_component = fit.amplitudes[0] * short_basis
     long_component = fit.amplitudes[1] * long_basis
@@ -577,7 +892,97 @@ def preview_iflip3_fit(
     )
 
 
-def _load_iflip3(row: dict, data_root: Path, fit_settings: dict | None = None):
+def apply_iflip3_calibration(
+    row: dict,
+    data_root: str | Path,
+    calibration: IFLIP3Calibration,
+) -> IFLIP3FitPreview:
+    """Decompose one recording with all nonlinear shape parameters fixed."""
+
+    from iflip3 import fit_target, periodic_exgaussian_basis
+
+    root = Path(data_root).expanduser()
+    time, curves, pulse_interval, _, _ = _load_corrected_iflip3_curves(
+        row,
+        root,
+        spc_range=calibration.spc_range,
+        afterpulse_ratio=calibration.afterpulse_ratio,
+    )
+    if time.shape != calibration.lifetime_time.shape or not np.allclose(
+        time, calibration.lifetime_time, rtol=0.0, atol=1e-9
+    ):
+        raise ValueError(
+            f"Session {_session_id(row)} does not match the calibration lifetime-bin axis"
+        )
+    if not np.isclose(pulse_interval, calibration.pulse_interval, rtol=0.0, atol=1e-9):
+        raise ValueError(
+            f"Session {_session_id(row)} does not match the calibration pulse interval"
+        )
+    weighting = "none" if np.any(curves < 0) else "poisson"
+    target = fit_target(
+        time,
+        curves,
+        lifetimes=calibration.lifetimes,
+        t0=calibration.t0,
+        irf_sigma=calibration.irf_sigma,
+        pulse_interval=calibration.pulse_interval,
+        residual_background_per_bin=0.0,
+        weighting=weighting,
+    )
+    aggregate = curves.sum(axis=1)
+    aggregate_coefficients = target.component_counts.sum(axis=0)
+    short_basis = periodic_exgaussian_basis(
+        time,
+        calibration.lifetimes[0],
+        calibration.t0,
+        calibration.irf_sigma,
+        calibration.pulse_interval,
+    )
+    long_basis = periodic_exgaussian_basis(
+        time,
+        calibration.lifetimes[1],
+        calibration.t0,
+        calibration.irf_sigma,
+        calibration.pulse_interval,
+    )
+    short_component = aggregate_coefficients[0] * short_basis
+    long_component = aggregate_coefficients[1] * long_basis
+    fitted = short_component + long_component
+    residuals = aggregate - fitted
+    residual_sum_squares = float(np.sum(residuals**2))
+    total_sum_squares = float(np.sum((aggregate - aggregate.mean()) ** 2))
+    return IFLIP3FitPreview(
+        lifetime_time=time,
+        aggregate_decay=aggregate,
+        fitted_decay=fitted,
+        short_component=short_component,
+        long_component=long_component,
+        residuals=residuals,
+        lifetimes=calibration.lifetimes.copy(),
+        t0=calibration.t0,
+        irf_sigma=calibration.irf_sigma,
+        background=0.0,
+        rmse=float(np.sqrt(np.mean(residuals**2))),
+        r_squared=(
+            1.0 - residual_sum_squares / total_sum_squares
+            if total_sum_squares > 0
+            else float("nan")
+        ),
+        success=True,
+        message="Applied saved multi-session calibration",
+        short_component_counts=target.component_counts[:, 0],
+        long_component_counts=target.component_counts[:, 1],
+        long_lifetime_fraction=target.component_fractions[:, 1],
+        fit_rmse_by_sample=np.sqrt(np.mean(target.residuals**2, axis=0)),
+    )
+
+
+def _load_iflip3(
+    row: dict,
+    data_root: Path,
+    fit_settings: dict | None = None,
+    calibration: IFLIP3Calibration | None = None,
+):
     from iflip3 import process_aligned_session
 
     resolved = _iflip3_paths(row, data_root)
@@ -592,8 +997,12 @@ def _load_iflip3(row: dict, data_root: Path, fit_settings: dict | None = None):
         running_path=running,
     )
     core = session.to_core_session(_session_id(row))
-    if fit_settings is not None:
-        preview = preview_iflip3_fit(row, data_root, fit_settings)
+    if fit_settings is not None or calibration is not None:
+        preview = (
+            apply_iflip3_calibration(row, data_root, calibration)
+            if calibration is not None
+            else preview_iflip3_fit(row, data_root, fit_settings)
+        )
         timestamps = core.continuous["mpet"].timestamps
         core.continuous.update(
             {
@@ -618,7 +1027,22 @@ def _load_iflip3(row: dict, data_root: Path, fit_settings: dict | None = None):
             "aggregate_background_counts_per_bin": preview.background,
             "aggregate_rmse": preview.rmse,
             "aggregate_r_squared": preview.r_squared,
-            "fit_settings": normalize_iflip3_fit_settings(fit_settings),
+            "fit_settings": (
+                None if calibration is not None else normalize_iflip3_fit_settings(fit_settings)
+            ),
+            "calibration": (
+                None
+                if calibration is None
+                else {
+                    "schema_version": IFLIP3_CALIBRATION_SCHEMA_VERSION,
+                    "created_utc": calibration.created_utc,
+                    "code_commit": calibration.code_commit,
+                    "calibration_session_ids": [
+                        item.get("session_id") for item in calibration.session_qc
+                    ],
+                    "residual_background_counts_per_bin": 0.0,
+                }
+            ),
         }
         core.metadata["lifetime_fit_qc"] = {
             "lifetime_time_ns": preview.lifetime_time.tolist(),
@@ -648,6 +1072,7 @@ def load_lifetime_session(
     data_root: str | Path,
     *,
     iflip3_fit_settings: dict | None = None,
+    iflip3_calibration: IFLIP3Calibration | None = None,
 ):
     """Load and align one lifetime session into the shared core representation."""
 
@@ -655,7 +1080,7 @@ def load_lifetime_session(
     if workflow == "fluopulse":
         return _load_fluopulse(row, root)
     if workflow == "iflip3":
-        return _load_iflip3(row, root, iflip3_fit_settings)
+        return _load_iflip3(row, root, iflip3_fit_settings, iflip3_calibration)
     raise ValueError("workflow must be 'fluopulse' or 'iflip3'")
 
 
@@ -756,13 +1181,22 @@ def preprocess_lifetime_sessions(
     *,
     overwrite=False,
     iflip3_fit_settings: dict | None = None,
+    iflip3_calibration: IFLIP3Calibration | str | Path | None = None,
 ) -> list[Path]:
     """Process raw lifetime sessions and save each result beside its recording."""
 
     outputs = []
+    calibration = (
+        load_iflip3_calibration(iflip3_calibration)
+        if isinstance(iflip3_calibration, (str, Path))
+        else iflip3_calibration
+    )
+    if calibration is not None and iflip3_fit_settings is not None:
+        raise ValueError("Use either an iFLIP3 calibration or per-session fit settings, not both")
     preprocessing_parameters = lifetime_preprocessing_parameters(
         workflow,
         iflip3_fit_settings,
+        calibration,
     )
     for row in rows:
         output = lifetime_processed_path(workflow, row, data_root)
@@ -781,6 +1215,7 @@ def preprocess_lifetime_sessions(
                     row,
                     data_root,
                     iflip3_fit_settings=iflip3_fit_settings,
+                    iflip3_calibration=calibration,
                 )
             else:
                 session, paths = load_lifetime_session(workflow, row, data_root)

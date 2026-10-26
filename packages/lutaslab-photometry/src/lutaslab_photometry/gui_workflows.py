@@ -330,6 +330,7 @@ def build_lifetime_command(
     group_filter=None,
     condition_filter=None,
     iflip3_fit_settings=None,
+    iflip3_calibration=None,
 ):
     """Build a FluoPulse or iFLiP3 workflow command."""
 
@@ -364,6 +365,8 @@ def build_lifetime_command(
                 json.dumps(iflip3_fit_settings, separators=(",", ":"), sort_keys=True),
             ]
         )
+    if action == "preprocess" and workflow == "iflip3" and iflip3_calibration is not None:
+        command.extend(["--iflip3-calibration", str(Path(iflip3_calibration))])
     if signal is not None:
         command.extend(["--signal", str(signal)])
     if action == "psth":
