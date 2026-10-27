@@ -68,6 +68,23 @@ def next_analysis_run_directory(base_dir, label, *, now=None):
     return candidate
 
 
+def discover_psth_result_directories(base_dir):
+    """Return saved PSTH run roots below a base directory, newest first."""
+
+    base = Path(base_dir).expanduser()
+    if not base.is_dir():
+        return []
+    candidates = {}
+    for export in base.rglob("psth_session_timecourses.csv"):
+        relative_parent = export.parent.relative_to(base)
+        if "summary_statistics" in relative_parent.parts:
+            continue
+        candidate = base if not relative_parent.parts else base / relative_parent.parts[0]
+        modified = export.stat().st_mtime
+        candidates[candidate] = max(candidates.get(candidate, 0.0), modified)
+    return sorted(candidates, key=candidates.get, reverse=True)
+
+
 def normalize_manifest_rows(rows):
     """Validate editor rows and return CSV-ready dictionaries."""
     normalized = []

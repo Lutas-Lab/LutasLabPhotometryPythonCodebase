@@ -17,6 +17,7 @@ from lutaslab_photometry.gui_workflows import (
     build_preprocess_command,
     build_psth_command,
     build_saved_psth_statistics_command,
+    discover_psth_result_directories,
     display_command,
     manifest_csv_text,
     next_analysis_run_directory,
@@ -693,14 +694,6 @@ def _run_lifetime_workflow(
         _run_command_batch(command, workflow_name, command_labels)
 
 
-def _latest_psth_result_directory(base_directory):
-    base = Path(base_directory).expanduser()
-    if not base.is_dir():
-        return base
-    exports = list(base.rglob("psth_session_timecourses.csv"))
-    return max(exports, key=lambda path: path.stat().st_mtime).parent if exports else base
-
-
 def _psth_summary_controls(default_base_directory, key_prefix):
     """Render saved-PSTH metric controls shared by every acquisition system."""
 
@@ -717,16 +710,67 @@ def _psth_summary_controls(default_base_directory, key_prefix):
         "Saved numeric timecourses are created automatically by PSTH runs made with "
         "this software version. Older figure-only runs must be rerun once."
     )
-    suggested_input = _latest_psth_result_directory(default_base_directory)
-    input_directory = st.text_input(
-        "PSTH result directory",
-        value=str(suggested_input),
-        key=f"{key_prefix}_summary_input",
+    results_base = st.text_input(
+        "PSTH results folder",
+        value=str(Path(default_base_directory).expanduser()),
+        key=f"{key_prefix}_summary_browser_base",
         help=(
-            "Select one completed PSTH run. A parent folder may be used when it "
-            "contains compatible group/condition subfolders from the same run."
+            "Folder containing the timestamped PSTH run folders. Change this when "
+            "the PSTHs were saved to a different base directory."
         ),
     )
+    st.button(
+        "Refresh saved-run list",
+        key=f"{key_prefix}_summary_refresh_runs",
+        help="Rescan the PSTH results folder for newly completed runs.",
+    )
+    run_directories = discover_psth_result_directories(results_base)
+    custom_option = "__custom_psth_result_path__"
+    run_options = [str(path) for path in run_directories] + [custom_option]
+
+    def run_label(option):
+        if option == custom_option:
+            return "Enter a custom result path…"
+        path = Path(option)
+        try:
+            relative = path.relative_to(Path(results_base).expanduser())
+        except ValueError:
+            relative = path
+        return (
+            "Base folder (legacy direct output)"
+            if relative == Path(".")
+            else str(relative)
+        )
+
+    selected_run = st.selectbox(
+        "Saved PSTH run folder",
+        run_options,
+        format_func=run_label,
+        key=f"{key_prefix}_summary_saved_run",
+        help=(
+            "Completed PSTH runs found below the results folder, newest first. "
+            "Choose the parent run folder; compatible condition subfolders are "
+            "combined automatically."
+        ),
+    )
+    if not run_directories:
+        st.warning(
+            "No saved PSTH runs with numeric timecourse exports were found in this "
+            "folder. Choose a different results folder or enter a custom path."
+        )
+    if selected_run == custom_option:
+        input_directory = st.text_input(
+            "Custom PSTH result directory",
+            value=str(Path(results_base).expanduser()),
+            key=f"{key_prefix}_summary_custom_input",
+            help=(
+                "Enter one completed PSTH run folder, including a parent folder "
+                "containing compatible group/condition result subfolders."
+            ),
+        )
+    else:
+        input_directory = selected_run
+        st.caption(f"Selected PSTH run: {input_directory}")
     first, second, third = st.columns(3)
     with first:
         response_start = st.number_input(
@@ -806,10 +850,15 @@ def _psth_summary_controls(default_base_directory, key_prefix):
         st.error("Response-window start must be less than its end.")
     if not metrics:
         st.error("Select at least one response metric.")
+    output_key = f"{key_prefix}_summary_output"
+    last_input_key = f"{key_prefix}_summary_last_input"
+    default_output = str(Path(input_directory).expanduser() / "summary_statistics")
+    if st.session_state.get(last_input_key) != str(input_directory):
+        st.session_state[output_key] = default_output
+        st.session_state[last_input_key] = str(input_directory)
     output_base = st.text_input(
         "Summary-statistics output base directory",
-        value=str(Path(input_directory).expanduser() / "summary_statistics"),
-        key=f"{key_prefix}_summary_output",
+        key=output_key,
         help="Each run is saved in a new timestamped folder below this directory.",
     )
     window_label = safe_analysis_run_label(

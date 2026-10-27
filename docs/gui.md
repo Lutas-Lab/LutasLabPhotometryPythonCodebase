@@ -132,6 +132,9 @@ The **Summary statistics** tab sits between PSTH and GLM for conventional,
 FluoPulse, and iFLIP3 analyses. Select one completed PSTH run—or its root folder
 containing compatible group/condition subfolders—then choose the response
 window, peak-smoothing duration, metrics, and mouse-level comparison method.
+The saved-run selector scans the configured PSTH results folder, lists parent
+run folders newest first, and also supports a custom path for results saved
+elsewhere.
 The preview confirms the saved signal, event, mouse count, and group curves
 before analysis. Raw or processed recordings are not reopened.
 

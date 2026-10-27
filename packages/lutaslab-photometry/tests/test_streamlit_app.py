@@ -43,6 +43,10 @@ def test_streamlit_app_loads_without_exceptions():
         "peak",
         "peak_latency",
     ]
+    assert (
+        app.selectbox(key="conventional_psth_summary_saved_run").label
+        == "Saved PSTH run folder"
+    )
     assert "Signal" not in {selectbox.label for selectbox in app.selectbox}
 
 
@@ -100,3 +104,7 @@ def test_streamlit_lifetime_modes_load(workflow, expected_signal):
         "peak",
         "peak_latency",
     ]
+    assert (
+        app.selectbox(key=f"{workflow}_psth_summary_saved_run").label
+        == "Saved PSTH run folder"
+    )

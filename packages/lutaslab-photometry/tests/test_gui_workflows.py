@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -13,6 +14,7 @@ from lutaslab_photometry.gui_workflows import (
     build_preprocess_command,
     build_psth_command,
     build_saved_psth_statistics_command,
+    discover_psth_result_directories,
     manifest_csv_text,
     next_analysis_run_directory,
     normalize_manifest_rows,
@@ -58,6 +60,36 @@ def test_next_analysis_run_directory_avoids_existing_run(tmp_path):
 
     assert first.name == "2026-10-26_143210__BLA"
     assert second.name == "2026-10-26_143210__BLA__r02"
+
+
+def test_discover_psth_result_directories_returns_parent_runs_newest_first(
+    tmp_path,
+):
+    older = tmp_path / "2026-10-25_120000__older"
+    newer = tmp_path / "2026-10-26_120000__newer"
+    older_export = older / "condition_a" / "psth_session_timecourses.csv"
+    newer_export = newer / "psth_session_timecourses.csv"
+    ignored_summary = (
+        newer
+        / "summary_statistics"
+        / "old_summary"
+        / "psth_session_timecourses.csv"
+    )
+    for path in (older_export, newer_export, ignored_summary):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("time,value\n", encoding="utf-8")
+    os.utime(older_export, (1, 1))
+    os.utime(newer_export, (2, 2))
+
+    assert discover_psth_result_directories(tmp_path) == [newer, older]
+
+
+def test_discover_psth_result_directories_supports_legacy_direct_output(tmp_path):
+    (tmp_path / "psth_session_timecourses.csv").write_text(
+        "time,value\n", encoding="utf-8"
+    )
+
+    assert discover_psth_result_directories(tmp_path) == [tmp_path]
 
 
 def test_normalize_manifest_rows_preserves_analysis_fields():
