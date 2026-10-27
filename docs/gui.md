@@ -103,6 +103,13 @@ distinguish processed and raw photometry responses, define lifetime-derived
 responses, and explain kernel durations, time grids, validation folds, and
 output locations.
 
+GLM runs stream their current preparation, model, validation-fold, session-kernel,
+and output-writing stage to the GUI progress bar. Conventional photometry reports
+each model and outer fold. FluoPulse and iFLIP3 report nested session folds and
+per-session kernel fits. The lifetime ridge search reuses each training fold's
+normal equations across candidate regularization strengths; this preserves the
+same nested validation results while avoiding repeated matrix cross-products.
+
 Explicit relative paths are resolved from the selected data root. Absolute
 paths override discovery. Running files remain optional for lifetime analyses;
 the recording inputs are required. NI-DAQ is optional for both lifetime sensors:

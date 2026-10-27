@@ -340,6 +340,12 @@ def main():
         group=args.group,
         condition=args.condition,
     )
+    progress_state = {"total": 0}
+
+    def report_progress(current, total, label):
+        progress_state["total"] = total
+        print(f"PROGRESS\t{current}\t{total + 2}\t{label}", flush=True)
+
     rows, kernel_rows = forecast_manifest(
         sessions,
         args.data_root,
@@ -358,6 +364,13 @@ def main():
         gap_seconds=args.gap_seconds,
         initial_train_fraction=args.initial_train_fraction,
         return_kernels=True,
+        progress_callback=report_progress,
+    )
+    fitting_total = progress_state["total"]
+    print(
+        f"PROGRESS\t{fitting_total + 1}\t{fitting_total + 2}\t"
+        "Summarizing and saving conventional GLM outputs",
+        flush=True,
     )
     metric = primary_metric(args.target)
     mouse_rows, group_rows = summarize_forecasts(rows, metric)
@@ -429,6 +442,11 @@ def main():
         "font_family": args.font_family,
     }
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    print(
+        f"PROGRESS\t{fitting_total + 2}\t{fitting_total + 2}\t"
+        "Conventional GLM complete",
+        flush=True,
+    )
 
     print(f"Forecasted {args.target} for {len(sessions)} sessions.")
     print(f"Primary group metric: {metric}")

@@ -576,7 +576,7 @@ def _run_command_batch(command, workflow_name, command_labels=None):
                     overall = (_command_index + fraction) / len(commands)
                     progress_panel.progress(
                         min(overall, 1.0),
-                        text=f"{_label}: session {current} of {total} — {fields[3]}",
+                        text=f"{_label}: {current} of {total} — {fields[3]}",
                     )
                     return
             output_lines.append(stripped)

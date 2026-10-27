@@ -132,7 +132,9 @@ def test_lifetime_cli_dispatches_glm_options(workflow_stubs):
         "signal": "mpet",
         "lick_kernel_seconds": 8.0,
         "ensure_kernel_seconds": 16.0,
+        "progress_callback": kwargs["progress_callback"],
     }
+    assert callable(kwargs["progress_callback"])
 
 
 def test_lifetime_cli_filters_manifest_rows(workflow_stubs):

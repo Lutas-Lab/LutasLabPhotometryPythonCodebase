@@ -385,6 +385,7 @@ def fit_forecast_models(
     n_inner_folds=3,
     gap_seconds=None,
     initial_train_fraction=0.5,
+    progress_callback=None,
 ):
     """Fit nested forward-CV models with train-only scaling and a baseline."""
     try:
@@ -434,6 +435,10 @@ def fit_forecast_models(
             "inner_alpha_scores": (),
         }
     }
+    progress_total = len(MODEL_ORDER[1:]) * (len(folds) + 1)
+    progress_completed = 0
+    if progress_callback is not None:
+        progress_callback(0, progress_total, "Starting nested model validation")
     for model_name in MODEL_ORDER[1:]:
         columns = model_columns[model_name]
         X = dataset["X"][:, columns]
@@ -442,7 +447,13 @@ def fit_forecast_models(
         selected_alphas = []
         inner_alpha_scores = []
         completed_folds = 0
-        for train_indices, test_indices in folds:
+        for fold_index, (train_indices, test_indices) in enumerate(folds, start=1):
+            if progress_callback is not None:
+                progress_callback(
+                    progress_completed,
+                    progress_total,
+                    f"{model_name}: outer fold {fold_index}/{len(folds)}",
+                )
             selected_alpha = alpha
             scores = None
             if selected_alpha is None:
@@ -465,6 +476,13 @@ def fit_forecast_models(
                 X_train,
                 dataset["y"][train_indices],
             )
+            progress_completed += 1
+            if progress_callback is not None:
+                progress_callback(
+                    progress_completed,
+                    progress_total,
+                    f"{model_name}: completed outer fold {fold_index}/{len(folds)}",
+                )
             if model is None:
                 continue
             prediction[test_indices] = _predict_estimator(
@@ -519,6 +537,13 @@ def fit_forecast_models(
                     ),
                 }
             )
+        progress_completed += 1
+        if progress_callback is not None:
+            progress_callback(
+                progress_completed,
+                progress_total,
+                f"{model_name}: fitted final model",
+            )
     return {
         "models": results,
         "gap_seconds": float(gap_seconds),
@@ -556,11 +581,27 @@ def forecast_manifest(
     gap_seconds=None,
     initial_train_fraction=0.5,
     return_kernels=False,
+    progress_callback=None,
 ):
     """Run leakage-safe within-session forecasts for every manifest session."""
     rows = []
     kernel_rows = []
-    for info in sessions:
+    horizons = tuple(horizons)
+    model_steps = len(MODEL_ORDER[1:]) * (n_folds + 1)
+    horizon_steps = 1 + model_steps
+    session_steps = 1 + len(horizons) * horizon_steps
+    progress_total = len(sessions) * session_steps
+    progress_completed = 0
+    if progress_callback is not None:
+        progress_callback(0, progress_total, "Preparing conventional GLM inputs")
+    for session_index, info in enumerate(sessions, start=1):
+        session_label = f"{info['mouse']} {info['date']} run {int(info['run'])}"
+        if progress_callback is not None:
+            progress_callback(
+                progress_completed,
+                progress_total,
+                f"Loading session {session_index}/{len(sessions)}: {session_label}",
+            )
         selected_channel = resolve_session_channel(info, channel)
         path = processed_session_path(data_root, info)
         session = load_session(path)
@@ -571,6 +612,13 @@ def forecast_manifest(
                 UserWarning,
                 stacklevel=2,
             )
+            progress_completed += session_steps
+            if progress_callback is not None:
+                progress_callback(
+                    progress_completed,
+                    progress_total,
+                    f"Skipped session {session_index}/{len(sessions)}: {session_label}",
+                )
             continue
         signals = prepare_forecast_signals(
             session,
@@ -578,7 +626,20 @@ def forecast_manifest(
             channel=selected_channel,
             photometry_source=photometry_source,
         )
-        for horizon in horizons:
+        progress_completed += 1
+        if progress_callback is not None:
+            progress_callback(
+                progress_completed,
+                progress_total,
+                f"Prepared session {session_index}/{len(sessions)}: {session_label}",
+            )
+        for horizon_index, horizon in enumerate(horizons, start=1):
+            if progress_callback is not None:
+                progress_callback(
+                    progress_completed,
+                    progress_total,
+                    f"Building horizon {horizon_index}/{len(horizons)} for {session_label}",
+                )
             dataset = build_forecast_dataset(
                 signals,
                 target=target,
@@ -587,6 +648,25 @@ def forecast_manifest(
                 lag_step=lag_step,
                 target_window=target_window,
             )
+            progress_completed += 1
+            fit_offset = progress_completed
+
+            def report_fit(
+                current,
+                _total,
+                label,
+                *,
+                offset=fit_offset,
+                current_session=session_label,
+                current_horizon=horizon,
+            ):
+                if progress_callback is not None:
+                    progress_callback(
+                        offset + current,
+                        progress_total,
+                        f"{current_session}, horizon {current_horizon:g}s — {label}",
+                    )
+
             fitted = fit_forecast_models(
                 dataset,
                 n_folds=n_folds,
@@ -595,7 +675,9 @@ def forecast_manifest(
                 n_inner_folds=n_inner_folds,
                 gap_seconds=gap_seconds,
                 initial_train_fraction=initial_train_fraction,
+                progress_callback=report_fit,
             )
+            progress_completed = fit_offset + model_steps
             for model_name, model_result in fitted["models"].items():
                 rows.append(
                     {

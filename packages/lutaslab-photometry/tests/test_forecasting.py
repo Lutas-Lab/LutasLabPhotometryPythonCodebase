@@ -294,3 +294,29 @@ class ForecastingTests(unittest.TestCase):
             self.assertEqual(len(result["selected_alphas"]), 3)
             self.assertEqual(len(result["inner_alpha_scores"]), 3)
             self.assertTrue(set(result["selected_alphas"]).issubset({0.01, 1.0}))
+
+    @unittest.skipUnless(SKLEARN_AVAILABLE, "scikit-learn is not installed")
+    def test_model_fitting_reports_fold_progress(self):
+        rng = np.random.default_rng(22)
+        time = np.arange(300, dtype=float)
+        dataset = build_forecast_dataset(
+            _signals(time, photometry=rng.normal(size=len(time))),
+            target="photometry",
+            horizon=1.0,
+            history=2.0,
+            lag_step=1.0,
+        )
+        progress = []
+
+        fit_forecast_models(
+            dataset,
+            n_folds=2,
+            alpha=0.1,
+            progress_callback=lambda current, total, label: progress.append(
+                (current, total, label)
+            ),
+        )
+
+        self.assertEqual(progress[-1][0], progress[-1][1])
+        self.assertIn("fitted final model", progress[-1][2])
+        self.assertTrue(any("outer fold 1/2" in item[2] for item in progress))

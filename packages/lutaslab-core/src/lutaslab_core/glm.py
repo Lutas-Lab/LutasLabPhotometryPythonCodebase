@@ -415,6 +415,42 @@ def fit_ridge(
         return np.linalg.lstsq(system, target, rcond=None)[0]
 
 
+def fit_ridge_path(
+    design: np.ndarray,
+    response: np.ndarray,
+    alphas: np.ndarray,
+    *,
+    penalize: np.ndarray | None = None,
+) -> np.ndarray:
+    """Fit several ridge strengths while reusing the expensive normal equations."""
+
+    design = np.asarray(design, dtype=float)
+    response = np.asarray(response, dtype=float)
+    alphas = np.asarray(alphas, dtype=float)
+    if design.ndim != 2 or response.ndim != 1 or design.shape[0] != response.size:
+        raise ValueError("design and response dimensions do not match")
+    if alphas.ndim != 1 or alphas.size == 0 or np.any(~np.isfinite(alphas)):
+        raise ValueError("alphas must contain finite nonnegative values")
+    if np.any(alphas < 0):
+        raise ValueError("alphas must contain finite nonnegative values")
+    if penalize is None:
+        penalize = np.ones(design.shape[1], dtype=float)
+    penalize = np.asarray(penalize, dtype=float)
+    if penalize.shape != (design.shape[1],):
+        raise ValueError("penalize must have one value per design column")
+    system_unpenalized = design.T @ design
+    target = design.T @ response
+    penalty = np.diag(penalize)
+    coefficients = np.empty((alphas.size, design.shape[1]), dtype=float)
+    for index, alpha in enumerate(alphas):
+        system = system_unpenalized + float(alpha) * penalty
+        try:
+            coefficients[index] = np.linalg.solve(system, target)
+        except np.linalg.LinAlgError:
+            coefficients[index] = np.linalg.lstsq(system, target, rcond=None)[0]
+    return coefficients
+
+
 def fit_grouped_ridge_cv(
     design: np.ndarray,
     response: np.ndarray,

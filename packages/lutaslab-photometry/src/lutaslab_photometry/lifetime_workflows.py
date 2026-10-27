@@ -17,7 +17,13 @@ from typing import Any
 
 import numpy as np
 from lutaslab_core.events import find_lick_bouts
-from lutaslab_core.glm import event_times_to_counts, fit_ridge, group_folds, r2_score
+from lutaslab_core.glm import (
+    event_times_to_counts,
+    fit_ridge,
+    fit_ridge_path,
+    group_folds,
+    r2_score,
+)
 from lutaslab_core.perievent import (
     extract_perievent_trials,
     normalize_trials,
@@ -1818,6 +1824,7 @@ def run_lifetime_glm(
     signal,
     lick_kernel_seconds=10.0,
     ensure_kernel_seconds=20.0,
+    progress_callback=None,
 ) -> list[Path]:
     """Fit the maintained lick/Ensure adaptive ridge model across sessions."""
 
@@ -1830,7 +1837,21 @@ def run_lifetime_glm(
     outcomes = []
     labels = []
     response_units = None
-    for row in rows:
+    session_count = len(rows)
+    total_steps = session_count**2 + 2 * session_count + 5
+    completed_steps = 0
+
+    def report(label, *, advance=False):
+        nonlocal completed_steps
+        if advance:
+            completed_steps += 1
+        if progress_callback is not None:
+            progress_callback(completed_steps, total_steps, label)
+
+    report("Preparing lifetime GLM inputs")
+    for session_index, row in enumerate(rows, start=1):
+        label = _session_id(row)
+        report(f"Loading session {session_index}/{session_count}: {label}")
         session, _ = load_processed_lifetime_session(workflow, row, data_root)
         response = session.continuous[signal]
         plot_values, units = _lifetime_plot_values(signal, response)
@@ -1868,7 +1889,8 @@ def run_lifetime_glm(
             )
         )
         outcomes.append(outcome)
-        labels.append(_session_id(row))
+        labels.append(label)
+        report(f"Prepared session {session_index}/{session_count}: {label}", advance=True)
     if len(designs) < 3:
         raise ValueError(
             "Lifetime GLM requires at least three sessions for nested held-out scoring"
@@ -1885,30 +1907,40 @@ def run_lifetime_glm(
     penalty = designs[0].penalty_weights
     outer_rows = []
     selected_alphas = []
-    for outer_fold, (outer_train, outer_test) in enumerate(
-        group_folds(groups), start=1
-    ):
+    outer_folds = group_folds(groups)
+    for outer_fold, (outer_train, outer_test) in enumerate(outer_folds, start=1):
         training_groups = groups[outer_train]
         inner_scores = np.full(
             (alphas.size, len(np.unique(training_groups))), np.nan, dtype=float
         )
         for inner_fold, (inner_train_local, inner_test_local) in enumerate(
-            group_folds(training_groups)
+            group_folds(training_groups), start=1
         ):
+            report(
+                f"Cross-validation: outer fold {outer_fold}/{len(outer_folds)}, "
+                f"inner fold {inner_fold}/{len(np.unique(training_groups))}"
+            )
             inner_train = outer_train[inner_train_local]
             inner_test = outer_train[inner_test_local]
             scale = np.sqrt(np.mean(matrix[inner_train] ** 2, axis=0))
             scale[(scale == 0) | ~np.isfinite(scale)] = 1.0
-            for alpha_index, alpha in enumerate(alphas):
-                coefficients = fit_ridge(
-                    matrix[inner_train] / scale,
-                    response[inner_train],
-                    float(alpha),
-                    penalize=penalty,
+            train_design = matrix[inner_train] / scale
+            test_design = matrix[inner_test] / scale
+            coefficients_by_alpha = fit_ridge_path(
+                train_design,
+                response[inner_train],
+                alphas,
+                penalize=penalty,
+            )
+            for alpha_index, coefficients in enumerate(coefficients_by_alpha):
+                inner_scores[alpha_index, inner_fold - 1] = r2_score(
+                    response[inner_test], test_design @ coefficients
                 )
-                inner_scores[alpha_index, inner_fold] = r2_score(
-                    response[inner_test], matrix[inner_test] / scale @ coefficients
-                )
+            report(
+                f"Completed outer fold {outer_fold}/{len(outer_folds)}, "
+                f"inner fold {inner_fold}/{len(np.unique(training_groups))}",
+                advance=True,
+            )
         best_alpha = float(alphas[int(np.nanargmax(np.nanmean(inner_scores, axis=1)))])
         selected_alphas.append(best_alpha)
         outer_scale = np.sqrt(np.mean(matrix[outer_train] ** 2, axis=0))
@@ -1938,6 +1970,10 @@ def run_lifetime_glm(
                 ),
             }
         )
+        report(
+            f"Scored held-out session {outer_fold}/{len(outer_folds)}: {held_out}",
+            advance=True,
+        )
     final_alpha = float(np.median(selected_alphas))
     final_scale = np.sqrt(np.mean(matrix**2, axis=0))
     final_scale[(final_scale == 0) | ~np.isfinite(final_scale)] = 1.0
@@ -1950,15 +1986,17 @@ def run_lifetime_glm(
         )
         / final_scale
     )
+    report("Fitted final pooled lifetime GLM", advance=True)
     kernels = reconstruct_adaptive_kernels(designs[0], final_coefficients)
     reference_times = {
         "lick": np.asarray(designs[0].lick_basis.lag_times, dtype=float),
         "ensure": np.asarray(designs[0].ensure_basis.lag_times, dtype=float),
     }
     session_kernel_rows = []
-    for row, label, design, outcome in zip(
-        rows, labels, designs, outcomes, strict=True
+    for session_index, (row, label, design, outcome) in enumerate(
+        zip(rows, labels, designs, outcomes, strict=True), start=1
     ):
+        report(f"Fitting session kernel {session_index}/{session_count}: {label}")
         session_scale = np.sqrt(np.mean(design.matrix**2, axis=0))
         session_scale[(session_scale == 0) | ~np.isfinite(session_scale)] = 1.0
         session_coefficients = (
@@ -1992,11 +2030,16 @@ def run_lifetime_glm(
                         "coefficient": float(coefficient),
                     }
                 )
+        report(
+            f"Fitted session kernel {session_index}/{session_count}: {label}",
+            advance=True,
+        )
     mouse_kernel_rows, group_kernel_rows = _summarize_lifetime_kernel_rows(
         session_kernel_rows
     )
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
+    report("Writing GLM tables and metadata")
     score_path = destination / "glm_cross_validation.csv"
     _write_dict_rows(score_path, outer_rows)
     mouse_score_path = destination / "glm_mouse_cross_validation.csv"
@@ -2025,9 +2068,11 @@ def run_lifetime_glm(
         ensure_time=designs[0].ensure_basis.lag_times,
         **kernels,
     )
+    report("Saved GLM tables and numeric kernels", advance=True)
     import matplotlib.pyplot as plt
 
     figure_paths = []
+    report("Rendering lifetime GLM kernel figures")
     ylabel = _lifetime_psth_ylabel(signal, "subtract", response_units or "")
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
     _plot_lifetime_kernel_summary(
@@ -2074,6 +2119,7 @@ def run_lifetime_glm(
         fig.savefig(figure_path, dpi=300)
         figure_paths.append(figure_path)
     plt.close(fig)
+    report("Rendered lifetime GLM kernel figures", advance=True)
     performance_fig, performance_ax = plt.subplots(figsize=(5.5, 4.5))
     for row in mouse_score_rows:
         performance_ax.plot(
@@ -2109,6 +2155,7 @@ def run_lifetime_glm(
         performance_fig.savefig(performance_path, dpi=300)
         figure_paths.append(performance_path)
     plt.close(performance_fig)
+    report("Rendered lifetime GLM performance figures", advance=True)
     metadata_path = destination / "glm_metadata.json"
     metadata_path.write_text(
         json.dumps(
@@ -2132,6 +2179,7 @@ def run_lifetime_glm(
         ),
         encoding="utf-8",
     )
+    report("Lifetime GLM complete", advance=True)
     return [
         score_path,
         mouse_score_path,

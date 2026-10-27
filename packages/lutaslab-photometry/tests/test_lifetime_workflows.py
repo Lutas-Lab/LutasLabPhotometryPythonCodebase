@@ -548,6 +548,7 @@ def test_lifetime_glm_saves_mouse_level_kernels_in_picoseconds(monkeypatch, tmp_
         lambda design, response, alpha, penalize: np.zeros(design.shape[1]),
     )
 
+    progress = []
     outputs = workflows.run_lifetime_glm(
         "fluopulse",
         rows,
@@ -556,6 +557,9 @@ def test_lifetime_glm_saves_mouse_level_kernels_in_picoseconds(monkeypatch, tmp_
         signal="tau",
         lick_kernel_seconds=2.0,
         ensure_kernel_seconds=3.0,
+        progress_callback=lambda current, total, label: progress.append(
+            (current, total, label)
+        ),
     )
 
     output_names = {path.name for path in outputs}
@@ -566,6 +570,9 @@ def test_lifetime_glm_saves_mouse_level_kernels_in_picoseconds(monkeypatch, tmp_
     metadata = json.loads((tmp_path / "glm" / "glm_metadata.json").read_text())
     assert metadata["units"] == "ps"
     assert metadata["ylabel"] == "Δτ (ps)"
+    assert progress[-1][0] == progress[-1][1]
+    assert progress[-1][2] == "Lifetime GLM complete"
+    assert any("Cross-validation: outer fold" in item[2] for item in progress)
 
 
 def test_lifetime_preprocessing_error_identifies_session_and_paths(

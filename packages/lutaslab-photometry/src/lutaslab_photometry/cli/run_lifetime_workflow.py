@@ -131,6 +131,10 @@ def main(argv=None) -> int:
             signal=args.signal,
             lick_kernel_seconds=args.lick_kernel_seconds,
             ensure_kernel_seconds=args.ensure_kernel_seconds,
+            progress_callback=lambda current, total, label: print(
+                f"PROGRESS\t{current}\t{total}\t{label}",
+                flush=True,
+            ),
         )
     for output in outputs:
         print(output, flush=True)

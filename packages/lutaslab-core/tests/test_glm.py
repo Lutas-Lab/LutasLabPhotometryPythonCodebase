@@ -7,6 +7,8 @@ from lutaslab_core.glm import (
     convolve_basis,
     event_times_to_counts,
     fit_grouped_ridge_cv,
+    fit_ridge,
+    fit_ridge_path,
     lagged_basis_matrix,
     lagged_signal_matrix,
     predict_lagged_signal,
@@ -86,6 +88,21 @@ def test_grouped_ridge_cv_recovers_predictive_model():
     )
     np.testing.assert_allclose(result.coefficients, truth, atol=0.05)
     assert np.nanmax(result.mean_scores) > 0.98
+
+
+def test_ridge_path_matches_independent_ridge_fits():
+    rng = np.random.default_rng(17)
+    design = np.column_stack([np.ones(80), rng.normal(size=(80, 4))])
+    response = rng.normal(size=80)
+    alphas = np.array([0.0, 0.01, 1.0, 100.0])
+    penalty = np.array([0.0, 1.0, 1.0, 1.0, 1.0])
+
+    expected = np.vstack(
+        [fit_ridge(design, response, alpha, penalize=penalty) for alpha in alphas]
+    )
+    actual = fit_ridge_path(design, response, alphas, penalize=penalty)
+
+    np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
 
 
 def test_blocked_folds_apply_temporal_gap():
