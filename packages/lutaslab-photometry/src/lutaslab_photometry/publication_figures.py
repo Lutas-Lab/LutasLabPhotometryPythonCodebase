@@ -1,4 +1,5 @@
 import hashlib
+import re
 from collections import defaultdict
 from pathlib import Path
 
@@ -67,6 +68,68 @@ def save_figure_formats(
             transparent=transparent,
         )
         paths.append(path)
+    return paths
+
+
+def save_prediction_diagnostic_figures(
+    rows,
+    output_dir,
+    *,
+    formats=("svg", "png"),
+    dpi=300,
+    ylabel="Response",
+):
+    """Save held-out actual/predicted traces and residuals for each session."""
+
+    import matplotlib.pyplot as plt
+
+    grouped = defaultdict(list)
+    for row in rows:
+        grouped[str(row["session_id"])].append(row)
+    output_dir = Path(output_dir)
+    paths = []
+    for session_id, session_rows in sorted(grouped.items()):
+        session_rows = sorted(session_rows, key=lambda row: float(row["time_s"]))
+        time = np.asarray([row["time_s"] for row in session_rows], dtype=float)
+        actual = np.asarray([row["actual"] for row in session_rows], dtype=float)
+        predicted = np.asarray(
+            [row["predicted"] for row in session_rows], dtype=float
+        )
+        residual = actual - predicted
+        r2 = float(session_rows[0].get("heldout_r2", np.nan))
+        fig, axes = plt.subplots(
+            2,
+            1,
+            figsize=(7.2, 5.2),
+            sharex=True,
+            gridspec_kw={"height_ratios": (2.2, 1)},
+        )
+        axes[0].plot(time, actual, color="black", linewidth=1.0, label="Actual")
+        axes[0].plot(
+            time, predicted, color="C3", linewidth=1.0, label="Held-out prediction"
+        )
+        axes[0].set_ylabel(ylabel)
+        axes[0].legend()
+        score_label = (
+            f"held-out $R^2$ = {r2:.3f}"
+            if np.isfinite(r2)
+            else "held-out $R^2$ unavailable"
+        )
+        axes[0].set_title(f"{session_id} — {score_label}")
+        axes[1].plot(time, residual, color="C0", linewidth=0.9)
+        axes[1].axhline(0, color="black", linewidth=0.7)
+        axes[1].set(xlabel="Time (s)", ylabel="Residual")
+        fig.tight_layout()
+        safe_id = re.sub(r"[^A-Za-z0-9._-]+", "_", session_id).strip("_")
+        paths.extend(
+            save_figure_formats(
+                fig,
+                output_dir / f"{safe_id}_heldout_prediction",
+                formats=formats,
+                dpi=dpi,
+            )
+        )
+        plt.close(fig)
     return paths
 
 

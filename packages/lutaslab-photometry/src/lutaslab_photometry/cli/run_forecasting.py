@@ -19,7 +19,11 @@ from lutaslab_photometry.forecasting import (
     summarize_forecast_kernels,
     summarize_forecasts,
 )
-from lutaslab_photometry.publication_figures import configure_publication_style, save_figure_formats
+from lutaslab_photometry.publication_figures import (
+    configure_publication_style,
+    save_figure_formats,
+    save_prediction_diagnostic_figures,
+)
 from lutaslab_photometry.session_manifest import (
     filter_manifest_sessions,
     load_session_manifest,
@@ -346,7 +350,7 @@ def main():
         progress_state["total"] = total
         print(f"PROGRESS\t{current}\t{total + 2}\t{label}", flush=True)
 
-    rows, kernel_rows = forecast_manifest(
+    rows, kernel_rows, prediction_rows = forecast_manifest(
         sessions,
         args.data_root,
         target=args.target,
@@ -364,6 +368,7 @@ def main():
         gap_seconds=args.gap_seconds,
         initial_train_fraction=args.initial_train_fraction,
         return_kernels=True,
+        return_predictions=True,
         progress_callback=report_progress,
     )
     fitting_total = progress_state["total"]
@@ -384,6 +389,7 @@ def main():
     session_kernel_path = args.output_dir / "forecast_session_kernels.csv"
     mouse_kernel_path = args.output_dir / "forecast_mouse_kernels.csv"
     group_kernel_path = args.output_dir / "forecast_group_kernels.csv"
+    prediction_path = args.output_dir / "forecast_heldout_predictions.csv"
     figure_base = args.output_dir / "forecast_performance"
     kernel_figure_base = args.output_dir / "forecast_predictor_kernels"
     metadata_path = args.output_dir / "forecast_metadata.json"
@@ -393,6 +399,7 @@ def main():
     _write_rows(session_kernel_path, kernel_rows)
     _write_rows(mouse_kernel_path, mouse_kernel_rows)
     _write_rows(group_kernel_path, group_kernel_rows)
+    _write_rows(prediction_path, prediction_rows)
     figure_paths = _plot_group_performance(
         mouse_rows,
         group_rows,
@@ -410,6 +417,29 @@ def main():
         output_base=kernel_figure_base,
         formats=args.formats,
         dpi=args.dpi,
+    )
+    diagnostic_rows = [
+        row
+        for row in prediction_rows
+        if row["model"] == "combined" and float(row["horizon"]) == 0.0
+    ]
+    if not diagnostic_rows:
+        combined_rows = [
+            row for row in prediction_rows if row["model"] == "combined"
+        ]
+        if combined_rows:
+            first_horizon = min(float(row["horizon"]) for row in combined_rows)
+            diagnostic_rows = [
+                row
+                for row in combined_rows
+                if float(row["horizon"]) == first_horizon
+            ]
+    prediction_figure_paths = save_prediction_diagnostic_figures(
+        diagnostic_rows,
+        args.output_dir / "heldout_prediction_diagnostics",
+        formats=args.formats,
+        dpi=args.dpi,
+        ylabel="Photometry" if args.target == "photometry" else args.target,
     )
 
     metadata = {
@@ -438,6 +468,7 @@ def main():
         "kernel_summary": "sessions averaged within mouse; mean and SEM across mice",
         "kernel_coefficient_scale": "native predictor units",
         "binary_baseline": "fold-local outer-training prevalence",
+        "predictions": "outer-fold held-out predictions; residual = actual - predicted",
         "figure_formats": args.formats,
         "font_family": args.font_family,
     }
@@ -456,7 +487,8 @@ def main():
     print(f"Saved session kernels: {session_kernel_path}")
     print(f"Saved mouse kernels: {mouse_kernel_path}")
     print(f"Saved group kernels: {group_kernel_path}")
-    for figure_path in (*figure_paths, *kernel_figure_paths):
+    print(f"Saved held-out predictions: {prediction_path}")
+    for figure_path in (*figure_paths, *kernel_figure_paths, *prediction_figure_paths):
         print(f"Saved figure: {figure_path}")
     print(f"Saved metadata: {metadata_path}")
 

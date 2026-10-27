@@ -148,9 +148,9 @@ timestamped output folder is created for each summary run.
 
 After calculation, the tab keeps a persistent **Latest summary results** panel
 showing the metric figures, group summary table, pairwise statistical tests,
-exact output directory, and download buttons for every CSV and the analysis
-metadata. The panel remains visible during later GUI interactions until a
-different saved PSTH run is selected.
+and exact output directory. All figures, Prism-ready CSVs, and analysis metadata
+are saved automatically in that directory. The panel remains visible during
+later GUI interactions until a different saved PSTH run is selected.
 
 Explicit relative paths are resolved from the selected data root. Absolute
 paths override discovery. Running files remain optional for lifetime analyses;
@@ -246,8 +246,13 @@ folds. The present response is never included among its own predictors:
 photometry-history features are strictly in the past, while behavioral features
 may include the current time bin. Raw 465 fluorescence is the default response;
 processed dF/F is available as a sensitivity analysis. Results include
-session-, mouse-, and group-level metrics and predictor-kernel tables. The GUI
-also saves editable SVG and PNG figures for held-out performance and for the
+session-, mouse-, and group-level metrics and predictor-kernel tables. Every GUI
+run is placed in a unique timestamped child folder, so a later run does not
+overwrite an earlier analysis. The GUI keeps a persistent result panel with the
+held-out performance table, kernel figures, and a session selector for actual
+versus held-out-predicted traces and residuals. It also saves the underlying
+held-out values in `forecast_heldout_predictions.csv` and per-session diagnostic
+figures. The GUI saves editable SVG and PNG figures for held-out performance and for the
 combined model's photometry-history, running, licking, cue-onset, and
 Ensure-onset kernels. Kernel figures show individual-mouse traces together with
 the mouse mean and SEM; sessions are first averaged within each mouse. Kernel
@@ -296,10 +301,15 @@ The two lifetime modes share the sensor-independent session representation in
   Ensure response, and adaptation across subsequent deliveries. Ridge strength
   is selected inside each outer leave-one-session-out fold; performance is
   reported only on the untouched session and compared with a train-mean
-  baseline. At least three sessions are required. Outputs include held-out
+  baseline. At least three sessions are required. Each GUI run receives a
+  timestamped output folder. Outputs include held-out
   session and mouse performance, session/mouse/group kernel tables, an editable
   performance figure, and lick/Ensure kernel figures showing individual mice
-  with mouse mean and SEM. Lifetime τ and MPET kernels are expressed in
+  with mouse mean and SEM. The GUI result panel displays these outputs plus a
+  selectable actual-versus-predicted trace, residual trace, held-out R², and
+  residual RMSE. The numeric traces are saved in
+  `glm_heldout_predictions.csv`, with per-session PNG/SVG diagnostics in
+  `heldout_prediction_diagnostics/`. Lifetime τ and MPET kernels are expressed in
   picoseconds. The exported kernels and figures describe predictive
   associations, not causal effects.
 

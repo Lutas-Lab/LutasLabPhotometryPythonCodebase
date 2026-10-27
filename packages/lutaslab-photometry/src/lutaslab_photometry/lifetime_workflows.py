@@ -34,6 +34,7 @@ from lutaslab_core.session import AlignedSession, ContinuousSignal, EventSeries
 from .group_analysis import extract_perievent_event_rate, save_psth_heatmaps
 from .processed_provenance import build_processed_provenance, provenance_json
 from .psth_results import save_psth_timecourse_tables
+from .publication_figures import save_prediction_diagnostic_figures
 from .update_check import local_git_commit
 
 LIFETIME_COMMON_COLUMNS = ("mouse", "date", "run", "group", "condition")
@@ -1842,6 +1843,7 @@ def run_lifetime_glm(
 
     designs = []
     outcomes = []
+    uniform_times = []
     labels = []
     response_units = None
     session_count = len(rows)
@@ -1896,6 +1898,7 @@ def run_lifetime_glm(
             )
         )
         outcomes.append(outcome)
+        uniform_times.append(uniform_time)
         labels.append(label)
         report(f"Prepared session {session_index}/{session_count}: {label}", advance=True)
     if len(designs) < 3:
@@ -1913,6 +1916,7 @@ def run_lifetime_glm(
     )
     penalty = designs[0].penalty_weights
     outer_rows = []
+    prediction_rows = []
     selected_alphas = []
     outer_folds = group_folds(groups)
     for outer_fold, (outer_train, outer_test) in enumerate(outer_folds, start=1):
@@ -1959,6 +1963,39 @@ def run_lifetime_glm(
             penalize=penalty,
         )
         held_out = str(np.unique(groups[outer_test])[0])
+        held_out_prediction = matrix[outer_test] / outer_scale @ coefficients
+        baseline_prediction = np.full(
+            outer_test.size, np.mean(response[outer_train])
+        )
+        heldout_r2 = r2_score(response[outer_test], held_out_prediction)
+        baseline_r2 = r2_score(response[outer_test], baseline_prediction)
+        held_out_index = labels.index(held_out)
+        held_out_row = rows[held_out_index]
+        for time_s, actual, predicted, baseline in zip(
+            uniform_times[held_out_index],
+            response[outer_test],
+            held_out_prediction,
+            baseline_prediction,
+            strict=True,
+        ):
+            prediction_rows.append(
+                {
+                    "mouse": str(held_out_row["mouse"]),
+                    "date": str(held_out_row.get("date", "")),
+                    "run": held_out_row.get("run", ""),
+                    "group": str(held_out_row.get("group", "")),
+                    "condition": str(held_out_row.get("condition", "")),
+                    "session_id": held_out,
+                    "time_s": float(time_s),
+                    "actual": float(actual),
+                    "predicted": float(predicted),
+                    "residual": float(actual - predicted),
+                    "baseline_predicted": float(baseline),
+                    "heldout_r2": heldout_r2,
+                    "baseline_r2": baseline_r2,
+                    "selected_alpha": best_alpha,
+                }
+            )
         outer_rows.append(
             {
                 "outer_fold": outer_fold,
@@ -1967,14 +2004,8 @@ def run_lifetime_glm(
                     str(row["mouse"]) for row in rows if _session_id(row) == held_out
                 ),
                 "selected_alpha": best_alpha,
-                "baseline_r2": r2_score(
-                    response[outer_test],
-                    np.full(outer_test.size, np.mean(response[outer_train])),
-                ),
-                "r2": r2_score(
-                    response[outer_test],
-                    matrix[outer_test] / outer_scale @ coefficients,
-                ),
+                "baseline_r2": baseline_r2,
+                "r2": heldout_r2,
             }
         )
         report(
@@ -2065,9 +2096,11 @@ def run_lifetime_glm(
     session_kernel_path = destination / "glm_session_kernels.csv"
     mouse_kernel_path = destination / "glm_mouse_kernels.csv"
     group_kernel_path = destination / "glm_group_kernels.csv"
+    prediction_path = destination / "glm_heldout_predictions.csv"
     _write_dict_rows(session_kernel_path, session_kernel_rows)
     _write_dict_rows(mouse_kernel_path, mouse_kernel_rows)
     _write_dict_rows(group_kernel_path, group_kernel_rows)
+    _write_dict_rows(prediction_path, prediction_rows)
     kernel_path = destination / "glm_kernels.npz"
     np.savez_compressed(
         kernel_path,
@@ -2163,6 +2196,12 @@ def run_lifetime_glm(
         figure_paths.append(performance_path)
     plt.close(performance_fig)
     report("Rendered lifetime GLM performance figures", advance=True)
+    prediction_figure_paths = save_prediction_diagnostic_figures(
+        prediction_rows,
+        destination / "heldout_prediction_diagnostics",
+        ylabel=ylabel,
+    )
+    figure_paths.extend(prediction_figure_paths)
     metadata_path = destination / "glm_metadata.json"
     metadata_path.write_text(
         json.dumps(
@@ -2178,6 +2217,9 @@ def run_lifetime_glm(
                     "the median outer-fold selection"
                 ),
                 "interpretation": "predictive association; not causal",
+                "predictions": (
+                    "leave-one-session-out held-out predictions; residual = actual - predicted"
+                ),
                 "kernel_summary": (
                     "sessions averaged within mouse; individual mice and mean plus SEM are shown"
                 ),
@@ -2194,6 +2236,7 @@ def run_lifetime_glm(
         session_kernel_path,
         mouse_kernel_path,
         group_kernel_path,
+        prediction_path,
         metadata_path,
         *figure_paths,
     ]

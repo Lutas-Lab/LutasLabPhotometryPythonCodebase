@@ -8,6 +8,7 @@ import json
 from collections import deque
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -659,17 +660,17 @@ def _run_workflow(
         st.error(
             f"Raw-data root does not exist or is not a directory: {data_root_path}"
         )
-        return
+        return False
 
     try:
         saved_path = write_manifest(manifest_path, editor_rows)
     except (OSError, ValueError) as error:
         st.error(f"The session manifest was not saved: {error}")
-        return
+        return False
 
     st.success(f"Validated and saved the current session table to {saved_path}")
     with st.spinner("Running workflow. Keep this browser tab open..."):
-        _run_command_batch(command, workflow_name, command_labels)
+        return _run_command_batch(command, workflow_name, command_labels)
 
 
 def _run_lifetime_workflow(
@@ -684,15 +685,150 @@ def _run_lifetime_workflow(
     data_root_path = Path(data_root).expanduser()
     if not data_root_path.is_dir():
         st.error(f"Data root does not exist or is not a directory: {data_root_path}")
-        return
+        return False
     try:
         saved_path = write_lifetime_manifest(workflow, manifest_path, editor_rows)
     except (OSError, ValueError) as error:
         st.error(f"The session manifest was not saved: {error}")
-        return
+        return False
     st.success(f"Validated and saved the current session table to {saved_path}")
     with st.spinner("Running workflow. Keep this browser tab open..."):
-        _run_command_batch(command, workflow_name, command_labels)
+        return _run_command_batch(command, workflow_name, command_labels)
+
+
+def _show_glm_results(output_directory, key_prefix):
+    """Render saved GLM performance, kernels, and held-out diagnostics."""
+
+    output_directory = Path(output_directory)
+    if not output_directory.is_dir():
+        st.warning(f"The latest GLM output folder is unavailable: {output_directory}")
+        return
+    conventional = (output_directory / "forecast_metadata.json").is_file()
+    metadata_path = output_directory / (
+        "forecast_metadata.json" if conventional else "glm_metadata.json"
+    )
+    if not metadata_path.is_file():
+        st.warning("The selected folder does not contain completed GLM metadata.")
+        return
+    st.divider()
+    st.subheader("Latest GLM results")
+    st.code(str(output_directory), language=None)
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        metadata = {}
+    st.caption(
+        "Performance and traces below are held out from model fitting. Final pooled "
+        "kernels use all selected data and describe predictive association, not causality."
+    )
+    performance_tab, kernels_tab, predictions_tab, tables_tab = st.tabs(
+        ["Performance", "Kernels", "Held-out predictions", "Tables"]
+    )
+    with performance_tab:
+        performance_images = sorted(output_directory.glob("*performance.png"))
+        for image_path in performance_images:
+            st.image(image_path.read_bytes(), width="stretch")
+        score_path = output_directory / (
+            "forecast_mouse_metrics.csv"
+            if conventional
+            else "glm_mouse_cross_validation.csv"
+        )
+        if score_path.is_file():
+            st.dataframe(pd.read_csv(score_path), hide_index=True, width="stretch")
+        if not performance_images and not score_path.is_file():
+            st.info("No performance output was found.")
+    with kernels_tab:
+        kernel_images = sorted(output_directory.glob("*kernels.png"))
+        if kernel_images:
+            for image_path in kernel_images:
+                st.image(image_path.read_bytes(), width="stretch")
+        else:
+            st.info("No kernel figure was found.")
+    with predictions_tab:
+        prediction_path = output_directory / (
+            "forecast_heldout_predictions.csv"
+            if conventional
+            else "glm_heldout_predictions.csv"
+        )
+        if not prediction_path.is_file():
+            st.info(
+                "No held-out prediction table was found. Rerun the GLM with this "
+                "software version to create prediction and residual diagnostics."
+            )
+        else:
+            predictions = pd.read_csv(prediction_path)
+            if conventional and "model" in predictions:
+                models = list(dict.fromkeys(predictions["model"].astype(str)))
+                default_model = models.index("combined") if "combined" in models else 0
+                selected_model = st.selectbox(
+                    "Model",
+                    models,
+                    index=default_model,
+                    key=f"{key_prefix}_prediction_model",
+                )
+                predictions = predictions[predictions["model"] == selected_model]
+            if conventional and "horizon" in predictions:
+                horizons = sorted(predictions["horizon"].dropna().unique())
+                selected_horizon = st.selectbox(
+                    "Forecast horizon (s)",
+                    horizons,
+                    key=f"{key_prefix}_prediction_horizon",
+                )
+                predictions = predictions[predictions["horizon"] == selected_horizon]
+            sessions = list(dict.fromkeys(predictions["session_id"].astype(str)))
+            selected_session = st.selectbox(
+                "Session",
+                sessions,
+                key=f"{key_prefix}_prediction_session",
+            )
+            selected = predictions[
+                predictions["session_id"].astype(str) == selected_session
+            ].sort_values("time_s")
+            if not selected.empty:
+                score = pd.to_numeric(selected["heldout_r2"], errors="coerce").iloc[0]
+                residual = pd.to_numeric(selected["residual"], errors="coerce")
+                first, second = st.columns(2)
+                first.metric("Held-out R²", f"{score:.3f}" if np.isfinite(score) else "n/a")
+                second.metric("Residual RMSE", f"{np.sqrt(np.nanmean(residual**2)):.4g}")
+                import matplotlib.pyplot as plt
+
+                fig, axes = plt.subplots(
+                    2,
+                    1,
+                    figsize=(9, 5.5),
+                    sharex=True,
+                    gridspec_kw={"height_ratios": (2.2, 1)},
+                )
+                axes[0].plot(selected["time_s"], selected["actual"], color="black", label="Actual")
+                axes[0].plot(
+                    selected["time_s"],
+                    selected["predicted"],
+                    color="C3",
+                    label="Held-out prediction",
+                )
+                axes[0].set_ylabel(metadata.get("ylabel", "Response"))
+                axes[0].legend()
+                axes[1].plot(selected["time_s"], selected["residual"], color="C0")
+                axes[1].axhline(0, color="black", linewidth=0.8)
+                axes[1].set(xlabel="Time (s)", ylabel="Residual")
+                fig.tight_layout()
+                st.pyplot(fig, width="stretch")
+                plt.close(fig)
+    with tables_tab:
+        table_names = (
+            ("Session metrics", "forecast_session_metrics.csv"),
+            ("Group metrics", "forecast_group_metrics.csv"),
+            ("Session kernels", "forecast_session_kernels.csv"),
+        ) if conventional else (
+            ("Session cross-validation", "glm_cross_validation.csv"),
+            ("Session kernels", "glm_session_kernels.csv"),
+            ("Group kernels", "glm_group_kernels.csv"),
+        )
+        for label, filename in table_names:
+            path = output_directory / filename
+            if path.is_file():
+                with st.expander(label):
+                    st.dataframe(pd.read_csv(path), hide_index=True, width="stretch")
 
 
 def _show_psth_summary_results(output_directory, key_prefix):
@@ -721,8 +857,8 @@ def _show_psth_summary_results(output_directory, key_prefix):
                 f"{', '.join(metadata.get('metrics', []))}"
             )
 
-    figures_tab, group_tab, tests_tab, downloads_tab = st.tabs(
-        ["Metric plots", "Group summaries", "Statistical tests", "Downloads"]
+    figures_tab, group_tab, tests_tab = st.tabs(
+        ["Metric plots", "Group summaries", "Statistical tests"]
     )
     with figures_tab:
         figure_paths = sorted(output_directory.glob("psth_*.png"))
@@ -752,23 +888,6 @@ def _show_psth_summary_results(output_directory, key_prefix):
                 "No pairwise statistical tests were created. This is expected when "
                 "only one group/condition is available."
             )
-    with downloads_tab:
-        download_paths = sorted(output_directory.glob("*.csv"))
-        if metadata_path.is_file():
-            download_paths.append(metadata_path)
-        st.write("Download Prism-ready tables or complete analysis outputs.")
-        for path in download_paths:
-            mime = "application/json" if path.suffix == ".json" else "text/csv"
-            st.download_button(
-                f"Download {path.name}",
-                data=path.read_bytes(),
-                file_name=path.name,
-                mime=mime,
-                key=f"{key_prefix}_summary_download_{path.name}",
-                width="stretch",
-            )
-
-
 def _psth_summary_controls(default_base_directory, key_prefix):
     """Render saved-PSTH metric controls shared by every acquisition system."""
 
@@ -2055,21 +2174,24 @@ def _lifetime_gui(workflow: str) -> None:
                 ),
             )
         glm_output = st.text_input(
-            "GLM output directory",
+            "GLM results base directory",
             value=str(PROJECT_ROOT / "analysis" / workflow / "glm"),
             key=f"{workflow}_glm_output",
             help=(
-                "Folder for held-out performance tables, fitted kernel tables, figures, "
-                "and analysis metadata."
+                "Each run is saved in a new timestamped folder below this directory."
             ),
         )
+        glm_run_output = next_analysis_run_directory(
+            glm_output, f"{glm_signal}__lifetime_glm"
+        )
+        st.caption(f"This run will be saved to: {glm_run_output}")
         command = build_lifetime_command(
             PROJECT_ROOT,
             "glm",
             workflow,
             manifest_path,
             data_root,
-            glm_output,
+            glm_run_output,
             signal=glm_signal,
             lick_kernel_seconds=lick_kernel,
             ensure_kernel_seconds=ensure_kernel,
@@ -2082,12 +2204,21 @@ def _lifetime_gui(workflow: str) -> None:
             width="stretch",
             key=f"{workflow}_run_glm",
         ):
-            _run_lifetime_workflow(
+            succeeded = _run_lifetime_workflow(
                 command, workflow, rows, manifest_path, data_root, "Lifetime GLM"
             )
+            if succeeded:
+                st.session_state[f"{workflow}_glm_result_directory"] = str(
+                    glm_run_output
+                )
         with st.expander("Advanced: inspect or copy command"):
             if st.button("Preview GLM command", key=f"{workflow}_preview_glm"):
                 _preview_command(command)
+        glm_result_directory = st.session_state.get(
+            f"{workflow}_glm_result_directory"
+        )
+        if glm_result_directory:
+            _show_glm_results(glm_result_directory, f"{workflow}_glm")
 
 
 st.set_page_config(page_title="Lutas Lab Photometry", page_icon="📈", layout="wide")
@@ -2760,18 +2891,21 @@ with glm_tab:
         )
 
     glm_output_dir = st.text_input(
-        "GLM output directory",
+        "GLM results base directory",
         value=str(PROJECT_ROOT / "analysis" / "gui_glm"),
         help=(
-            "Folder for held-out performance tables, predictor-kernel tables, figures, "
-            "and analysis metadata."
+            "Each run is saved in a new timestamped folder below this directory."
         ),
     )
+    glm_run_output_dir = next_analysis_run_directory(
+        glm_output_dir, f"{photometry_source}__behavior_glm"
+    )
+    st.caption(f"This run will be saved to: {glm_run_output_dir}")
     glm_command = build_behavior_glm_command(
         PROJECT_ROOT,
         manifest_path_text,
         data_root,
-        glm_output_dir,
+        glm_run_output_dir,
         channel=glm_channel,
         photometry_source=photometry_source,
         history=glm_history,
@@ -2783,13 +2917,22 @@ with glm_tab:
         condition_filter=glm_condition_filter,
     )
     if st.button("Run behavioral GLM", type="primary", width="stretch"):
-        _run_workflow(
+        succeeded = _run_workflow(
             glm_command,
             editor_rows,
             manifest_path_text,
             data_root,
             "Behavioral GLM",
         )
+        if succeeded:
+            st.session_state["conventional_glm_result_directory"] = str(
+                glm_run_output_dir
+            )
     with st.expander("Advanced: inspect or copy command"):
         if st.button("Preview GLM command", width="stretch"):
             _preview_command(glm_command)
+    conventional_glm_result = st.session_state.get(
+        "conventional_glm_result_directory"
+    )
+    if conventional_glm_result:
+        _show_glm_results(conventional_glm_result, "conventional_glm")

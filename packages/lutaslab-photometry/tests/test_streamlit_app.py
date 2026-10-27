@@ -64,10 +64,21 @@ def test_gui_source_renders_completed_psth_summary_results():
     source = (project_root / "streamlit_app.py").read_text(encoding="utf-8")
 
     assert 'st.subheader("Latest summary results")' in source
-    assert '"Metric plots", "Group summaries", "Statistical tests", "Downloads"' in source
+    assert '"Metric plots", "Group summaries", "Statistical tests"' in source
     assert "psth_group_summary.csv" in source
     assert "psth_statistical_tests.csv" in source
-    assert "st.download_button(" in source
+    assert "summary_download_" not in source
+
+
+def test_gui_source_renders_persistent_glm_results_and_timestamped_runs():
+    project_root = Path(__file__).resolve().parents[3]
+    source = (project_root / "streamlit_app.py").read_text(encoding="utf-8")
+
+    assert 'st.subheader("Latest GLM results")' in source
+    assert '"Held-out predictions"' in source
+    assert "glm_heldout_predictions.csv" in source
+    assert "forecast_heldout_predictions.csv" in source
+    assert "next_analysis_run_directory(" in source
 
 
 @pytest.mark.parametrize(

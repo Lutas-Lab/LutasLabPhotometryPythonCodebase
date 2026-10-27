@@ -581,11 +581,13 @@ def forecast_manifest(
     gap_seconds=None,
     initial_train_fraction=0.5,
     return_kernels=False,
+    return_predictions=False,
     progress_callback=None,
 ):
     """Run leakage-safe within-session forecasts for every manifest session."""
     rows = []
     kernel_rows = []
+    prediction_rows = []
     horizons = tuple(horizons)
     model_steps = len(MODEL_ORDER[1:]) * (n_folds + 1)
     horizon_steps = 1 + model_steps
@@ -679,6 +681,9 @@ def forecast_manifest(
             )
             progress_completed = fit_offset + model_steps
             for model_name, model_result in fitted["models"].items():
+                session_id = (
+                    f"{info['mouse']}_{info['date']}_run{int(info['run']):03d}"
+                )
                 rows.append(
                     {
                         **info,
@@ -713,6 +718,33 @@ def forecast_manifest(
                         **model_result["metrics"],
                     }
                 )
+                if return_predictions:
+                    for time_s, actual, predicted in zip(
+                        dataset["target_time"],
+                        dataset["y"],
+                        model_result["prediction"],
+                        strict=True,
+                    ):
+                        if not (np.isfinite(actual) and np.isfinite(predicted)):
+                            continue
+                        prediction_rows.append(
+                            {
+                                **info,
+                                "session_id": session_id,
+                                "path": str(path),
+                                "target": target,
+                                "channel": selected_channel,
+                                "horizon": float(horizon),
+                                "model": model_name,
+                                "time_s": float(time_s),
+                                "actual": float(actual),
+                                "predicted": float(predicted),
+                                "residual": float(actual - predicted),
+                                "heldout_r2": model_result["metrics"].get(
+                                    "r2", np.nan
+                                ),
+                            }
+                        )
                 if "final_coefficients" not in model_result:
                     continue
                 for predictor, lag, coefficient in zip(
@@ -735,7 +767,13 @@ def forecast_manifest(
                             "final_alpha": model_result["final_alpha"],
                         }
                     )
-    return (rows, kernel_rows) if return_kernels else rows
+    if return_kernels and return_predictions:
+        return rows, kernel_rows, prediction_rows
+    if return_kernels:
+        return rows, kernel_rows
+    if return_predictions:
+        return rows, prediction_rows
+    return rows
 
 
 def summarize_forecast_kernels(rows):

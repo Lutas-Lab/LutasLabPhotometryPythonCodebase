@@ -650,7 +650,20 @@ def test_lifetime_glm_saves_mouse_level_kernels_in_picoseconds(monkeypatch, tmp_
     assert "glm_session_kernels.csv" in output_names
     assert "glm_mouse_kernels.csv" in output_names
     assert "glm_group_kernels.csv" in output_names
+    assert "glm_heldout_predictions.csv" in output_names
     assert "fluopulse_tau_glm_performance.svg" in output_names
+    predictions = list(
+        csv.DictReader(
+            (tmp_path / "glm" / "glm_heldout_predictions.csv").open(
+                encoding="utf-8"
+            )
+        )
+    )
+    assert predictions
+    first_prediction = predictions[0]
+    assert float(first_prediction["residual"]) == pytest.approx(
+        float(first_prediction["actual"]) - float(first_prediction["predicted"])
+    )
     metadata = json.loads((tmp_path / "glm" / "glm_metadata.json").read_text())
     assert metadata["units"] == "ps"
     assert metadata["ylabel"] == "Δτ (ps)"
