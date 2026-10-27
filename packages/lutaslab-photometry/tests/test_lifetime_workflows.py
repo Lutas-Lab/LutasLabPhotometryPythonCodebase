@@ -488,6 +488,14 @@ def test_lifetime_preprocessing_saves_beside_raw_and_roundtrips(monkeypatch, tmp
         heatmaps=False,
     )
     assert any(path.name == "fluopulse_tau_ensure_psth.png" for path in psth_outputs)
+    assert {
+        "psth_session_timecourses.csv",
+        "psth_mouse_timecourses.csv",
+        "psth_group_timecourse.csv",
+        "psth_prism_timecourses.csv",
+        "psth_timecourses.npz",
+        "psth_timecourse_metadata.json",
+    }.issubset({path.name for path in psth_outputs})
     psth_metadata = json.loads(
         (tmp_path / "psth" / "analysis_metadata.json").read_text()
     )

@@ -54,6 +54,7 @@ lutaslab-run-multitastant-analysis = "lutaslab_photometry.cli.run_multitastant_a
 lutaslab-run-preprocess = "lutaslab_photometry.cli.run_preprocess:main"
 lutaslab-run-preprocess-batch = "lutaslab_photometry.cli.run_preprocess_batch:main"
 lutaslab-run-psth = "lutaslab_photometry.cli.run_psth:main"
+lutaslab-run-saved-psth-statistics = "lutaslab_photometry.cli.run_saved_psth_statistics:main"
 lutaslab-run-psth-statistics = "lutaslab_photometry.cli.run_psth_statistics:main"
 lutaslab-validate-figure5-glm = "lutaslab_photometry.cli.validate_figure5_glm:main"
 lutaslab-validate-notebooks = "lutaslab_photometry.cli.validate_notebooks:main"

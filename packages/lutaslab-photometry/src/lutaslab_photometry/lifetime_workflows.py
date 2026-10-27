@@ -33,6 +33,7 @@ from lutaslab_core.session import AlignedSession, ContinuousSignal, EventSeries
 
 from .group_analysis import extract_perievent_event_rate, save_psth_heatmaps
 from .processed_provenance import build_processed_provenance, provenance_json
+from .psth_results import save_psth_timecourse_tables
 from .update_check import local_git_commit
 
 LIFETIME_COMMON_COLUMNS = ("mouse", "date", "run", "group", "condition")
@@ -1709,11 +1710,14 @@ def run_lifetime_psth(
     ylabel = _lifetime_psth_ylabel(signal, effective_normalization, units)
     bundle = {
         "time": time,
+        "workflow": workflow,
+        "signal_key": signal,
         "normalization": effective_normalization,
         "signal_type": signal_type,
         "event_key": event,
         "description": f"{signal} aligned to {event}",
         "ylabel": ylabel,
+        "units": units,
         "session_results": results,
         "mouse_names": mouse_names,
         "mouse_matrix": mouse_matrix,
@@ -1749,6 +1753,7 @@ def run_lifetime_psth(
                 cmap=heatmap_cmap,
             )
         )
+    outputs.extend(save_psth_timecourse_tables(bundle, destination))
     session_metadata = []
     for item in results:
         record = {}

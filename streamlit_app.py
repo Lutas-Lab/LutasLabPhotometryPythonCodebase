@@ -16,11 +16,13 @@ from lutaslab_photometry.gui_workflows import (
     build_lifetime_command,
     build_preprocess_command,
     build_psth_command,
+    build_saved_psth_statistics_command,
     display_command,
     manifest_csv_text,
     next_analysis_run_directory,
     normalize_manifest_rows,
     run_command,
+    safe_analysis_run_label,
     suggest_psth_run_label,
     write_manifest,
 )
@@ -47,6 +49,8 @@ from lutaslab_photometry.lifetime_workflows import (
     write_lifetime_manifest,
 )
 from lutaslab_photometry.processed_provenance import classify_processed_provenance
+from lutaslab_photometry.psth_results import load_saved_psth_timecourses
+from lutaslab_photometry.psth_statistics import AVAILABLE_METRICS
 from lutaslab_photometry.save_sessiondata import conventional_preprocessing_parameters
 from lutaslab_photometry.session_manifest import processed_session_path
 from lutaslab_photometry.update_check import (
@@ -654,6 +658,207 @@ def _run_lifetime_workflow(
         _run_command_batch(command, workflow_name, command_labels)
 
 
+def _latest_psth_result_directory(base_directory):
+    base = Path(base_directory).expanduser()
+    if not base.is_dir():
+        return base
+    exports = list(base.rglob("psth_session_timecourses.csv"))
+    return max(exports, key=lambda path: path.stat().st_mtime).parent if exports else base
+
+
+def _psth_summary_controls(default_base_directory, key_prefix):
+    """Render saved-PSTH metric controls shared by every acquisition system."""
+
+    st.subheader("PSTH summary statistics")
+    st.write(
+        "Load standardized values from a completed PSTH run, select a response "
+        "window, and export mouse-level metrics and Prism-ready tables."
+    )
+    st.caption(
+        "Sessions are averaged within each mouse. Mice are the inferential sample "
+        "size; session-level tables are saved for QC."
+    )
+    st.info(
+        "Saved numeric timecourses are created automatically by PSTH runs made with "
+        "this software version. Older figure-only runs must be rerun once."
+    )
+    suggested_input = _latest_psth_result_directory(default_base_directory)
+    input_directory = st.text_input(
+        "PSTH result directory",
+        value=str(suggested_input),
+        key=f"{key_prefix}_summary_input",
+        help=(
+            "Select one completed PSTH run. A parent folder may be used when it "
+            "contains compatible group/condition subfolders from the same run."
+        ),
+    )
+    first, second, third = st.columns(3)
+    with first:
+        response_start = st.number_input(
+            "Response-window start (s)",
+            value=0.0,
+            key=f"{key_prefix}_summary_start",
+            help="First time included when calculating every selected response metric.",
+        )
+        response_end = st.number_input(
+            "Response-window end (s)",
+            value=2.0,
+            key=f"{key_prefix}_summary_end",
+            help="Last time included when calculating every selected response metric.",
+        )
+    with second:
+        peak_smoothing = st.number_input(
+            "Peak smoothing (s)",
+            min_value=0.0,
+            value=0.1,
+            step=0.05,
+            key=f"{key_prefix}_summary_smoothing",
+            help=(
+                "Centered moving-average duration used only to locate peaks and "
+                "troughs. Mean and AUC use the unsmoothed mouse trace."
+            ),
+        )
+        test = st.selectbox(
+            "Pairwise statistical test",
+            ("auto", "paired_t", "wilcoxon", "welch", "mannwhitney"),
+            key=f"{key_prefix}_summary_test",
+            help=(
+                "Auto uses paired t-tests for repeated conditions in the same mice "
+                "and Welch tests for independent groups. Holm correction is applied "
+                "across comparisons."
+            ),
+        )
+    with third:
+        bootstrap_resamples = st.number_input(
+            "Bootstrap resamples",
+            min_value=100,
+            value=5000,
+            step=500,
+            key=f"{key_prefix}_summary_bootstrap",
+            help="Mouse-level resamples used for difference and effect-size intervals.",
+        )
+        bootstrap_seed = st.number_input(
+            "Bootstrap seed",
+            min_value=0,
+            value=0,
+            step=1,
+            key=f"{key_prefix}_summary_seed",
+            help="Keeps bootstrap confidence intervals reproducible.",
+        )
+    metric_labels = {
+        "mean": "Mean response",
+        "auc": "Signed AUC",
+        "positive_auc": "Positive AUC",
+        "negative_auc": "Negative AUC",
+        "peak": "Positive peak",
+        "peak_latency": "Peak latency",
+        "trough": "Negative trough",
+        "trough_latency": "Trough latency",
+    }
+    metrics = st.multiselect(
+        "Metrics",
+        AVAILABLE_METRICS,
+        default=("mean", "auc", "peak", "peak_latency"),
+        format_func=metric_labels.get,
+        key=f"{key_prefix}_summary_metrics",
+        help=(
+            "Mean and AUC summarize the full response window. Peak/trough values "
+            "and latencies use the selected smoothing duration."
+        ),
+    )
+    window_valid = response_start < response_end
+    if not window_valid:
+        st.error("Response-window start must be less than its end.")
+    if not metrics:
+        st.error("Select at least one response metric.")
+    output_base = st.text_input(
+        "Summary-statistics output base directory",
+        value=str(Path(input_directory).expanduser() / "summary_statistics"),
+        key=f"{key_prefix}_summary_output",
+        help="Each run is saved in a new timestamped folder below this directory.",
+    )
+    window_label = safe_analysis_run_label(
+        f"{response_start:g}to{response_end:g}s"
+    )
+    output_directory = next_analysis_run_directory(output_base, window_label)
+    st.caption(f"This summary run will be saved to: {output_directory}")
+    left, right = st.columns(2)
+    with left:
+        preview = st.button(
+            "Preview saved PSTH",
+            width="stretch",
+            key=f"{key_prefix}_summary_preview",
+        )
+    with right:
+        run_summary = st.button(
+            "Calculate metrics and Prism exports",
+            type="primary",
+            width="stretch",
+            disabled=not window_valid or not metrics,
+            key=f"{key_prefix}_summary_run",
+        )
+    if preview:
+        try:
+            bundle = load_saved_psth_timecourses(input_directory)
+        except (OSError, ValueError) as error:
+            st.error(f"Could not load saved PSTH values: {error}")
+        else:
+            import matplotlib.pyplot as plt
+
+            grouped = {}
+            for record, trace in zip(
+                bundle["mouse_records"], bundle["mouse_matrix"], strict=True
+            ):
+                label = f"{record['group']} / {record['condition']}"
+                grouped.setdefault(label, []).append(trace)
+            fig, ax = plt.subplots(figsize=(8, 4.5))
+            for label, traces in grouped.items():
+                ax.plot(
+                    bundle["time"],
+                    pd.DataFrame(traces).mean(axis=0).to_numpy(),
+                    label=label,
+                )
+            ax.axvspan(response_start, response_end, color="C1", alpha=0.18)
+            ax.axvline(0, color="black", linestyle="--", linewidth=0.8)
+            ax.set(
+                xlabel=f"Time from {bundle['identity']['event']} (s)",
+                ylabel=bundle["identity"]["units"],
+                title="Saved mouse-level PSTH preview",
+            )
+            ax.legend()
+            fig.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+            identity = bundle["identity"]
+            st.caption(
+                f"{identity['workflow']} · {identity['signal']} aligned to "
+                f"{identity['event']} · {len(bundle['mouse_records'])} mouse rows · "
+                f"{len(bundle['session_records'])} sessions"
+            )
+    command = build_saved_psth_statistics_command(
+        PROJECT_ROOT,
+        input_directory,
+        output_directory,
+        response_window=(response_start, response_end),
+        peak_smoothing=peak_smoothing,
+        metrics=metrics,
+        test=test,
+        bootstrap_resamples=bootstrap_resamples,
+        bootstrap_seed=bootstrap_seed,
+    )
+    if run_summary:
+        if not Path(input_directory).expanduser().exists():
+            st.error(f"PSTH result directory does not exist: {input_directory}")
+        else:
+            with st.spinner("Calculating PSTH summary statistics..."):
+                _run_command_batch(command, "PSTH summary statistics")
+    with st.expander("Advanced: inspect or copy summary command"):
+        if st.button(
+            "Preview summary command", key=f"{key_prefix}_summary_command"
+        ):
+            _preview_command(command)
+
+
 def _lifetime_gui(workflow: str) -> None:
     label = "FluoPulse" if workflow == "fluopulse" else "iFLIP3"
     state_key = f"{workflow}_manifest_rows"
@@ -686,12 +891,13 @@ def _lifetime_gui(workflow: str) -> None:
             "discovery."
         )
 
-    sessions_tab, align_tab, psth_tab, glm_tab = st.tabs(
+    sessions_tab, align_tab, psth_tab, summary_tab, glm_tab = st.tabs(
         [
             "1. Sessions",
             "2. Preprocess and align",
             "3. Event-aligned PSTH",
-            "4. Lifetime GLM",
+            "4. Summary statistics",
+            "5. Lifetime GLM",
         ]
     )
     with sessions_tab:
@@ -1631,6 +1837,12 @@ def _lifetime_gui(workflow: str) -> None:
                     st.caption(label)
                     _preview_command(preview_command)
 
+    with summary_tab:
+        _psth_summary_controls(
+            PROJECT_ROOT / "analysis" / workflow / "psth",
+            f"{workflow}_psth",
+        )
+
     with glm_tab:
         st.subheader("Lick and Ensure lifetime GLM")
         st.write(
@@ -1750,12 +1962,13 @@ with st.sidebar:
 if "manifest_rows" not in st.session_state:
     st.session_state.manifest_rows = DEFAULT_ROWS
 
-sessions_tab, preprocess_tab, psth_tab, glm_tab = st.tabs(
+sessions_tab, preprocess_tab, psth_tab, summary_tab, glm_tab = st.tabs(
     [
         "1. Sessions",
         "2. Batch preprocessing",
         "3. Event-aligned PSTH",
-        "4. Behavioral GLM",
+        "4. Summary statistics",
+        "5. Behavioral GLM",
     ]
 )
 
@@ -2286,6 +2499,12 @@ with psth_tab:
             ):
                 st.caption(label)
                 _preview_command(preview_command)
+
+with summary_tab:
+    _psth_summary_controls(
+        PROJECT_ROOT / "analysis" / "gui_psth",
+        "conventional_psth",
+    )
 
 with glm_tab:
     st.subheader("Behavioral GLM")

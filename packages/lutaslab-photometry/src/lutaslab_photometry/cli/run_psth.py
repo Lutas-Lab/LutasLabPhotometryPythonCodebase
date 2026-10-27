@@ -18,6 +18,7 @@ from lutaslab_photometry.group_analysis import (
     save_psth_heatmaps,
 )
 from lutaslab_photometry.heatmap_ordering import HEATMAP_SORT_METHODS
+from lutaslab_photometry.psth_results import save_psth_timecourse_tables
 from lutaslab_photometry.session_manifest import (
     filter_manifest_sessions,
     load_session_manifest,
@@ -322,8 +323,12 @@ def main():
             result_path, summary_path = _save_numeric_results(
                 results, stratum_dir, y_limits=args.y_limits
             )
+            timecourse_paths = save_psth_timecourse_tables(results, stratum_dir)
             saved_figures.extend(
-                figure_paths + heatmap_paths + diagnostic_report["paths"]
+                figure_paths
+                + heatmap_paths
+                + diagnostic_report["paths"]
+                + timecourse_paths
             )
             print(
                 f"{group} / {condition}: {len(results['session_results'])} sessions, "
@@ -348,7 +353,19 @@ def main():
             font_family=args.font_family,
             y_limits=args.y_limits,
         )
-        for path in saved_figures + comparison_paths:
+        reference = next(iter(stratum_results.values()))
+        combined_results = {
+            **reference,
+            "session_results": [
+                session
+                for result in stratum_results.values()
+                for session in result["session_results"]
+            ],
+        }
+        combined_timecourse_paths = save_psth_timecourse_tables(
+            combined_results, args.output_dir
+        )
+        for path in saved_figures + comparison_paths + combined_timecourse_paths:
             print(f"Saved output: {path}")
         return
 
@@ -393,6 +410,7 @@ def main():
     result_path, summary_path = _save_numeric_results(
         results, args.output_dir, y_limits=args.y_limits
     )
+    figure_paths.extend(save_psth_timecourse_tables(results, args.output_dir))
 
     print(f"Analyzed {len(results['session_results'])} sessions.")
     print(f"Biological units in group SEM: {results['n_mice']} mice.")

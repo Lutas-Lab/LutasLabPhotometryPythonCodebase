@@ -20,6 +20,7 @@ EXPECTED_COMMANDS = {
     "lutaslab-run-preprocess",
     "lutaslab-run-preprocess-batch",
     "lutaslab-run-psth",
+    "lutaslab-run-saved-psth-statistics",
     "lutaslab-run-psth-statistics",
     "lutaslab-validate-figure5-glm",
     "lutaslab-validate-notebooks",

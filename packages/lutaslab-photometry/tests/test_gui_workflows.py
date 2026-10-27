@@ -12,6 +12,7 @@ from lutaslab_photometry.gui_workflows import (
     build_lifetime_command,
     build_preprocess_command,
     build_psth_command,
+    build_saved_psth_statistics_command,
     manifest_csv_text,
     next_analysis_run_directory,
     normalize_manifest_rows,
@@ -199,6 +200,31 @@ def test_build_behavior_glm_command_uses_zero_horizon_nested_model():
     assert command[command.index("--inner-folds") + 1] == "2"
     assert command[command.index("--group") + 1] == "Control"
     assert command[command.index("--condition") + 1] == "Ensure"
+
+
+def test_build_saved_psth_statistics_command_includes_metric_controls():
+    command = build_saved_psth_statistics_command(
+        ".",
+        "analysis/psth/run",
+        "analysis/psth/run/summary",
+        response_window=(0.5, 3.0),
+        peak_smoothing=0.2,
+        metrics=("mean", "positive_auc", "trough"),
+        test="wilcoxon",
+        bootstrap_resamples=1000,
+        bootstrap_seed=12,
+    )
+
+    assert command[2] == "lutaslab_photometry.cli.run_saved_psth_statistics"
+    assert command[command.index("--response-window") + 1 :][:2] == ["0.5", "3.0"]
+    assert command[command.index("--metrics") + 1 : command.index("--test")] == [
+        "mean",
+        "positive_auc",
+        "trough",
+    ]
+    assert command[command.index("--test") + 1] == "wilcoxon"
+    assert command[command.index("--bootstrap-resamples") + 1] == "1000"
+    assert command[command.index("--bootstrap-seed") + 1] == "12"
 
 
 def test_build_lifetime_command_includes_sensor_specific_options():

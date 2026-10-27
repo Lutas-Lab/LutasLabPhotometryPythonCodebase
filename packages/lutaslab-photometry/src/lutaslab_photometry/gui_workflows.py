@@ -303,6 +303,45 @@ def build_psth_command(
     return command
 
 
+def build_saved_psth_statistics_command(
+    project_root,
+    input_dir,
+    output_dir,
+    *,
+    response_window=(0.0, 2.0),
+    peak_smoothing=0.1,
+    metrics=("mean", "auc", "peak", "peak_latency"),
+    test="auto",
+    bootstrap_resamples=5000,
+    bootstrap_seed=0,
+):
+    """Build a summary-statistics command for standardized saved PSTH values."""
+
+    command = _python_command(project_root, "run_saved_psth_statistics.py")
+    command.extend(
+        [
+            "--input-dir",
+            str(Path(input_dir)),
+            "--output-dir",
+            str(Path(output_dir)),
+            "--response-window",
+            str(float(response_window[0])),
+            str(float(response_window[1])),
+            "--peak-smoothing",
+            str(float(peak_smoothing)),
+            "--metrics",
+            *[str(metric) for metric in metrics],
+            "--test",
+            str(test),
+            "--bootstrap-resamples",
+            str(int(bootstrap_resamples)),
+            "--bootstrap-seed",
+            str(int(bootstrap_seed)),
+        ]
+    )
+    return command
+
+
 def build_behavior_glm_command(
     project_root,
     manifest,

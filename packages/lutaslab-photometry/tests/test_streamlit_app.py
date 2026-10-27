@@ -16,7 +16,8 @@ def test_streamlit_app_loads_without_exceptions():
         "1. Sessions",
         "2. Batch preprocessing",
         "3. Event-aligned PSTH",
-        "4. Behavioral GLM",
+        "4. Summary statistics",
+        "5. Behavioral GLM",
     ]
     assert {button.label for button in app.button} >= {
         "Validate sessions",
@@ -25,6 +26,9 @@ def test_streamlit_app_loads_without_exceptions():
         "Run preprocessing",
         "Preview PSTH command",
         "Run PSTH and plots",
+        "Preview saved PSTH",
+        "Calculate metrics and Prism exports",
+        "Preview summary command",
         "Preview GLM command",
         "Run behavioral GLM",
     }
@@ -33,6 +37,12 @@ def test_streamlit_app_loads_without_exceptions():
     assert app.checkbox(key="conventional_reuse_psth_output").value is False
     assert app.checkbox(key="conventional_fixed_y_axis").value is False
     assert app.selectbox(key="conventional_photometry_signal").value == "dff"
+    assert app.multiselect(key="conventional_psth_summary_metrics").value == [
+        "mean",
+        "auc",
+        "peak",
+        "peak_latency",
+    ]
     assert "Signal" not in {selectbox.label for selectbox in app.selectbox}
 
 
@@ -53,7 +63,8 @@ def test_streamlit_lifetime_modes_load(workflow, expected_signal):
         "1. Sessions",
         "2. Preprocess and align",
         "3. Event-aligned PSTH",
-        "4. Lifetime GLM",
+        "4. Summary statistics",
+        "5. Lifetime GLM",
     ]
     assert app.selectbox(key=f"{workflow}_signal").value == expected_signal
     assert app.selectbox(key=f"{workflow}_normalization").value == "subtract"
@@ -62,6 +73,7 @@ def test_streamlit_lifetime_modes_load(workflow, expected_signal):
         "Save manifest",
         "Run preprocessing",
         "Run PSTH analysis",
+        "Calculate metrics and Prism exports",
         "Run lifetime GLM",
     }
     if workflow == "iflip3":
@@ -73,3 +85,9 @@ def test_streamlit_lifetime_modes_load(workflow, expected_signal):
     assert app.checkbox(key=f"{workflow}_include_running_psth").value is False
     assert app.checkbox(key=f"{workflow}_reuse_psth_output").value is False
     assert app.checkbox(key=f"{workflow}_fixed_y_axis").value is False
+    assert app.multiselect(key=f"{workflow}_psth_summary_metrics").value == [
+        "mean",
+        "auc",
+        "peak",
+        "peak_latency",
+    ]

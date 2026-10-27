@@ -89,6 +89,22 @@ generation time, and code commit. The advanced option to save directly into the
 base directory restores the older behavior and can replace matching files, so it
 should be selected only for an intentional overwrite.
 
+Every PSTH run also writes portable numeric outputs without requiring the
+Summary statistics tab:
+
+- `psth_session_timecourses.csv` contains one trace per session in long format;
+- `psth_mouse_timecourses.csv` contains session-balanced mouse traces;
+- `psth_group_timecourse.csv` contains mouse-level mean, SEM, and N;
+- `psth_prism_timecourses.csv` is a wide XY table with time in the first column
+  and one column per group/condition/mouse; and
+- `psth_timecourses.npz` and `psth_timecourse_metadata.json` preserve compact
+  arrays and the analysis identity for programmatic reuse.
+
+For stratified conventional analyses, the run root contains a combined Prism
+timecourse table spanning all conditions, while each stratum keeps its own copy.
+These exports use trials within sessions, sessions within mice, and mice as the
+biological units.
+
 PSTH controls include hover explanations for the alignment window, time bin,
 normalization, and baseline interval. Enable **Use fixed y-axis limits for the
 primary PSTH** and enter a minimum and maximum when figures from separate runs
@@ -109,6 +125,23 @@ each model and outer fold. FluoPulse and iFLIP3 report nested session folds and
 per-session kernel fits. The lifetime ridge search reuses each training fold's
 normal equations across candidate regularization strengths; this preserves the
 same nested validation results while avoiding repeated matrix cross-products.
+
+## Saved-PSTH summary statistics
+
+The **Summary statistics** tab sits between PSTH and GLM for conventional,
+FluoPulse, and iFLIP3 analyses. Select one completed PSTH run—or its root folder
+containing compatible group/condition subfolders—then choose the response
+window, peak-smoothing duration, metrics, and mouse-level comparison method.
+The preview confirms the saved signal, event, mouse count, and group curves
+before analysis. Raw or processed recordings are not reopened.
+
+Mean and AUC use the unsmoothed mouse timecourse. Smoothing is used only to
+locate peaks and troughs. Outputs include session and mouse metric tables, group
+mean/SEM/N, Holm-adjusted pairwise tests, publication-style figures, one
+all-metric Prism table, and a separate Prism-wide CSV for each metric. In the
+per-metric files, each row is a mouse and each group/condition is a column, so
+paired mice remain aligned for direct import into GraphPad Prism. A new
+timestamped output folder is created for each summary run.
 
 Explicit relative paths are resolved from the selected data root. Absolute
 paths override discovery. Running files remain optional for lifetime analyses;

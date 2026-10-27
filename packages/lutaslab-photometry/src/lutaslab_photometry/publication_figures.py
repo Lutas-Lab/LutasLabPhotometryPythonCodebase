@@ -228,10 +228,18 @@ def plot_mouse_metric(
         else:
             labels.append(f"{group}\n{condition}")
     metric_label = METRIC_LABELS.get(metric, metric.replace("_", " "))
+    metric_units = sorted(
+        {str(row.get("metric_units", "")).strip() for row in selected if row.get("metric_units")}
+    )
+    ylabel = (
+        f"{metric_label} ({metric_units[0]})"
+        if len(metric_units) == 1 and f"({metric_units[0]})" not in metric_label
+        else metric_label
+    )
     ax.set(
         xticks=np.arange(len(categories)),
         xticklabels=labels,
-        ylabel=metric_label,
+        ylabel=ylabel,
         title=metric_label,
     )
     ax.spines["top"].set_visible(False)

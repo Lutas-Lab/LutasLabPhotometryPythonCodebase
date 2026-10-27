@@ -143,6 +143,21 @@ and `-20–0 s` for the most recent cue. Override them with
 `--heatmap-sort-window START END`. The companion
 `heatmaps/heatmap_trial_order.csv` records every match and ordering decision.
 
+Every PSTH run also saves long-format session, mouse, and group timecourse CSVs,
+a Prism-ready wide XY CSV, compact NPZ arrays, and metadata. Saved results from
+any acquisition type can be summarized without reopening processed data:
+
+```bash
+lutaslab-run-saved-psth-statistics \
+    --input-dir analysis/gui_psth/my_run \
+    --output-dir analysis/gui_psth/my_run/summary \
+    --response-window 0 2 \
+    --metrics mean auc positive_auc peak peak_latency
+```
+
+The saved-result command averages sessions within mice, uses mice as N, writes
+Holm-adjusted mouse-level comparisons, and creates one Prism-wide CSV per metric.
+
 Random-onset and circular-shift runs automatically save `null_diagnostics/`
 with a session summary, settings record, baseline-SD distribution, extreme-z
 distribution, distances to recorded alignment and behavioral events,
