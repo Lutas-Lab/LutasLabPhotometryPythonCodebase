@@ -11,6 +11,7 @@ from lutaslab_photometry.lifetime_workflows import (
     run_lifetime_glm,
     run_lifetime_psth,
 )
+from lutaslab_photometry.qc_reporting import concise_qc_warnings
 from lutaslab_photometry.session_manifest import filter_manifest_sessions
 
 
@@ -74,18 +75,19 @@ def main(argv=None) -> int:
             raise ValueError(
                 "Use either --iflip3-fit-settings or --iflip3-calibration, not both"
             )
-        outputs = preprocess_lifetime_sessions(
-            args.workflow,
-            rows,
-            args.data_root,
-            overwrite=args.overwrite,
-            iflip3_fit_settings=(
-                json.loads(args.iflip3_fit_settings)
-                if args.iflip3_fit_settings is not None
-                else None
-            ),
-            iflip3_calibration=args.iflip3_calibration,
-        )
+        with concise_qc_warnings():
+            outputs = preprocess_lifetime_sessions(
+                args.workflow,
+                rows,
+                args.data_root,
+                overwrite=args.overwrite,
+                iflip3_fit_settings=(
+                    json.loads(args.iflip3_fit_settings)
+                    if args.iflip3_fit_settings is not None
+                    else None
+                ),
+                iflip3_calibration=args.iflip3_calibration,
+            )
     elif args.action == "psth":
         if not args.signal or not args.event or not args.output_dir:
             raise ValueError("PSTH requires --signal, --event, and --output-dir")

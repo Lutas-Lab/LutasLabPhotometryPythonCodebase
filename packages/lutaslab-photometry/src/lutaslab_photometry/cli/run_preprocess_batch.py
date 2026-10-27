@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 from lutaslab_photometry.batch_processing import preprocess_manifest_sessions
+from lutaslab_photometry.qc_reporting import concise_qc_warnings
 from lutaslab_photometry.session_manifest import load_session_manifest
 
 
@@ -61,14 +62,15 @@ def main():
         "minimum_bout_licks": args.minimum_bout_licks,
     }
     print(f"Loaded {len(sessions)} sessions from {args.manifest}")
-    results = preprocess_manifest_sessions(
-        sessions,
-        args.data_root,
-        overwrite=args.overwrite,
-        continue_on_error=args.continue_on_error,
-        channel_map=args.channel_map,
-        preprocessing_options=options,
-    )
+    with concise_qc_warnings():
+        results = preprocess_manifest_sessions(
+            sessions,
+            args.data_root,
+            overwrite=args.overwrite,
+            continue_on_error=args.continue_on_error,
+            channel_map=args.channel_map,
+            preprocessing_options=options,
+        )
 
     print("\nBatch summary")
     for result in results:

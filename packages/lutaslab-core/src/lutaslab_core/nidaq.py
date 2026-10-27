@@ -23,6 +23,18 @@ DEFAULT_CHANNEL_ROWS: dict[str, int] = {
 }
 
 
+class RunningDataExcludedWarning(RuntimeWarning):
+    """Expected QC warning for a running trace excluded from analysis."""
+
+    def __init__(self, reason: str, path: str | Path | None = None):
+        self.reason = str(reason).strip()
+        self.path = None if path is None else str(path)
+        message = self.reason
+        if self.path:
+            message = f"{message} File: {self.path}"
+        super().__init__(message)
+
+
 @dataclass(frozen=True)
 class NIDAQRecording:
     path: Path

@@ -51,6 +51,7 @@ from lutaslab_photometry.lifetime_workflows import (
 from lutaslab_photometry.processed_provenance import classify_processed_provenance
 from lutaslab_photometry.psth_results import load_saved_psth_timecourses
 from lutaslab_photometry.psth_statistics import AVAILABLE_METRICS
+from lutaslab_photometry.qc_reporting import parse_qc_warning_line
 from lutaslab_photometry.save_sessiondata import conventional_preprocessing_parameters
 from lutaslab_photometry.session_manifest import processed_session_path
 from lutaslab_photometry.update_check import (
@@ -559,6 +560,27 @@ def _run_command_batch(command, workflow_name, command_labels=None):
     output_lines = deque(maxlen=500)
     output_panel = st.empty()
     progress_panel = st.progress(0.0, text=f"Starting {workflow_name}...")
+    qc_records = []
+
+    def show_qc_summary():
+        unique = {
+            (record["path"], record["reason"]): record for record in qc_records
+        }
+        if not unique:
+            return
+        records = list(unique.values())
+        count = len(records)
+        st.warning(
+            f"Running data were excluded from {count} "
+            f"{'session' if count == 1 else 'sessions'} because the running "
+            "files failed quality control. Other photometry and lifetime signals "
+            "were processed normally; only running-speed analyses are unavailable "
+            "for these sessions."
+        )
+        with st.expander(f"Affected running files ({count})"):
+            for record in records:
+                location = record["path"] or "Path unavailable"
+                st.markdown(f"- `{location}` — {record['reason']}")
 
     for command_index, (current_command, label) in enumerate(
         zip(commands, labels, strict=True)
@@ -568,6 +590,10 @@ def _run_command_batch(command, workflow_name, command_labels=None):
 
         def show_output(line, _command_index=command_index, _label=label):
             stripped = line.rstrip("\r\n")
+            qc_record = parse_qc_warning_line(stripped)
+            if qc_record is not None:
+                qc_records.append(qc_record)
+                return
             fields = stripped.split("\t", maxsplit=3)
             if len(fields) == 4 and fields[0] == "PROGRESS":
                 try:
@@ -597,14 +623,23 @@ def _run_command_batch(command, workflow_name, command_labels=None):
             st.error(f"{label} could not start: {error}")
             return False
         if not output_lines:
-            output_panel.code(output or "(No console output)", language="text")
+            visible_output = "\n".join(
+                line
+                for line in output.splitlines()
+                if parse_qc_warning_line(line) is None
+            )
+            output_panel.code(
+                visible_output or "(No console output)", language="text"
+            )
         if return_code != 0:
+            show_qc_summary()
             st.error(f"{label} exited with code {return_code}.")
             return False
         progress_panel.progress(
             (command_index + 1) / len(commands),
             text=f"Finished {label} ({command_index + 1} of {len(commands)} outputs)",
         )
+    show_qc_summary()
     st.success(f"{workflow_name} finished successfully.")
     return True
 

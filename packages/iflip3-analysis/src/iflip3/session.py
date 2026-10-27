@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from lutaslab_core.nidaq import RunningQuality, assess_running_quality
+from lutaslab_core.nidaq import (
+    RunningDataExcludedWarning,
+    RunningQuality,
+    assess_running_quality,
+)
 from lutaslab_core.session import (
     AlignedSession as CoreAlignedSession,
 )
@@ -298,8 +302,7 @@ def process_aligned_session(
             running_speed = running.speed.copy()
         else:
             warnings.warn(
-                f"{running_quality.reason} File: {running_path}",
-                RuntimeWarning,
+                RunningDataExcludedWarning(running_quality.reason, running_path),
                 stacklevel=2,
             )
 

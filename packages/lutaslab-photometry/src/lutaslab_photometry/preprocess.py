@@ -2,7 +2,7 @@ import warnings
 
 import numpy as np
 from lutaslab_core.events import find_ttl_pulses as _find_ttl_pulses_core
-from lutaslab_core.nidaq import assess_running_quality
+from lutaslab_core.nidaq import RunningDataExcludedWarning, assess_running_quality
 
 from .trial_classification import classify_cue_licking
 
@@ -931,8 +931,7 @@ def preprocess_session(
     else:
         source = session.get("locomotion_path", "unknown running file")
         warnings.warn(
-            f"{running_quality.reason} File: {source}",
-            RuntimeWarning,
+            RunningDataExcludedWarning(running_quality.reason, source),
             stacklevel=2,
         )
         loco_time = np.array([], dtype=float)

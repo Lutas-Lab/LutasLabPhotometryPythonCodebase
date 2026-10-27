@@ -297,3 +297,9 @@ The two lifetime modes share the sensor-independent session representation in
 The conventional random-onset/circular-shift null diagnostics currently apply
 only to conventional photometry. Lifetime modes do not silently reuse those
 controls because their sampling and correction pipelines differ.
+
+Running files that are empty or flat at zero are recoverable quality-control
+exclusions. The GUI combines them into one concise warning with an expandable
+list of affected files instead of displaying raw Python warning locations.
+Other signals continue to process normally, and detailed running QC remains in
+each processed session file.

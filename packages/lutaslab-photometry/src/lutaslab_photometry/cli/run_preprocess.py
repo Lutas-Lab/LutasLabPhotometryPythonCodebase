@@ -12,6 +12,7 @@ from lutaslab_photometry.load_data import (
 from lutaslab_photometry.preprocess import (
     preprocess_session,
 )
+from lutaslab_photometry.qc_reporting import concise_qc_warnings
 from lutaslab_photometry.save_sessiondata import (
     save_session,
 )
@@ -168,15 +169,16 @@ def main():
         "Preprocessing session..."
     )
 
-    processed_session = preprocess_session(
-        session,
-        ttl_threshold=args.ttl_threshold,
-        photometry_edge=args.photometry_edge,
-        irls_constant=args.irls_constant,
-        post_cue_window=args.post_cue_window,
-        lick_bout_interval=args.lick_bout_interval,
-        minimum_bout_licks=args.minimum_bout_licks,
-    )
+    with concise_qc_warnings():
+        processed_session = preprocess_session(
+            session,
+            ttl_threshold=args.ttl_threshold,
+            photometry_edge=args.photometry_edge,
+            irls_constant=args.irls_constant,
+            post_cue_window=args.post_cue_window,
+            lick_bout_interval=args.lick_bout_interval,
+            minimum_bout_licks=args.minimum_bout_licks,
+        )
 
     print(
         "Preprocessing complete."

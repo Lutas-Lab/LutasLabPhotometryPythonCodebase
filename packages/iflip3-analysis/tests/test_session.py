@@ -7,6 +7,7 @@ import pytest
 from iflip3.nidaq import RunningData, TTLPulses
 from iflip3.session import AlignedSession, process_aligned_session
 from iflip3.synchronization import ClockAlignment
+from lutaslab_core.nidaq import RunningDataExcludedWarning
 
 
 class _NapObject:
@@ -154,7 +155,7 @@ def test_flat_zero_running_is_flagged_and_omitted(monkeypatch):
         lambda *a, **k: RunningData(Path("running.mat"), np.zeros(3), None),
     )
 
-    with pytest.warns(RuntimeWarning, match="flat line at zero"):
+    with pytest.warns(RunningDataExcludedWarning, match="flat line at zero"):
         session = process_aligned_session(
             "recording.iFLiP3", "nidaq.mat", running_path="running.mat"
         )

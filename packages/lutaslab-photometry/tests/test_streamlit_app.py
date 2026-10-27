@@ -46,6 +46,15 @@ def test_streamlit_app_loads_without_exceptions():
     assert "Signal" not in {selectbox.label for selectbox in app.selectbox}
 
 
+def test_gui_source_summarizes_structured_running_qc():
+    project_root = Path(__file__).resolve().parents[3]
+    source = (project_root / "streamlit_app.py").read_text(encoding="utf-8")
+
+    assert "parse_qc_warning_line(stripped)" in source
+    assert "Running data were excluded from" in source
+    assert "Affected running files" in source
+
+
 @pytest.mark.parametrize(
     ("workflow", "expected_signal"),
     [("fluopulse", "tau"), ("iflip3", "mpet")],

@@ -1,6 +1,10 @@
+import warnings
+
 import pytest
+from lutaslab_core.nidaq import RunningDataExcludedWarning
 
 import lutaslab_photometry.cli.run_lifetime_workflow as cli
+from lutaslab_photometry.qc_reporting import parse_qc_warning_line
 
 
 @pytest.fixture
@@ -77,6 +81,34 @@ def test_lifetime_cli_dispatches_preprocess(workflow_stubs, capsys):
         "iflip3_calibration": None,
     }
     assert str(output) in capsys.readouterr().out
+
+
+def test_lifetime_cli_encodes_expected_running_qc(workflow_stubs, monkeypatch, capsys):
+    calls, _, output = workflow_stubs
+
+    def preprocess_with_invalid_running(*args, **kwargs):
+        calls.append(("preprocess", args, kwargs))
+        warnings.warn(
+            RunningDataExcludedWarning(
+                "Running speed is a flat line at zero; running data were excluded.",
+                r"Z:\Photometry\M1-running.mat",
+            ),
+            stacklevel=1,
+        )
+        return [output]
+
+    monkeypatch.setattr(cli, "preprocess_lifetime_sessions", preprocess_with_invalid_running)
+
+    assert cli.main(_common_args("preprocess")) == 0
+
+    output_lines = capsys.readouterr().out.splitlines()
+    record = next(
+        parsed
+        for line in output_lines
+        if (parsed := parse_qc_warning_line(line)) is not None
+    )
+    assert record["path"] == r"Z:\Photometry\M1-running.mat"
+    assert record["kind"] == "running_data_excluded"
 
 
 def test_lifetime_cli_dispatches_psth_options(workflow_stubs):

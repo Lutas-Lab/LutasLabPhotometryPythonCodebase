@@ -6,6 +6,7 @@ from fluopulse_analysis.events import TTLPulses
 from fluopulse_analysis.io import FluoPulseRecording
 from fluopulse_analysis.nidaq import NIDAQRecording, RunningData
 from fluopulse_analysis.session import _resample_uniform, process_aligned_session
+from lutaslab_core.nidaq import RunningDataExcludedWarning
 
 
 def _pulses(times, width=0.002):
@@ -158,7 +159,7 @@ def test_flat_zero_running_is_flagged_and_omitted(monkeypatch):
         lambda *a, **k: RunningData(np.zeros(doric_sync.size), None, None),
     )
 
-    with pytest.warns(RuntimeWarning, match="flat line at zero"):
+    with pytest.warns(RunningDataExcludedWarning, match="flat line at zero"):
         session = process_aligned_session(
             "recording.doric", "nidaq.mat", running_path="running.mat"
         )
