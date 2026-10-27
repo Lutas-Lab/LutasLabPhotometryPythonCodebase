@@ -1443,7 +1443,9 @@ def preprocess_lifetime_sessions(
         )
         source_column = "iflip_path" if workflow == "iflip3" else "doric_path"
         try:
-            if workflow == "iflip3" and iflip3_fit_settings is not None:
+            if workflow == "iflip3" and (
+                iflip3_fit_settings is not None or calibration is not None
+            ):
                 session, paths = load_lifetime_session(
                     workflow,
                     row,

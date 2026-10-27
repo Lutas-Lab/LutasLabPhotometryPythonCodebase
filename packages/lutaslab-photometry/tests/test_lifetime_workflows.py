@@ -509,6 +509,82 @@ def test_lifetime_preprocessing_saves_beside_raw_and_roundtrips(monkeypatch, tmp
     assert "code_commit" in psth_metadata
 
 
+def test_iflip3_preprocessing_applies_saved_calibration(monkeypatch, tmp_path):
+    raw = _touch(tmp_path / "FLIM FLIP" / "M1" / "M1_260101" / "recording.iFLiP3")
+    row = {
+        "mouse": "M1",
+        "date": "260101",
+        "run": 1,
+        "iflip_path": str(raw),
+        "nidaq_path": "",
+        "running_path": "",
+        "background_path": "",
+    }
+    calibration = workflows.IFLIP3Calibration(
+        lifetimes=np.array([0.7, 2.6]),
+        t0=1.0,
+        irf_sigma=0.14,
+        lifetime_time=np.arange(0.4, 12.31, 0.1),
+        pulse_interval=12.5,
+        spc_range=(0.4, 12.3),
+        afterpulse_ratio=0.0,
+        session_qc=({"session_id": "M1_260101_run001", "t0_ns": 1.0},),
+        success=True,
+        message="synthetic calibration",
+        cost=0.0,
+        nfev=1,
+        created_utc="2026-10-27T12:00:00+00:00",
+    )
+    time = np.arange(0.0, 3.0, 0.1)
+    fraction = np.linspace(0.2, 0.8, time.size)
+    session = AlignedSession(
+        session_id="M1_260101_run001",
+        continuous={
+            "mpet": ContinuousSignal(time, np.full(time.size, 2.0), "ns"),
+            "long_lifetime_fraction": ContinuousSignal(time, fraction, "fraction"),
+        },
+        events={"ensure": EventSeries(np.array([1.5]))},
+    )
+    received = {}
+
+    def fake_load(
+        workflow,
+        manifest_row,
+        data_root,
+        *,
+        iflip3_fit_settings=None,
+        iflip3_calibration=None,
+    ):
+        del manifest_row, data_root
+        received.update(
+            workflow=workflow,
+            fit_settings=iflip3_fit_settings,
+            calibration=iflip3_calibration,
+        )
+        return session, {"source_path": str(raw)}
+
+    monkeypatch.setattr(workflows, "load_lifetime_session", fake_load)
+
+    outputs = preprocess_lifetime_sessions(
+        "iflip3", [row], tmp_path, iflip3_calibration=calibration
+    )
+
+    assert received == {
+        "workflow": "iflip3",
+        "fit_settings": None,
+        "calibration": calibration,
+    }
+    loaded, _ = load_processed_lifetime_session("iflip3", row, tmp_path)
+    np.testing.assert_allclose(
+        loaded.continuous["long_lifetime_fraction"].values, fraction
+    )
+    assert outputs == [raw.with_name("recording-processed.npz")]
+    assert (
+        loaded.metadata["provenance"]["parameters"]["lifetime_fit"]["mode"]
+        == "shared_multi_session_calibration"
+    )
+
+
 def test_processed_lifetime_file_is_required_for_downstream_analysis(tmp_path):
     raw = _touch(tmp_path / "FLIM FLIP" / "M1" / "M1_260101" / "recording.doric")
     row = {
