@@ -73,6 +73,20 @@ def _safe_label(value):
     return text or "all"
 
 
+def _saved_float(value, *, field, path, allow_blank=False):
+    """Parse one saved numeric CSV field, preserving intentional missing values."""
+
+    text = "" if value is None else str(value).strip()
+    if not text:
+        if allow_blank:
+            return float("nan")
+        raise ValueError(f"{path} contains a blank {field} value")
+    try:
+        return float(text)
+    except ValueError as error:
+        raise ValueError(f"{path} contains an invalid {field} value: {text!r}") from error
+
+
 def _mean_trace(matrix):
     return _mean_sem(np.asarray(matrix, dtype=float))[0]
 
@@ -330,9 +344,25 @@ def load_saved_psth_timecourses(input_dir):
             )
             grouped[key].append(row)
         for key, session_rows in grouped.items():
-            session_rows.sort(key=lambda row: float(row["time_s"]))
-            time = np.asarray([float(row["time_s"]) for row in session_rows])
-            trace = np.asarray([float(row["value"]) for row in session_rows])
+            session_rows.sort(
+                key=lambda row: _saved_float(
+                    row.get("time_s"), field="time_s", path=path
+                )
+            )
+            time = np.asarray(
+                [
+                    _saved_float(row.get("time_s"), field="time_s", path=path)
+                    for row in session_rows
+                ]
+            )
+            trace = np.asarray(
+                [
+                    _saved_float(
+                        row.get("value"), field="value", path=path, allow_blank=True
+                    )
+                    for row in session_rows
+                ]
+            )
             if reference_time is None:
                 reference_time = time
             elif time.shape != reference_time.shape or not np.allclose(

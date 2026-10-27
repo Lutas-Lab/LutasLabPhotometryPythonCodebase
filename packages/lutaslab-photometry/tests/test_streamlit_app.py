@@ -59,6 +59,17 @@ def test_gui_source_summarizes_structured_running_qc():
     assert "Affected running files" in source
 
 
+def test_gui_source_renders_completed_psth_summary_results():
+    project_root = Path(__file__).resolve().parents[3]
+    source = (project_root / "streamlit_app.py").read_text(encoding="utf-8")
+
+    assert 'st.subheader("Latest summary results")' in source
+    assert '"Metric plots", "Group summaries", "Statistical tests", "Downloads"' in source
+    assert "psth_group_summary.csv" in source
+    assert "psth_statistical_tests.csv" in source
+    assert "st.download_button(" in source
+
+
 @pytest.mark.parametrize(
     ("workflow", "expected_signal"),
     [("fluopulse", "tau"), ("iflip3", "mpet")],

@@ -146,6 +146,12 @@ per-metric files, each row is a mouse and each group/condition is a column, so
 paired mice remain aligned for direct import into GraphPad Prism. A new
 timestamped output folder is created for each summary run.
 
+After calculation, the tab keeps a persistent **Latest summary results** panel
+showing the metric figures, group summary table, pairwise statistical tests,
+exact output directory, and download buttons for every CSV and the analysis
+metadata. The panel remains visible during later GUI interactions until a
+different saved PSTH run is selected.
+
 Explicit relative paths are resolved from the selected data root. Absolute
 paths override discovery. Running files remain optional for lifetime analyses;
 the recording inputs are required. NI-DAQ is optional for both lifetime sensors:

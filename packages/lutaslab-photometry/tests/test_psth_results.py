@@ -60,6 +60,24 @@ def test_timecourse_exports_roundtrip_and_create_prism_table(tmp_path):
     assert header == ["time_s", "G__A__M1", "G__A__M2"]
 
 
+def test_timecourse_loader_preserves_blank_partial_window_samples_as_nan(tmp_path):
+    result = _result("A")
+    result["session_results"][0]["trials"][:, -1] = np.nan
+    save_psth_timecourse_tables(result, tmp_path)
+
+    loaded = load_saved_psth_timecourses(tmp_path)
+
+    first_session = next(
+        trace
+        for record, trace in zip(
+            loaded["session_records"], loaded["session_matrix"], strict=True
+        )
+        if record["session_id"] == "M1_A"
+    )
+    assert np.isnan(first_session[-1])
+    np.testing.assert_allclose(first_session[:-1], [1.1, 2.1, 3.1])
+
+
 def test_mouse_timecourse_weights_sessions_equally_not_trials(tmp_path):
     result = _result("A")
     first = result["session_results"][0]

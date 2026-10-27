@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 from collections import deque
 from pathlib import Path
 
@@ -694,6 +695,80 @@ def _run_lifetime_workflow(
         _run_command_batch(command, workflow_name, command_labels)
 
 
+def _show_psth_summary_results(output_directory, key_prefix):
+    """Render completed saved-PSTH statistics and downloads in the GUI."""
+
+    output_directory = Path(output_directory)
+    if not output_directory.is_dir():
+        st.warning(f"The latest summary output folder is unavailable: {output_directory}")
+        return
+    st.divider()
+    st.subheader("Latest summary results")
+    st.caption("Mouse-level values are shown; mice are the inferential sample size.")
+    st.code(str(output_directory), language=None)
+    metadata_path = output_directory / "psth_statistics_metadata.json"
+    if metadata_path.is_file():
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            metadata = None
+        if metadata is not None:
+            response_window = metadata.get("response_window", ["?", "?"])
+            st.caption(
+                f"{metadata.get('signal', 'signal')} aligned to "
+                f"{metadata.get('event', 'event')} · response window "
+                f"{response_window[0]} to {response_window[1]} s · metrics: "
+                f"{', '.join(metadata.get('metrics', []))}"
+            )
+
+    figures_tab, group_tab, tests_tab, downloads_tab = st.tabs(
+        ["Metric plots", "Group summaries", "Statistical tests", "Downloads"]
+    )
+    with figures_tab:
+        figure_paths = sorted(output_directory.glob("psth_*.png"))
+        if not figure_paths:
+            st.info("No PNG metric figures were created for this result.")
+        else:
+            columns = st.columns(2)
+            for index, path in enumerate(figure_paths):
+                with columns[index % 2]:
+                    st.image(
+                        path.read_bytes(),
+                        caption=path.stem.replace("psth_", "").replace("_", " "),
+                        width="stretch",
+                    )
+    with group_tab:
+        group_path = output_directory / "psth_group_summary.csv"
+        if group_path.is_file():
+            st.dataframe(pd.read_csv(group_path), hide_index=True, width="stretch")
+        else:
+            st.info("No group summary table was created.")
+    with tests_tab:
+        tests_path = output_directory / "psth_statistical_tests.csv"
+        if tests_path.is_file():
+            st.dataframe(pd.read_csv(tests_path), hide_index=True, width="stretch")
+        else:
+            st.info(
+                "No pairwise statistical tests were created. This is expected when "
+                "only one group/condition is available."
+            )
+    with downloads_tab:
+        download_paths = sorted(output_directory.glob("*.csv"))
+        if metadata_path.is_file():
+            download_paths.append(metadata_path)
+        st.write("Download Prism-ready tables or complete analysis outputs.")
+        for path in download_paths:
+            mime = "application/json" if path.suffix == ".json" else "text/csv"
+            st.download_button(
+                f"Download {path.name}",
+                data=path.read_bytes(),
+                file_name=path.name,
+                mime=mime,
+                key=f"{key_prefix}_summary_download_{path.name}",
+                width="stretch",
+            )
+
+
 def _psth_summary_controls(default_base_directory, key_prefix):
     """Render saved-PSTH metric controls shared by every acquisition system."""
 
@@ -852,10 +927,12 @@ def _psth_summary_controls(default_base_directory, key_prefix):
         st.error("Select at least one response metric.")
     output_key = f"{key_prefix}_summary_output"
     last_input_key = f"{key_prefix}_summary_last_input"
+    result_key = f"{key_prefix}_summary_result_directory"
     default_output = str(Path(input_directory).expanduser() / "summary_statistics")
     if st.session_state.get(last_input_key) != str(input_directory):
         st.session_state[output_key] = default_output
         st.session_state[last_input_key] = str(input_directory)
+        st.session_state.pop(result_key, None)
     output_base = st.text_input(
         "Summary-statistics output base directory",
         key=output_key,
@@ -935,7 +1012,12 @@ def _psth_summary_controls(default_base_directory, key_prefix):
             st.error(f"PSTH result directory does not exist: {input_directory}")
         else:
             with st.spinner("Calculating PSTH summary statistics..."):
-                _run_command_batch(command, "PSTH summary statistics")
+                completed = _run_command_batch(command, "PSTH summary statistics")
+            if completed:
+                st.session_state[result_key] = str(output_directory)
+    result_directory = st.session_state.get(result_key)
+    if result_directory:
+        _show_psth_summary_results(result_directory, key_prefix)
     with st.expander("Advanced: inspect or copy summary command"):
         if st.button(
             "Preview summary command", key=f"{key_prefix}_summary_command"
