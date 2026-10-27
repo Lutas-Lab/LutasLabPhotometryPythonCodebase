@@ -225,12 +225,16 @@ lutaslab-run-forecasting \
     --horizons 0.5 1 2 5
 ```
 
-Forecasting uses nested expanding-window evaluation with train-only
-standardization and temporal exclusion gaps. Each outer training prefix selects
-regularization strength with its own forward inner folds, then the selected
-model is refit before the future outer block is scored. Change the candidate
-grid with `--alphas`; use `--alpha` only for a strength prespecified independently
-of the reported results. Binary lick forecasts report average precision as the
+By default, forecasting uses the same nested leave-one-session-out evaluation
+as the lifetime GLMs. Each outer fold withholds one complete session. Inner
+leave-one-session-out folds among the remaining sessions select regularization,
+and the untouched outer session supplies the reported score and prediction.
+This rotates through every session without assuming acquisition date determines
+which recording is a valid test set. At least three sessions are required.
+Legacy within-session chronological validation remains available explicitly as
+`--validation forward_within_session`. Change the candidate grid with
+`--alphas`; use `--alpha` only for a strength prespecified independently of the
+reported results. Binary lick forecasts report average precision as the
 primary metric, AUROC, log loss, prevalence, and average-precision gain over
 prevalence. The default estimator backend is scikit-learn and does not require
 NeMoS/JAX. Performance figures are saved as editable SVG and PNG by default.
@@ -277,7 +281,10 @@ Use the `preprocess` action first. It writes one compressed `-processed.npz`
 file beside each primary `.doric` or `.iFLiP3` recording; use `--overwrite` to
 replace an existing processed file. PSTH and GLM actions require these files and
 never recompute the raw lifetime inputs. Use `glm` to fit nested
-session-validated lick/Ensure lifetime kernels. Run
+session-validated lick/Ensure lifetime kernels. Lifetime kernels default to
+5 seconds before each event and extend through the configured post-event
+durations. Change the shared negative-lag window with `--pre-event-seconds`.
+Run
 `lutaslab-run-lifetime-workflow --help` for all signal, window, normalization,
 and heatmap options.
 

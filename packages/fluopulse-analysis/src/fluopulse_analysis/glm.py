@@ -9,8 +9,8 @@ import numpy as np
 from lutaslab_core.glm import (
     RidgeCVResult,
     TemporalBasis,
-    convolve_basis,
     fit_grouped_ridge_cv,
+    lagged_basis_matrix,
     raised_cosine_basis,
     reconstruct_kernel,
 )
@@ -33,6 +33,7 @@ def build_adaptive_ensure_design(
     *,
     lick_kernel_seconds: float = 10.0,
     ensure_kernel_seconds: float = 45.0,
+    pre_event_seconds: float = 5.0,
     lick_basis_count: int = 8,
     ensure_basis_count: int = 14,
 ) -> AdaptiveEnsureDesign:
@@ -54,8 +55,14 @@ def build_adaptive_ensure_design(
     if np.any(~np.isfinite(licks)) or np.any(~np.isfinite(ensures)):
         raise ValueError("event counts must be finite")
 
-    lick_basis = raised_cosine_basis((0.0, lick_kernel_seconds), lick_basis_count, dt)
-    ensure_basis = raised_cosine_basis((0.0, ensure_kernel_seconds), ensure_basis_count, dt)
+    if not np.isfinite(pre_event_seconds) or pre_event_seconds < 0:
+        raise ValueError("pre_event_seconds must be finite and nonnegative")
+    lick_basis = raised_cosine_basis(
+        (-pre_event_seconds, lick_kernel_seconds), lick_basis_count, dt
+    )
+    ensure_basis = raised_cosine_basis(
+        (-pre_event_seconds, ensure_kernel_seconds), ensure_basis_count, dt
+    )
     event_indices = np.flatnonzero(ensures > 0)
     first_ensure = np.zeros_like(ensures)
     progress = np.zeros_like(ensures)
@@ -65,12 +72,25 @@ def build_adaptive_ensure_design(
         progress[event_indices[1:]] = np.linspace(0.0, 1.0, event_indices.size - 1)
 
     components = {
-        "lick": convolve_basis(licks, lick_basis.values),
-        "ensure": convolve_basis(ensures, ensure_basis.values),
-        "first_ensure": convolve_basis(first_ensure, ensure_basis.values),
-        "ensure_linear": convolve_basis(ensures * progress, ensure_basis.values),
-        "ensure_quadratic": convolve_basis(
+        "lick": lagged_basis_matrix(
+            licks, np.rint(lick_basis.lag_times / dt).astype(int), lick_basis.values
+        ),
+        "ensure": lagged_basis_matrix(
+            ensures, np.rint(ensure_basis.lag_times / dt).astype(int), ensure_basis.values
+        ),
+        "first_ensure": lagged_basis_matrix(
+            first_ensure,
+            np.rint(ensure_basis.lag_times / dt).astype(int),
+            ensure_basis.values,
+        ),
+        "ensure_linear": lagged_basis_matrix(
+            ensures * progress,
+            np.rint(ensure_basis.lag_times / dt).astype(int),
+            ensure_basis.values,
+        ),
+        "ensure_quadratic": lagged_basis_matrix(
             ensures * progress**2,
+            np.rint(ensure_basis.lag_times / dt).astype(int),
             ensure_basis.values,
         ),
     }

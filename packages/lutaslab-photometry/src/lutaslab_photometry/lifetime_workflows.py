@@ -1830,6 +1830,7 @@ def run_lifetime_glm(
     output_dir,
     *,
     signal,
+    pre_event_seconds=5.0,
     lick_kernel_seconds=10.0,
     ensure_kernel_seconds=20.0,
     progress_callback=None,
@@ -1895,6 +1896,7 @@ def run_lifetime_glm(
                 ensure_counts,
                 lick_kernel_seconds=lick_kernel_seconds,
                 ensure_kernel_seconds=ensure_kernel_seconds,
+                pre_event_seconds=pre_event_seconds,
             )
         )
         outcomes.append(outcome)
@@ -2119,6 +2121,7 @@ def run_lifetime_glm(
         axes[0], mouse_kernel_rows, group_kernel_rows, "lick", "Lick kernel", "C0"
     )
     axes[0].axhline(0, color="black", linewidth=0.8)
+    axes[0].axvline(0, color="black", linestyle=":", linewidth=0.8)
     axes[0].set(xlabel="Time from lick (s)", ylabel=ylabel, title="Lick kernel")
     ensure_colors = ("C1", "C2", "C3", "C4")
     ensure_labels = (
@@ -2148,6 +2151,7 @@ def run_lifetime_glm(
                 color,
             )
     axes[1].axhline(0, color="black", linewidth=0.8)
+    axes[1].axvline(0, color="black", linestyle=":", linewidth=0.8)
     axes[1].set(
         xlabel="Time from Ensure (s)", ylabel=ylabel, title="Ensure/adaptation kernels"
     )
@@ -2212,6 +2216,7 @@ def run_lifetime_glm(
                 "ylabel": ylabel,
                 "sessions": labels,
                 "final_alpha": final_alpha,
+                "pre_event_seconds": float(pre_event_seconds),
                 "selection": (
                     "nested leave-one-session-out cross-validation; final alpha is "
                     "the median outer-fold selection"

@@ -240,9 +240,12 @@ be impossible for densely spaced events.
 
 The Behavioral GLM predicts present photometry from present and past signals
 (`horizon = 0`). It compares a fold-local constant baseline, photometry-history,
-behavior-only, and combined ridge models. Regularization is selected in nested
-forward folds and all reported performance comes from untouched future outer
-folds. The present response is never included among its own predictors:
+behavior-only, and combined ridge models. Validation matches the lifetime GLMs:
+each outer fold holds out one complete session, while ridge regularization is
+selected by leave-one-session-out validation using only the remaining sessions.
+Every selected session therefore serves once as untouched test data, regardless
+of its acquisition date. At least three sessions are required. The present
+response is never included among its own predictors:
 photometry-history features are strictly in the past, while behavioral features
 may include the current time bin. Raw 465 fluorescence is the default response;
 processed dF/F is available as a sensitivity analysis. Results include
@@ -297,10 +300,14 @@ The two lifetime modes share the sensor-independent session representation in
   response. The GUI reports session-level progress across all selected signals.
 - **PSTH, heatmap, and GLM analyses** require and load the processed lifetime
   files. They do not reopen or recompute the raw sensor recordings.
-- **Lifetime GLM** estimates forward-time lick and Ensure kernels, a separate first
-  Ensure response, and adaptation across subsequent deliveries. Ridge strength
-  is selected inside each outer leave-one-session-out fold; performance is
-  reported only on the untouched session and compared with a train-mean
+- **Lifetime GLM** estimates signed pre- and post-event lick and Ensure kernels,
+  a separate first Ensure response, and adaptation across subsequent deliveries.
+  The GUI separately controls the shared pre-event duration and the post-lick and
+  post-Ensure durations; the default window begins 5 seconds before each event.
+  Negative-time coefficients are associations preceding the event and must not
+  be interpreted as effects caused by that future event. Ridge strength is
+  selected inside each outer leave-one-session-out fold; performance is reported
+  only on the untouched session and compared with a train-mean
   baseline. At least three sessions are required. Each GUI run receives a
   timestamped output folder. Outputs include held-out
   session and mouse performance, session/mouse/group kernel tables, an editable

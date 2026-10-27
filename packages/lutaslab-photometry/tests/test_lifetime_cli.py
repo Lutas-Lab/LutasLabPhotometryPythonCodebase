@@ -153,6 +153,8 @@ def test_lifetime_cli_dispatches_glm_options(workflow_stubs):
         "8",
         "--ensure-kernel-seconds",
         "16",
+        "--pre-event-seconds",
+        "4",
     ]
 
     assert cli.main(arguments) == 0
@@ -162,6 +164,7 @@ def test_lifetime_cli_dispatches_glm_options(workflow_stubs):
     assert args == ("iflip3", rows, "data", "output")
     assert kwargs == {
         "signal": "mpet",
+        "pre_event_seconds": 4.0,
         "lick_kernel_seconds": 8.0,
         "ensure_kernel_seconds": 16.0,
         "progress_callback": kwargs["progress_callback"],

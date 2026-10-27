@@ -372,6 +372,7 @@ def build_behavior_glm_command(
     dt=0.1,
     folds=5,
     inner_folds=3,
+    validation="leave_one_session_out",
     group_filter=None,
     condition_filter=None,
 ):
@@ -403,6 +404,8 @@ def build_behavior_glm_command(
             str(int(folds)),
             "--inner-folds",
             str(int(inner_folds)),
+            "--validation",
+            str(validation),
         ]
     )
     if group_filter is not None:
@@ -435,6 +438,7 @@ def build_lifetime_command(
     heatmap_cmap="coolwarm",
     lick_kernel_seconds=10.0,
     ensure_kernel_seconds=20.0,
+    pre_event_seconds=5.0,
     first_event_only=False,
     allow_partial_windows=False,
     overwrite=False,
@@ -537,6 +541,8 @@ def build_lifetime_command(
                 str(float(lick_kernel_seconds)),
                 "--ensure-kernel-seconds",
                 str(float(ensure_kernel_seconds)),
+                "--pre-event-seconds",
+                str(float(pre_event_seconds)),
             ]
         )
     return command

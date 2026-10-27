@@ -2131,8 +2131,8 @@ def _lifetime_gui(workflow: str) -> None:
     with glm_tab:
         st.subheader("Lick and Ensure lifetime GLM")
         st.write(
-            "Fits forward-time event kernels for licking and Ensure delivery, including a "
-            "separate first-Ensure effect and adaptation across later deliveries."
+            "Fits pre- and post-event kernels for licking and Ensure delivery, including "
+            "a separate first-Ensure effect and adaptation across later deliveries."
         )
         st.caption(
             "Ridge strength is selected with leave-one-session-out validation. At least "
@@ -2149,10 +2149,22 @@ def _lifetime_gui(workflow: str) -> None:
             key=f"{workflow}_glm_signal",
             help=LIFETIME_GLM_RESPONSE_HELP[workflow],
         )
-        glm_left, glm_right = st.columns(2)
+        glm_left, glm_middle, glm_right = st.columns(3)
         with glm_left:
+            pre_event_kernel = st.number_input(
+                "Pre-event kernel duration (s)",
+                min_value=0.0,
+                value=5.0,
+                key=f"{workflow}_pre_event_kernel",
+                help=(
+                    "How far before each lick or Ensure delivery to estimate an association. "
+                    "Negative-time effects are predictive associations, not effects caused "
+                    "by the future event."
+                ),
+            )
+        with glm_middle:
             lick_kernel = st.number_input(
-                "Lick kernel duration (s)",
+                "Post-lick kernel duration (s)",
                 min_value=1.0,
                 value=10.0,
                 key=f"{workflow}_lick_kernel",
@@ -2163,7 +2175,7 @@ def _lifetime_gui(workflow: str) -> None:
             )
         with glm_right:
             ensure_kernel = st.number_input(
-                "Ensure kernel duration (s)",
+                "Post-Ensure kernel duration (s)",
                 min_value=1.0,
                 value=20.0,
                 key=f"{workflow}_ensure_kernel",
@@ -2193,6 +2205,7 @@ def _lifetime_gui(workflow: str) -> None:
             data_root,
             glm_run_output,
             signal=glm_signal,
+            pre_event_seconds=pre_event_kernel,
             lick_kernel_seconds=lick_kernel,
             ensure_kernel_seconds=ensure_kernel,
             group_filter=glm_group_filter,
@@ -2808,7 +2821,8 @@ with glm_tab:
     st.write(
         "Fit contemporaneous photometry from locomotion, licking, cue, and reward "
         "signals. The workflow compares a constant baseline, photometry history, "
-        "behavior-only, and combined ridge models using nested forward validation."
+        "behavior-only, and combined ridge models using nested session-held-out "
+        "validation."
     )
     st.caption(
         "Outputs include held-out performance and combined-model predictor kernels "
@@ -2869,25 +2883,10 @@ with glm_tab:
             help="Common time grid used to bin events and resample continuous signals.",
         )
     with glm_third:
-        glm_folds = st.number_input(
-            "Outer validation folds",
-            min_value=2,
-            value=5,
-            step=1,
-            help=(
-                "Number of chronological held-out partitions used to estimate performance "
-                "on data not used for fitting or parameter selection."
-            ),
-        )
-        glm_inner_folds = st.number_input(
-            "Inner alpha-selection folds",
-            min_value=2,
-            value=3,
-            step=1,
-            help=(
-                "Number of chronological partitions within each training set used to "
-                "choose ridge regularization strength without seeing the outer test fold."
-            ),
+        st.info(
+            "Validation holds out one complete session at a time. Ridge strength is "
+            "selected using only the remaining sessions, matching the lifetime GLMs. "
+            "At least three sessions are required."
         )
 
     glm_output_dir = st.text_input(
@@ -2911,8 +2910,7 @@ with glm_tab:
         history=glm_history,
         lag_step=glm_lag_step,
         dt=glm_dt,
-        folds=glm_folds,
-        inner_folds=glm_inner_folds,
+        validation="leave_one_session_out",
         group_filter=glm_group_filter,
         condition_filter=glm_condition_filter,
     )

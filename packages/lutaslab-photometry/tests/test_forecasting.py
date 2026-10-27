@@ -12,6 +12,7 @@ from lutaslab_photometry.cli.run_forecasting import (
 from lutaslab_photometry.forecasting import (
     build_forecast_dataset,
     fit_forecast_models,
+    fit_grouped_forecast_models,
     make_forward_folds,
     summarize_forecast_kernels,
 )
@@ -36,6 +37,33 @@ def _signals(time, photometry=None, locomotion=None):
 
 
 class ForecastingTests(unittest.TestCase):
+    @unittest.skipUnless(SKLEARN_AVAILABLE, "scikit-learn is not installed")
+    def test_grouped_models_hold_out_each_complete_session(self):
+        rng = np.random.default_rng(17)
+        datasets = []
+        for _ in range(3):
+            time = np.arange(120, dtype=float)
+            running = rng.normal(size=time.size)
+            photometry = 1.5 * running + rng.normal(scale=0.05, size=time.size)
+            datasets.append(
+                build_forecast_dataset(
+                    _signals(time, photometry=photometry, locomotion=running),
+                    target="photometry",
+                    horizon=0.0,
+                    history=1.0,
+                    lag_step=1.0,
+                )
+            )
+
+        result = fit_grouped_forecast_models(datasets, ("s1", "s2", "s3"))
+
+        combined = result["models"]["combined"]
+        assert result["validation"] == "nested_leave_one_session_out"
+        assert combined["alpha_selection"] == "nested_leave_one_session_out"
+        assert len(combined["selected_alphas"]) == 3
+        assert set(combined["session_metrics"]) == {"s1", "s2", "s3"}
+        assert np.all(np.isfinite(combined["prediction"]))
+
     def test_zero_horizon_excludes_current_target_from_predictors(self):
         time = np.arange(0.0, 20.0, 0.1)
         signals = {

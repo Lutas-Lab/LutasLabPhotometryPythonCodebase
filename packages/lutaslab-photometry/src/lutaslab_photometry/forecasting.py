@@ -562,6 +562,388 @@ def primary_metric(target):
     }[target]
 
 
+def _select_grouped_alpha(X, y, groups, target, candidate_alphas):
+    """Select regularization with equal-weight leave-one-session-out scores."""
+
+    from sklearn.preprocessing import StandardScaler
+
+    metric = primary_metric(target)
+    labels = tuple(dict.fromkeys(groups))
+    scores = {}
+    for alpha in candidate_alphas:
+        fold_scores = []
+        for held_out in labels:
+            test = groups == held_out
+            train = ~test
+            scaler = StandardScaler().fit(X[train])
+            model = _fit_estimator(
+                target, alpha, scaler.transform(X[train]), y[train]
+            )
+            if model is None:
+                continue
+            prediction = _predict_estimator(
+                model, target, scaler.transform(X[test])
+            )
+            fold_scores.append(score_forecast(y[test], prediction, target)[metric])
+        finite = np.asarray(fold_scores, dtype=float)
+        finite = finite[np.isfinite(finite)]
+        scores[float(alpha)] = float(np.mean(finite)) if finite.size else np.nan
+    valid = {alpha: score for alpha, score in scores.items() if np.isfinite(score)}
+    if not valid:
+        raise ValueError(
+            "Inner leave-one-session-out validation could not score any alpha."
+        )
+    best = max(valid, key=lambda value: (valid[value], value))
+    return float(best), scores
+
+
+def fit_grouped_forecast_models(
+    datasets,
+    labels,
+    *,
+    alpha=None,
+    candidate_alphas=DEFAULT_ALPHAS,
+    progress_callback=None,
+):
+    """Fit nested leave-one-session-out models across compatible sessions."""
+
+    from sklearn.preprocessing import StandardScaler
+
+    if len(datasets) < 3:
+        raise ValueError(
+            "The GLM requires at least three sessions for nested held-out validation."
+        )
+    if len(datasets) != len(labels) or len(set(labels)) != len(labels):
+        raise ValueError("GLM session labels must be unique and match the datasets.")
+    if alpha is not None and (not np.isfinite(alpha) or alpha < 0):
+        raise ValueError("alpha must be finite and nonnegative.")
+    candidate_alphas = _validate_candidate_alphas(candidate_alphas)
+    template = datasets[0]
+    if any(
+        dataset["feature_names"] != template["feature_names"]
+        or dataset["target"] != template["target"]
+        for dataset in datasets[1:]
+    ):
+        raise ValueError("All GLM sessions must have compatible predictors and targets.")
+    offsets = np.cumsum([0, *[len(dataset["y"]) for dataset in datasets]])
+    X_all = np.vstack([dataset["X"] for dataset in datasets])
+    y_all = np.concatenate([dataset["y"] for dataset in datasets])
+    groups = np.concatenate(
+        [
+            np.full(len(dataset["y"]), label, dtype=object)
+            for dataset, label in zip(datasets, labels, strict=True)
+        ]
+    )
+    model_columns = get_model_columns(template)
+    total_steps = len(MODEL_ORDER[1:]) * (2 * len(labels))
+    completed = 0
+
+    baseline_prediction = np.full(y_all.size, np.nan, dtype=float)
+    for held_out in labels:
+        test = groups == held_out
+        baseline_prediction[test] = _constant_prediction(
+            template["target"], y_all[~test], int(np.sum(test))
+        )
+    results = {
+        "constant_baseline": {
+            "prediction": baseline_prediction,
+            "alpha_selection": "not_applicable",
+            "selected_alphas": (),
+            "n_folds": len(labels),
+        }
+    }
+    for model_name in MODEL_ORDER[1:]:
+        columns = model_columns[model_name]
+        X = X_all[:, columns]
+        prediction = np.full(y_all.size, np.nan, dtype=float)
+        selected_alphas = []
+        inner_scores = []
+        for fold_index, held_out in enumerate(labels, start=1):
+            test = groups == held_out
+            train = ~test
+            if progress_callback is not None:
+                progress_callback(
+                    completed,
+                    total_steps,
+                    f"{model_name}: holding out session {fold_index}/{len(labels)}",
+                )
+            selected_alpha = alpha
+            scores = None
+            if selected_alpha is None:
+                selected_alpha, scores = _select_grouped_alpha(
+                    X[train],
+                    y_all[train],
+                    groups[train],
+                    template["target"],
+                    candidate_alphas,
+                )
+            scaler = StandardScaler().fit(X[train])
+            model = _fit_estimator(
+                template["target"],
+                selected_alpha,
+                scaler.transform(X[train]),
+                y_all[train],
+            )
+            if model is not None:
+                prediction[test] = _predict_estimator(
+                    model, template["target"], scaler.transform(X[test])
+                )
+            selected_alphas.append(float(selected_alpha))
+            inner_scores.append(scores)
+            completed += 1
+            if progress_callback is not None:
+                progress_callback(
+                    completed,
+                    total_steps,
+                    f"{model_name}: scored held-out session {fold_index}/{len(labels)}",
+                )
+        final_alpha = (
+            float(alpha) if alpha is not None else float(np.median(selected_alphas))
+        )
+        session_coefficients = {}
+        for session_index, (dataset, label) in enumerate(
+            zip(datasets, labels, strict=True), start=1
+        ):
+            session_X = dataset["X"][:, columns]
+            scaler = StandardScaler().fit(session_X)
+            model = _fit_estimator(
+                template["target"],
+                final_alpha,
+                scaler.transform(session_X),
+                dataset["y"],
+            )
+            if model is not None:
+                standardized = np.asarray(model.coef_, dtype=float).reshape(-1)
+                session_coefficients[label] = standardized / scaler.scale_
+            completed += 1
+            if progress_callback is not None:
+                progress_callback(
+                    completed,
+                    total_steps,
+                    f"{model_name}: fitted session kernel {session_index}/{len(labels)}",
+                )
+        results[model_name] = {
+            "prediction": prediction,
+            "alpha_selection": (
+                "fixed" if alpha is not None else "nested_leave_one_session_out"
+            ),
+            "selected_alphas": tuple(selected_alphas),
+            "inner_alpha_scores": tuple(inner_scores),
+            "final_alpha": final_alpha,
+            "session_coefficients": session_coefficients,
+            "feature_names": tuple(
+                template["feature_names"][index] for index in columns
+            ),
+            "feature_predictors": tuple(
+                template["feature_predictors"][index] for index in columns
+            ),
+            "feature_lags": template["feature_lags"][columns],
+            "n_folds": len(labels),
+        }
+    for model_result in results.values():
+        model_result["session_metrics"] = {
+            label: score_forecast(
+                y_all[offsets[index] : offsets[index + 1]],
+                model_result["prediction"][offsets[index] : offsets[index + 1]],
+                template["target"],
+            )
+            for index, label in enumerate(labels)
+        }
+    return {
+        "models": results,
+        "offsets": offsets,
+        "candidate_alphas": candidate_alphas,
+        "validation": "nested_leave_one_session_out",
+    }
+
+
+def _forecast_manifest_grouped(
+    sessions,
+    data_root,
+    *,
+    target,
+    horizons,
+    dt,
+    history,
+    lag_step,
+    target_window,
+    channel,
+    photometry_source,
+    alpha,
+    candidate_alphas,
+    return_kernels,
+    return_predictions,
+    progress_callback,
+):
+    rows = []
+    kernel_rows = []
+    prediction_rows = []
+    prepared = []
+    total = len(sessions) + len(tuple(horizons)) * max(1, len(sessions) * 6)
+    completed = 0
+    if progress_callback is not None:
+        progress_callback(0, total, "Preparing session-held-out GLM inputs")
+    for session_index, info in enumerate(sessions, start=1):
+        selected_channel = resolve_session_channel(info, channel)
+        path = processed_session_path(data_root, info)
+        session = load_session(path)
+        if session.get("running_data_valid") is False:
+            warnings.warn(
+                f"Skipping {info['mouse']} {info['date']} run {info['run']}: "
+                f"{session.get('running_data_reason', 'running data failed quality control')}",
+                UserWarning,
+                stacklevel=2,
+            )
+            continue
+        signals = prepare_forecast_signals(
+            session,
+            dt=dt,
+            channel=selected_channel,
+            photometry_source=photometry_source,
+        )
+        label = f"{info['mouse']}_{info['date']}_run{int(info['run']):03d}"
+        prepared.append((info, path, selected_channel, signals, label))
+        completed += 1
+        if progress_callback is not None:
+            progress_callback(
+                completed,
+                total,
+                f"Prepared session {session_index}/{len(sessions)}: {label}",
+            )
+    if len(prepared) < 3:
+        raise ValueError(
+            "The GLM requires at least three valid sessions for nested held-out validation."
+        )
+    for horizon_index, horizon in enumerate(horizons, start=1):
+        datasets = [
+            build_forecast_dataset(
+                signals,
+                target=target,
+                horizon=horizon,
+                history=history,
+                lag_step=lag_step,
+                target_window=target_window,
+            )
+            for _, _, _, signals, _ in prepared
+        ]
+        labels = [item[4] for item in prepared]
+
+        def report_fit(
+            current,
+            fit_total,
+            label,
+            *,
+            completed_before_fit=completed,
+            current_horizon_index=horizon_index,
+        ):
+            if progress_callback is not None:
+                progress_callback(
+                    completed_before_fit + current,
+                    max(total, completed_before_fit + fit_total),
+                    f"Horizon {current_horizon_index}/{len(horizons)}: {label}",
+                )
+
+        fitted = fit_grouped_forecast_models(
+            datasets,
+            labels,
+            alpha=alpha,
+            candidate_alphas=candidate_alphas,
+            progress_callback=report_fit,
+        )
+        completed += len(MODEL_ORDER[1:]) * 2 * len(labels)
+        for session_index, (info, path, selected_channel, _, label) in enumerate(
+            prepared
+        ):
+            start = int(fitted["offsets"][session_index])
+            stop = int(fitted["offsets"][session_index + 1])
+            dataset = datasets[session_index]
+            for model_name, model_result in fitted["models"].items():
+                metrics = model_result["session_metrics"][label]
+                selected_alphas = model_result.get("selected_alphas", ())
+                row_alpha = (
+                    selected_alphas[session_index] if selected_alphas else np.nan
+                )
+                rows.append(
+                    {
+                        **info,
+                        "path": str(path),
+                        "target": target,
+                        "channel": selected_channel,
+                        "horizon": float(horizon),
+                        "model": model_name,
+                        "n_samples": len(dataset["y"]),
+                        "n_test": len(dataset["y"]),
+                        "n_folds": model_result["n_folds"],
+                        "gap_seconds": np.nan,
+                        "validation": fitted["validation"],
+                        "alpha_selection": model_result["alpha_selection"],
+                        "selected_alphas": (
+                            "" if not selected_alphas else f"{float(row_alpha):g}"
+                        ),
+                        "alpha_min": row_alpha,
+                        "alpha_median": row_alpha,
+                        "alpha_max": row_alpha,
+                        **metrics,
+                    }
+                )
+                if return_predictions:
+                    predictions = model_result["prediction"][start:stop]
+                    for time_s, actual, predicted in zip(
+                        dataset["target_time"],
+                        dataset["y"],
+                        predictions,
+                        strict=True,
+                    ):
+                        if not (np.isfinite(actual) and np.isfinite(predicted)):
+                            continue
+                        prediction_rows.append(
+                            {
+                                **info,
+                                "session_id": label,
+                                "path": str(path),
+                                "target": target,
+                                "channel": selected_channel,
+                                "horizon": float(horizon),
+                                "model": model_name,
+                                "time_s": float(time_s),
+                                "actual": float(actual),
+                                "predicted": float(predicted),
+                                "residual": float(actual - predicted),
+                                "heldout_r2": metrics.get("r2", np.nan),
+                            }
+                        )
+                coefficients = model_result.get("session_coefficients", {}).get(label)
+                if coefficients is None:
+                    continue
+                for predictor, lag, coefficient in zip(
+                    model_result["feature_predictors"],
+                    model_result["feature_lags"],
+                    coefficients,
+                    strict=True,
+                ):
+                    kernel_rows.append(
+                        {
+                            **info,
+                            "path": str(path),
+                            "target": target,
+                            "channel": selected_channel,
+                            "horizon": float(horizon),
+                            "model": model_name,
+                            "predictor": predictor,
+                            "lag_s": float(lag),
+                            "coefficient": float(coefficient),
+                            "final_alpha": model_result["final_alpha"],
+                        }
+                    )
+    if return_kernels and return_predictions:
+        return rows, kernel_rows, prediction_rows
+    if return_kernels:
+        return rows, kernel_rows
+    if return_predictions:
+        return rows, prediction_rows
+    return rows
+
+
 def forecast_manifest(
     sessions,
     data_root,
@@ -582,13 +964,36 @@ def forecast_manifest(
     initial_train_fraction=0.5,
     return_kernels=False,
     return_predictions=False,
+    validation="leave_one_session_out",
     progress_callback=None,
 ):
-    """Run leakage-safe within-session forecasts for every manifest session."""
+    """Run session-held-out forecasts, with legacy forward validation available."""
+    horizons = tuple(horizons)
+    if validation == "leave_one_session_out":
+        return _forecast_manifest_grouped(
+            sessions,
+            data_root,
+            target=target,
+            horizons=horizons,
+            dt=dt,
+            history=history,
+            lag_step=lag_step,
+            target_window=target_window,
+            channel=channel,
+            photometry_source=photometry_source,
+            alpha=alpha,
+            candidate_alphas=candidate_alphas,
+            return_kernels=return_kernels,
+            return_predictions=return_predictions,
+            progress_callback=progress_callback,
+        )
+    if validation != "forward_within_session":
+        raise ValueError(
+            "validation must be leave_one_session_out or forward_within_session"
+        )
     rows = []
     kernel_rows = []
     prediction_rows = []
-    horizons = tuple(horizons)
     model_steps = len(MODEL_ORDER[1:]) * (n_folds + 1)
     horizon_steps = 1 + model_steps
     session_steps = 1 + len(horizons) * horizon_steps

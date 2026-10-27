@@ -33,6 +33,11 @@ def test_adaptive_ensure_design_and_grouped_fit():
         designs.append(design)
         outcomes.append(design.matrix @ truth + rng.normal(scale=0.01, size=time.size))
         labels.append(label)
+    assert designs[0].lick_basis.lag_times[0] == -5.0
+    assert designs[0].ensure_basis.lag_times[0] == -5.0
+    ensure_columns = designs[0].column_slices["ensure"]
+    assert np.any(designs[0].matrix[25:50, ensure_columns] != 0)
+    assert np.any(designs[0].matrix[51:75, ensure_columns] != 0)
     result = fit_adaptive_ensure_glm(designs, outcomes, labels, [0.0, 0.1, 1.0])
     kernels = reconstruct_adaptive_kernels(designs[0], result.coefficients)
     assert result.fold_scores.shape == (3, 3)

@@ -230,8 +230,28 @@ def test_build_behavior_glm_command_uses_zero_horizon_nested_model():
     assert command[command.index("--history") + 1] == "8.0"
     assert command[command.index("--photometry-source") + 1] == "dff"
     assert command[command.index("--inner-folds") + 1] == "2"
+    assert command[command.index("--validation") + 1] == "leave_one_session_out"
     assert command[command.index("--group") + 1] == "Control"
     assert command[command.index("--condition") + 1] == "Ensure"
+
+
+def test_build_lifetime_glm_command_includes_negative_lag_window():
+    command = build_lifetime_command(
+        ".",
+        "glm",
+        "iflip3",
+        "sessions.csv",
+        "data",
+        "output",
+        signal="mpet",
+        pre_event_seconds=4.0,
+        lick_kernel_seconds=9.0,
+        ensure_kernel_seconds=18.0,
+    )
+
+    assert command[command.index("--pre-event-seconds") + 1] == "4.0"
+    assert command[command.index("--lick-kernel-seconds") + 1] == "9.0"
+    assert command[command.index("--ensure-kernel-seconds") + 1] == "18.0"
 
 
 def test_build_saved_psth_statistics_command_includes_metric_controls():

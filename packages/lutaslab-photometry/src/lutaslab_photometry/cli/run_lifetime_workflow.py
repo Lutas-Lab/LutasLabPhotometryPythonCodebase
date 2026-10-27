@@ -63,6 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--heatmap-cmap", default="coolwarm")
     parser.add_argument("--lick-kernel-seconds", type=float, default=10.0)
     parser.add_argument("--ensure-kernel-seconds", type=float, default=20.0)
+    parser.add_argument("--pre-event-seconds", type=float, default=5.0)
     return parser
 
 
@@ -131,6 +132,7 @@ def main(argv=None) -> int:
             args.data_root,
             args.output_dir,
             signal=args.signal,
+            pre_event_seconds=args.pre_event_seconds,
             lick_kernel_seconds=args.lick_kernel_seconds,
             ensure_kernel_seconds=args.ensure_kernel_seconds,
             progress_callback=lambda current, total, label: print(

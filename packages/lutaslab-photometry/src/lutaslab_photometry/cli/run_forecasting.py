@@ -56,6 +56,11 @@ def parse_arguments():
     )
     parser.add_argument("--folds", type=int, default=5)
     parser.add_argument("--inner-folds", type=int, default=3)
+    parser.add_argument(
+        "--validation",
+        choices=("leave_one_session_out", "forward_within_session"),
+        default="leave_one_session_out",
+    )
     parser.add_argument("--initial-train-fraction", type=float, default=0.5)
     parser.add_argument("--gap-seconds", type=float, default=None)
     parser.add_argument(
@@ -369,6 +374,7 @@ def main():
         initial_train_fraction=args.initial_train_fraction,
         return_kernels=True,
         return_predictions=True,
+        validation=args.validation,
         progress_callback=report_progress,
     )
     fitting_total = progress_state["total"]
@@ -455,13 +461,26 @@ def main():
         "dt": args.dt,
         "channel": args.channel,
         "photometry_source": args.photometry_source,
-        "folds": args.folds,
-        "inner_folds": args.inner_folds,
+        "folds": len(sessions) if args.validation == "leave_one_session_out" else args.folds,
+        "inner_folds": (
+            "leave_one_session_out"
+            if args.validation == "leave_one_session_out"
+            else args.inner_folds
+        ),
         "initial_train_fraction": args.initial_train_fraction,
         "gap_seconds": args.gap_seconds,
         "alpha": args.alpha,
         "candidate_alphas": args.alphas,
-        "alpha_selection": "fixed" if args.alpha is not None else "nested_forward_cv",
+        "validation": args.validation,
+        "alpha_selection": (
+            "fixed"
+            if args.alpha is not None
+            else (
+                "nested_leave_one_session_out"
+                if args.validation == "leave_one_session_out"
+                else "nested_forward_cv"
+            )
+        ),
         "primary_metric": metric,
         "models": MODEL_ORDER,
         "kernel_model": "combined",
