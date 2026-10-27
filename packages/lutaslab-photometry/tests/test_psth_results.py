@@ -146,6 +146,20 @@ def test_saved_statistics_combine_conditions_and_write_metric_prism_files(tmp_pa
     assert progress[-1] == (4, 4, "PSTH summary statistics complete")
 
 
+def test_run_root_uses_canonical_export_without_mixing_behavior_subfolders(tmp_path):
+    save_psth_timecourse_tables(_result("A", signal="mpet"), tmp_path)
+    save_psth_timecourse_tables(
+        _result("A", signal="licking"), tmp_path / "licking"
+    )
+
+    loaded = load_saved_psth_timecourses(tmp_path)
+
+    assert loaded["identity"]["signal"] == "mpet"
+    assert loaded["source_files"] == [
+        str(tmp_path / "psth_session_timecourses.csv")
+    ]
+
+
 def test_saved_statistics_reject_incompatible_signals(tmp_path):
     save_psth_timecourse_tables(_result("A", signal="mpet"), tmp_path / "mpet")
     save_psth_timecourse_tables(_result("A", signal="raw_intensity"), tmp_path / "raw")

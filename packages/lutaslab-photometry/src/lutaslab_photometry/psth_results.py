@@ -304,11 +304,13 @@ def load_saved_psth_timecourses(input_dir):
     """Load and combine compatible saved session-level PSTH CSV exports."""
 
     input_path = Path(input_dir).expanduser()
-    paths = (
-        [input_path]
-        if input_path.is_file()
-        else sorted(input_path.rglob("psth_session_timecourses.csv"))
-    )
+    direct_export = input_path / "psth_session_timecourses.csv"
+    if input_path.is_file():
+        paths = [input_path]
+    elif direct_export.is_file():
+        paths = [direct_export]
+    else:
+        paths = sorted(input_path.rglob("psth_session_timecourses.csv"))
     if not paths:
         raise FileNotFoundError(
             f"No psth_session_timecourses.csv files were found below {input_path}"
