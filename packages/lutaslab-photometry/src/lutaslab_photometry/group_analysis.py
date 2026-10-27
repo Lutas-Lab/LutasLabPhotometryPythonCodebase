@@ -135,9 +135,25 @@ def _null_session_means(
     rng,
     real_trials,
     behavioral_events,
+    require_complete=True,
 ):
     start, end = _validate_window(window)
-    onset_bounds = (float(signal_time[0]) - start, float(signal_time[-1]) - end)
+    signal_start = float(signal_time[0])
+    signal_end = float(signal_time[-1])
+    if require_complete:
+        onset_bounds = (signal_start - start, signal_end - end)
+    else:
+        onset_start, onset_end = signal_start, signal_end
+        if normalization not in (None, "none"):
+            onset_start = max(onset_start, signal_start - float(baseline[0]))
+            onset_end = min(onset_end, signal_end - float(baseline[1]))
+        onset_bounds = (onset_start, onset_end)
+    if onset_bounds[0] >= onset_bounds[1]:
+        raise ValueError(
+            "The recording is too short to generate null-control onsets with the "
+            "requested peri-event and baseline windows. Shorten the windows or "
+            "choose no random-alignment control."
+        )
     shuffled_onsets = generate_null_onsets(
         real_event_times,
         onset_bounds,
@@ -167,7 +183,12 @@ def _null_session_means(
     example_onsets = None
     for shuffle_index, onsets in enumerate(shuffled_onsets):
         peri_time, trials, _ = extract_perievent_trials(
-            signal_time, signal, onsets, window=window, dt=dt
+            signal_time,
+            signal,
+            onsets,
+            window=window,
+            dt=dt,
+            require_complete=require_complete,
         )
         baseline_values = trials[:, baseline_mask]
         null_baseline_std.extend(np.nanstd(baseline_values, axis=1, ddof=1).tolist())
@@ -247,6 +268,18 @@ def _mean_and_sem(rows):
             count[enough]
         )
     return mean, sem
+
+
+def _quiet_nanmean(values, axis):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        return np.nanmean(values, axis=axis)
+
+
+def _quiet_nanpercentile(values, percentile, axis):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        return np.nanpercentile(values, percentile, axis=axis)
 
 
 CONVENTIONAL_PHOTOMETRY_SIGNALS = {
@@ -581,6 +614,7 @@ def compute_manifest_psth(
                         "lick_bout_onset",
                     )
                 },
+                require_complete=not allow_partial_windows,
             )
         session_results.append(result)
 
@@ -607,13 +641,13 @@ def compute_manifest_psth(
             null_session_stack = np.stack(
                 [result["null_means"] for result in results], axis=0
             )
-            null_matrix = np.nanmean(null_session_stack, axis=0)
+            null_matrix = _quiet_nanmean(null_session_stack, axis=0)
             mouse_result.update(
                 {
                     "null_matrix": null_matrix,
-                    "null_mean": np.nanmean(null_matrix, axis=0),
-                    "null_lower": np.nanpercentile(null_matrix, 2.5, axis=0),
-                    "null_upper": np.nanpercentile(null_matrix, 97.5, axis=0),
+                    "null_mean": _quiet_nanmean(null_matrix, axis=0),
+                    "null_lower": _quiet_nanpercentile(null_matrix, 2.5, axis=0),
+                    "null_upper": _quiet_nanpercentile(null_matrix, 97.5, axis=0),
                 }
             )
         mouse_results[mouse] = mouse_result
@@ -627,15 +661,19 @@ def compute_manifest_psth(
         mouse_null_stack = np.stack(
             [mouse_results[mouse]["null_matrix"] for mouse in mouse_names], axis=0
         )
-        group_null_matrix = np.nanmean(mouse_null_stack, axis=0)
+        group_null_matrix = _quiet_nanmean(mouse_null_stack, axis=0)
         null_results = {
             "mouse_null_mean_matrix": np.vstack(
                 [mouse_results[mouse]["null_mean"] for mouse in mouse_names]
             ),
             "group_null_matrix": group_null_matrix,
-            "group_null_mean": np.nanmean(group_null_matrix, axis=0),
-            "group_null_lower": np.nanpercentile(group_null_matrix, 2.5, axis=0),
-            "group_null_upper": np.nanpercentile(group_null_matrix, 97.5, axis=0),
+            "group_null_mean": _quiet_nanmean(group_null_matrix, axis=0),
+            "group_null_lower": _quiet_nanpercentile(
+                group_null_matrix, 2.5, axis=0
+            ),
+            "group_null_upper": _quiet_nanpercentile(
+                group_null_matrix, 97.5, axis=0
+            ),
         }
 
     return {

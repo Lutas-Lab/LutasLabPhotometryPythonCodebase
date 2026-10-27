@@ -51,6 +51,28 @@ def _write_processed_session(data_root, info, value):
 
 
 class GroupAnalysisTests(unittest.TestCase):
+    def test_partial_windows_allow_nulls_when_full_window_exceeds_recording(self):
+        sessions = [{"mouse": "M1", "date": "260101", "run": 1, "channel": "1"}]
+        data_root = Path("tests/_group_analysis_partial_null_data")
+        try:
+            _write_processed_session(data_root, sessions[0], 1.0)
+            results = compute_manifest_psth(
+                sessions,
+                data_root,
+                event_key="solenoid_onset",
+                window=(-5.0, 20.0),
+                dt=0.5,
+                normalization="subtract",
+                baseline=(-5.0, 0.0),
+                null_method="random_onsets",
+                n_shuffles=5,
+                allow_partial_windows=True,
+            )
+        finally:
+            shutil.rmtree(data_root, ignore_errors=True)
+
+        self.assertEqual(results["session_results"][0]["null_means"].shape, (5, 51))
+
     def test_manifest_aligns_to_first_lick_and_bout_after_ensure(self):
         sessions = [{"mouse": "M1", "date": "260101", "run": 1, "channel": "1"}]
         data_root = Path("tests/_group_analysis_data")

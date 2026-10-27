@@ -39,6 +39,8 @@ from lutaslab_core.session import (
 from .event_matching import DERIVED_ALIGNMENT_EVENTS, derived_alignment_times
 from .group_analysis import (
     _null_session_means,
+    _quiet_nanmean,
+    _quiet_nanpercentile,
     _session_rng,
     extract_perievent_event_rate,
     save_null_diagnostics,
@@ -1815,6 +1817,7 @@ def run_lifetime_psth(
                 rng=_session_rng(random_seed, row),
                 real_trials=trials,
                 behavioral_events=_behavioral_events(session),
+                require_complete=not allow_partial_windows,
             )
         results.append(result)
     if not results:
@@ -1833,17 +1836,21 @@ def run_lifetime_psth(
         mouse_null = {}
         for mouse in mouse_names:
             selected = [item for item in results if item["mouse"] == mouse]
-            mouse_null[mouse] = np.nanmean(
+            mouse_null[mouse] = _quiet_nanmean(
                 np.stack([item["null_means"] for item in selected], axis=0), axis=0
             )
-        group_null_matrix = np.nanmean(
+        group_null_matrix = _quiet_nanmean(
             np.stack([mouse_null[mouse] for mouse in mouse_names], axis=0), axis=0
         )
         null_results = {
             "group_null_matrix": group_null_matrix,
-            "group_null_mean": np.nanmean(group_null_matrix, axis=0),
-            "group_null_lower": np.nanpercentile(group_null_matrix, 2.5, axis=0),
-            "group_null_upper": np.nanpercentile(group_null_matrix, 97.5, axis=0),
+            "group_null_mean": _quiet_nanmean(group_null_matrix, axis=0),
+            "group_null_lower": _quiet_nanpercentile(
+                group_null_matrix, 2.5, axis=0
+            ),
+            "group_null_upper": _quiet_nanpercentile(
+                group_null_matrix, 97.5, axis=0
+            ),
         }
     ylabel = _lifetime_psth_ylabel(signal, effective_normalization, units)
     bundle = {
