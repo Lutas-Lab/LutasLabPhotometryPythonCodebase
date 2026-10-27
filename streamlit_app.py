@@ -1821,6 +1821,34 @@ def _lifetime_gui(workflow: str) -> None:
                 key=f"{workflow}_event",
                 help="Each occurrence becomes time zero for one peri-event trial.",
             )
+            if event in {
+                "first_lick_after_ensure",
+                "first_lick_bout_after_ensure",
+            }:
+                derived_match_start = st.number_input(
+                    "Post-Ensure match start (s)",
+                    min_value=0.0,
+                    value=0.0,
+                    key=f"{workflow}_derived_match_start",
+                    help="Earliest allowed latency after Ensure for the matched event.",
+                )
+                derived_match_end = st.number_input(
+                    "Post-Ensure match end (s)",
+                    min_value=0.01,
+                    value=20.0,
+                    key=f"{workflow}_derived_match_end",
+                    help=(
+                        "Latest allowed latency. Matching stops at the next Ensure so "
+                        "events are not assigned across adjacent deliveries."
+                    ),
+                )
+                derived_event_window = (derived_match_start, derived_match_end)
+                derived_event_window_valid = derived_match_start < derived_match_end
+                if not derived_event_window_valid:
+                    st.error("Match-window start must be less than its end.")
+            else:
+                derived_event_window = (0.0, 20.0)
+                derived_event_window_valid = True
         with second:
             window_start = st.number_input(
                 "Window start (s)",
@@ -1945,6 +1973,28 @@ def _lifetime_gui(workflow: str) -> None:
                 ),
                 key=f"{workflow}_allow_partial_windows",
             )
+        if event == "visual_cue":
+            class_left, class_right = st.columns(2)
+            with class_left:
+                trial_class = st.selectbox(
+                    "Cue-trial class",
+                    tuple(TRIAL_CLASS_LABELS),
+                    format_func=TRIAL_CLASS_LABELS.get,
+                    key=f"{workflow}_trial_class",
+                    help="Classify visual-cue trials from cue and lick timestamps.",
+                )
+            with class_right:
+                post_cue_window = st.number_input(
+                    "Post-cue response window (seconds)",
+                    min_value=0.0,
+                    value=2.0,
+                    step=0.5,
+                    disabled=trial_class == "all",
+                    key=f"{workflow}_post_cue_window",
+                )
+        else:
+            trial_class = "all"
+            post_cue_window = 2.0
         output = st.text_input(
             "Figure/output base directory",
             value=str(PROJECT_ROOT / "analysis" / workflow / "psth"),
@@ -1989,6 +2039,37 @@ def _lifetime_gui(workflow: str) -> None:
             else next_analysis_run_directory(output, resolved_run_label)
         )
         st.caption(f"This run will be saved to: {run_output}")
+        null_method = st.selectbox(
+            "Random-alignment control",
+            ("none", "random_onsets", "circular_shift"),
+            key=f"{workflow}_null_method",
+            help=(
+                "Compare the response with session-local random or circularly shifted "
+                "alignment times. Null controls are unavailable for licking responses."
+            ),
+        )
+        null_left, null_middle, null_right = st.columns(3)
+        with null_left:
+            n_shuffles = st.number_input(
+                "Shuffles",
+                min_value=1,
+                value=500,
+                step=100,
+                key=f"{workflow}_n_shuffles",
+            )
+        with null_middle:
+            seed = st.number_input(
+                "Random seed", min_value=0, value=0, key=f"{workflow}_null_seed"
+            )
+        with null_right:
+            null_exclusion = st.number_input(
+                "Exclude near real events (s)",
+                min_value=0.0,
+                value=0.0,
+                step=0.5,
+                disabled=null_method == "none",
+                key=f"{workflow}_null_exclusion",
+            )
         st.markdown("#### Additional behavioral responses")
         behavior_left, behavior_right = st.columns(2)
         with behavior_left:
@@ -2018,9 +2099,14 @@ def _lifetime_gui(workflow: str) -> None:
             "response_mean",
             "ensure_latency",
             "first_lick_latency",
+            "first_bout_latency",
+            "bout_size",
+            "bout_duration",
             "post_event_lick_count",
             "pre_event_lick_rate",
         ]
+        if event in {"lick_bout_onset", "first_lick_bout_after_ensure"}:
+            sort_options.append("cue_to_bout_latency")
         heatmap_sort = st.selectbox(
             "Heatmap trial order",
             sort_options,
@@ -2044,6 +2130,35 @@ def _lifetime_gui(workflow: str) -> None:
                     key=f"{workflow}_{heatmap_sort}_sort_end",
                 )
             sort_window = (sort_start, sort_end)
+        heatmap_sort_direction = "auto"
+        heatmap_unmatched = "bottom"
+        heatmap_cmap = "coolwarm"
+        with st.expander("Advanced: heatmap ordering details"):
+            ordering_left, ordering_middle, ordering_right = st.columns(3)
+            with ordering_left:
+                heatmap_sort_direction = st.selectbox(
+                    "Sort direction",
+                    ("auto", "ascending", "descending"),
+                    key=f"{workflow}_heatmap_sort_direction",
+                    disabled=not save_heatmaps or heatmap_sort == "event_order",
+                )
+            with ordering_middle:
+                heatmap_unmatched = st.selectbox(
+                    "Trials without a match",
+                    ("bottom", "exclude"),
+                    key=f"{workflow}_heatmap_unmatched",
+                    disabled=(
+                        not save_heatmaps
+                        or heatmap_sort in {"event_order", "response_mean"}
+                    ),
+                )
+            with ordering_right:
+                heatmap_cmap = st.selectbox(
+                    "Heatmap color map",
+                    ("coolwarm", "RdBu_r", "seismic", "viridis"),
+                    key=f"{workflow}_heatmap_cmap",
+                    disabled=not save_heatmaps,
+                )
         command = build_lifetime_command(
             PROJECT_ROOT,
             "psth",
@@ -2061,6 +2176,16 @@ def _lifetime_gui(workflow: str) -> None:
             heatmaps=save_heatmaps,
             heatmap_sort=heatmap_sort,
             heatmap_sort_window=sort_window,
+            heatmap_sort_direction=heatmap_sort_direction,
+            heatmap_unmatched=heatmap_unmatched,
+            heatmap_cmap=heatmap_cmap,
+            null_method=("none" if signal == "licking" else null_method),
+            n_shuffles=n_shuffles,
+            seed=seed,
+            null_exclusion=null_exclusion,
+            trial_class=trial_class,
+            post_cue_window=post_cue_window,
+            derived_event_window=derived_event_window,
             first_event_only=first_event_only,
             allow_partial_windows=allow_partial_windows,
             group_filter=psth_group_filter,
@@ -2091,6 +2216,18 @@ def _lifetime_gui(workflow: str) -> None:
                     heatmaps=save_heatmaps,
                     heatmap_sort=heatmap_sort,
                     heatmap_sort_window=sort_window,
+                    heatmap_sort_direction=heatmap_sort_direction,
+                    heatmap_unmatched=heatmap_unmatched,
+                    heatmap_cmap=heatmap_cmap,
+                    null_method=(
+                        "none" if behavior_signal == "licking" else null_method
+                    ),
+                    n_shuffles=n_shuffles,
+                    seed=seed,
+                    null_exclusion=null_exclusion,
+                    trial_class=trial_class,
+                    post_cue_window=post_cue_window,
+                    derived_event_window=derived_event_window,
                     first_event_only=first_event_only,
                     allow_partial_windows=allow_partial_windows,
                     group_filter=psth_group_filter,
@@ -2103,7 +2240,7 @@ def _lifetime_gui(workflow: str) -> None:
             type="primary",
             width="stretch",
             key=f"{workflow}_run_psth",
-            disabled=not y_limits_valid,
+            disabled=not y_limits_valid or not derived_event_window_valid,
         ):
             _run_lifetime_workflow(
                 commands,
@@ -2393,6 +2530,8 @@ with psth_tab:
                 "lick_bout_onset",
                 "lick_bout_offset",
                 "lick_times",
+                "first_lick_after_ensure",
+                "first_lick_bout_after_ensure",
             ),
             help="Each occurrence becomes time zero for one peri-event trial.",
         )
@@ -2414,6 +2553,32 @@ with psth_tab:
                 "sessions with channel 1 or 2."
             ),
         )
+        if event_key in {
+            "first_lick_after_ensure",
+            "first_lick_bout_after_ensure",
+        }:
+            match_start = st.number_input(
+                "Post-Ensure match start (s)",
+                min_value=0.0,
+                value=0.0,
+                help="Earliest allowed latency after Ensure for the matched event.",
+            )
+            match_end = st.number_input(
+                "Post-Ensure match end (s)",
+                min_value=0.01,
+                value=20.0,
+                help=(
+                    "Latest allowed latency. Matching stops at the next Ensure so one "
+                    "lick or bout cannot be assigned across adjacent deliveries."
+                ),
+            )
+            derived_event_window = (match_start, match_end)
+            derived_event_window_valid = match_start < match_end
+            if not derived_event_window_valid:
+                st.error("Match-window start must be less than its end.")
+        else:
+            derived_event_window = (0.0, 20.0)
+            derived_event_window_valid = True
     with second:
         window_start = st.number_input(
             "Window start (s)",
@@ -2647,7 +2812,7 @@ with psth_tab:
             "post_event_lick_count",
             "pre_event_lick_rate",
         ]
-        if event_key == "lick_bout_onset":
+        if event_key in {"lick_bout_onset", "first_lick_bout_after_ensure"}:
             heatmap_sort_options.append("cue_to_bout_latency")
         heatmap_sort = st.selectbox(
             "Heatmap trial order",
@@ -2734,6 +2899,7 @@ with psth_tab:
         null_exclusion=null_exclusion,
         trial_class=trial_class,
         post_cue_window=post_cue_window,
+        derived_event_window=derived_event_window,
         heatmaps=save_heatmaps,
         heatmap_sort=heatmap_sort,
         heatmap_sort_window=heatmap_sort_window,
@@ -2768,6 +2934,7 @@ with psth_tab:
                 dt=dt,
                 normalization="none",
                 baseline=(baseline_start, baseline_end),
+                derived_event_window=derived_event_window,
                 stratify=stratify,
                 null_method="none" if behavior_signal == "licking" else null_method,
                 n_shuffles=n_shuffles,
@@ -2792,7 +2959,7 @@ with psth_tab:
         "Run PSTH and plots",
         type="primary",
         width="stretch",
-        disabled=not y_limits_valid,
+        disabled=not y_limits_valid or not derived_event_window_valid,
     ):
         _run_workflow(
             psth_commands,

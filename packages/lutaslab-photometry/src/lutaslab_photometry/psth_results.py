@@ -112,6 +112,8 @@ def _result_identity(results):
             units = "ΔF/F"
         else:
             units = "a.u."
+    trial_class = str(results.get("trial_class", "all"))
+    derived_event_window = results.get("derived_event_window")
     return {
         "workflow": str(results.get("workflow", "conventional")),
         "signal": signal,
@@ -119,6 +121,17 @@ def _result_identity(results):
         "event": str(results.get("event_key", "event")),
         "normalization": normalization,
         "units": units,
+        "trial_class": trial_class,
+        "post_cue_window": (
+            str(float(results.get("post_cue_window", 2.0)))
+            if trial_class != "all"
+            else ""
+        ),
+        "derived_event_window": (
+            json.dumps([float(value) for value in derived_event_window])
+            if derived_event_window is not None
+            else ""
+        ),
     }
 
 
@@ -325,8 +338,18 @@ def load_saved_psth_timecourses(input_dir):
             continue
         current_identity = {
             key: rows[0].get(key, "")
-            for key in ("workflow", "signal", "signal_type", "event", "normalization", "units")
+            for key in (
+                "workflow",
+                "signal",
+                "signal_type",
+                "event",
+                "normalization",
+                "units",
+                "post_cue_window",
+                "derived_event_window",
+            )
         }
+        current_identity["trial_class"] = rows[0].get("trial_class") or "all"
         if identity is None:
             identity = current_identity
         elif current_identity != identity:

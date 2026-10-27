@@ -62,6 +62,13 @@ def parse_arguments():
         help="Seconds after cue offset used to classify post-cue licking.",
     )
     parser.add_argument(
+        "--derived-event-window",
+        type=float,
+        nargs=2,
+        default=(0.0, 20.0),
+        help="Post-Ensure matching window for derived first-lick/bout alignments.",
+    )
+    parser.add_argument(
         "--signal",
         choices=("photometry", "licking", "running"),
         default="photometry",
@@ -174,6 +181,9 @@ def _save_numeric_results(results, output_dir, *, y_limits=None):
         null_exclusion=results["null_exclusion"],
         trial_class=results.get("trial_class", "all"),
         post_cue_window=results.get("post_cue_window", 2.0),
+        derived_event_window=np.asarray(
+            results.get("derived_event_window") or (), dtype=float
+        ),
         first_event_only=results.get("first_event_only", False),
         allow_partial_windows=results.get("allow_partial_windows", False),
         y_limits=(
@@ -260,6 +270,7 @@ def main():
         null_exclusion=args.null_exclusion,
         trial_class=args.trial_class,
         post_cue_window=args.post_cue_window,
+        derived_event_window=tuple(args.derived_event_window),
         first_event_only=args.first_event_only,
         allow_partial_windows=args.allow_partial_windows,
         progress_callback=lambda current, total, label: print(

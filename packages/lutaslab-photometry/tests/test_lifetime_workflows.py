@@ -6,7 +6,12 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from lutaslab_core.session import AlignedSession, ContinuousSignal, EventSeries
+from lutaslab_core.session import (
+    AlignedSession,
+    ContinuousSignal,
+    EventSeries,
+    IntervalSeries,
+)
 
 import lutaslab_photometry.lifetime_workflows as workflows
 from lutaslab_photometry.lifetime_workflows import (
@@ -441,6 +446,9 @@ def test_lifetime_preprocessing_saves_beside_raw_and_roundtrips(monkeypatch, tmp
             "ensure": EventSeries(np.array([1.5])),
             "visual_cue": EventSeries(np.array([0.5])),
         },
+        intervals={
+            "visual_cue": IntervalSeries(np.array([0.5]), np.array([0.8]))
+        },
         metadata={"clock_drift_ppm": np.float64(2.5)},
     )
     monkeypatch.setattr(
@@ -462,6 +470,7 @@ def test_lifetime_preprocessing_saves_beside_raw_and_roundtrips(monkeypatch, tmp
     assert loaded.continuous["tau"].units == "ns"
     np.testing.assert_allclose(loaded.continuous["tau"].values, np.sin(time))
     np.testing.assert_allclose(loaded.events["ensure"].timestamps, [1.5])
+    np.testing.assert_allclose(loaded.intervals["visual_cue"].ends, [0.8])
     assert loaded.metadata["clock_drift_ppm"] == 2.5
     assert loaded.metadata["provenance"]["workflow"] == "fluopulse"
     assert "commit" in loaded.metadata["provenance"]["code"]
@@ -751,6 +760,81 @@ def test_lifetime_psth_writes_mouse_and_pooled_heatmaps(monkeypatch, tmp_path):
     assert "group_ensure_mouse_means_heatmap.png" in names
     assert "group_ensure_pooled_trials_heatmap.png" in names
     assert "heatmap_trial_order.csv" in names
+
+
+def test_lifetime_psth_supports_derived_alignment_cue_classes_and_nulls(
+    monkeypatch, tmp_path
+):
+    time = np.arange(0.0, 40.0, 0.1)
+
+    def fake_load(workflow, row, data_root):
+        del workflow, row, data_root
+        return (
+            AlignedSession(
+                session_id="M1_260101_run001",
+                continuous={"tau": ContinuousSignal(time, np.sin(time / 3), "ns")},
+                events={
+                    "ensure": EventSeries(np.array([10.0, 20.0, 30.0])),
+                    "visual_cue": EventSeries(np.array([8.0, 18.0, 28.0])),
+                    "licks": EventSeries(
+                        np.array([8.5, 10.8, 18.5, 21.2, 31.5])
+                    ),
+                },
+                intervals={
+                    "visual_cue": IntervalSeries(
+                        np.array([8.0, 18.0, 28.0]),
+                        np.array([9.0, 19.0, 29.0]),
+                    )
+                },
+            ),
+            {"source_path": "synthetic.doric"},
+        )
+
+    monkeypatch.setattr(workflows, "load_processed_lifetime_session", fake_load)
+    outputs = workflows.run_lifetime_psth(
+        "fluopulse",
+        [{"mouse": "M1", "date": "260101", "run": 1}],
+        tmp_path,
+        tmp_path / "derived",
+        signal="tau",
+        event="first_lick_after_ensure",
+        derived_event_window=(0.5, 3.0),
+        window=(-1.0, 1.0),
+        dt=0.1,
+        normalization="subtract",
+        null_method="random_onsets",
+        n_shuffles=5,
+        random_seed=4,
+        heatmap_sort="first_bout_latency",
+        heatmap_sort_window=(0.0, 2.0),
+    )
+
+    names = {path.name for path in outputs}
+    assert "null_diagnostics_summary.csv" in names
+    metadata = json.loads(
+        (tmp_path / "derived" / "analysis_metadata.json").read_text()
+    )
+    assert metadata["derived_event_window"] == [0.5, 3.0]
+    assert metadata["null_method"] == "random_onsets"
+
+    cue_outputs = workflows.run_lifetime_psth(
+        "fluopulse",
+        [{"mouse": "M1", "date": "260101", "run": 1}],
+        tmp_path,
+        tmp_path / "cue_class",
+        signal="tau",
+        event="visual_cue",
+        trial_class="cue_only",
+        window=(-1.0, 1.0),
+        dt=0.1,
+        normalization="none",
+        heatmaps=False,
+    )
+    assert any(path.name == "fluopulse_tau_visual_cue_psth.png" for path in cue_outputs)
+    cue_metadata = json.loads(
+        (tmp_path / "cue_class" / "analysis_metadata.json").read_text()
+    )
+    assert cue_metadata["trial_class"] == "cue_only"
 
 
 @pytest.mark.parametrize(

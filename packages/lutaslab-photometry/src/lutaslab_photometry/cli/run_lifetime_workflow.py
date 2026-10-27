@@ -13,6 +13,7 @@ from lutaslab_photometry.lifetime_workflows import (
 )
 from lutaslab_photometry.qc_reporting import concise_qc_warnings
 from lutaslab_photometry.session_manifest import filter_manifest_sessions
+from lutaslab_photometry.trial_classification import TRIAL_CLASS_KEYS
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -42,6 +43,8 @@ def build_parser() -> argparse.ArgumentParser:
             "licks",
             "lick_bout_onset",
             "lick_bout_offset",
+            "first_lick_after_ensure",
+            "first_lick_bout_after_ensure",
         ),
     )
     parser.add_argument("--first-event-only", action="store_true")
@@ -61,6 +64,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--heatmap-sort-direction", default="auto")
     parser.add_argument("--heatmap-unmatched", default="bottom")
     parser.add_argument("--heatmap-cmap", default="coolwarm")
+    parser.add_argument(
+        "--null-method",
+        choices=("none", "random_onsets", "circular_shift"),
+        default="none",
+    )
+    parser.add_argument("--n-shuffles", type=int, default=500)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--null-exclusion", type=float, default=0.0)
+    parser.add_argument("--trial-class", choices=TRIAL_CLASS_KEYS, default="all")
+    parser.add_argument("--post-cue-window", type=float, default=2.0)
+    parser.add_argument(
+        "--derived-event-window", nargs=2, type=float, default=(0.0, 20.0)
+    )
     parser.add_argument("--lick-kernel-seconds", type=float, default=10.0)
     parser.add_argument("--ensure-kernel-seconds", type=float, default=20.0)
     parser.add_argument("--pre-event-seconds", type=float, default=5.0)
@@ -116,6 +132,13 @@ def main(argv=None) -> int:
             heatmap_sort_direction=args.heatmap_sort_direction,
             heatmap_unmatched=args.heatmap_unmatched,
             heatmap_cmap=args.heatmap_cmap,
+            null_method=args.null_method,
+            n_shuffles=args.n_shuffles,
+            random_seed=args.seed,
+            null_exclusion=args.null_exclusion,
+            trial_class=args.trial_class,
+            post_cue_window=args.post_cue_window,
+            derived_event_window=tuple(args.derived_event_window),
             first_event_only=args.first_event_only,
             allow_partial_windows=args.allow_partial_windows,
             progress_callback=lambda current, total, label: print(

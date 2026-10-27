@@ -231,6 +231,7 @@ def build_psth_command(
     null_exclusion=0.0,
     trial_class="all",
     post_cue_window=2.0,
+    derived_event_window=(0.0, 20.0),
     heatmaps=False,
     heatmap_sort="event_order",
     heatmap_sort_window=None,
@@ -282,6 +283,9 @@ def build_psth_command(
             str(trial_class),
             "--post-cue-window",
             str(float(post_cue_window)),
+            "--derived-event-window",
+            str(float(derived_event_window[0])),
+            str(float(derived_event_window[1])),
         ]
     )
     command.append("--stratify" if stratify else "--no-stratify")
@@ -436,6 +440,13 @@ def build_lifetime_command(
     heatmap_sort_direction="auto",
     heatmap_unmatched="bottom",
     heatmap_cmap="coolwarm",
+    null_method="none",
+    n_shuffles=500,
+    seed=0,
+    null_exclusion=0.0,
+    trial_class="all",
+    post_cue_window=2.0,
+    derived_event_window=(0.0, 20.0),
     lick_kernel_seconds=10.0,
     ensure_kernel_seconds=20.0,
     pre_event_seconds=5.0,
@@ -515,6 +526,21 @@ def build_lifetime_command(
                 str(heatmap_unmatched),
                 "--heatmap-cmap",
                 str(heatmap_cmap),
+                "--null-method",
+                str(null_method),
+                "--n-shuffles",
+                str(int(n_shuffles)),
+                "--seed",
+                str(int(seed)),
+                "--null-exclusion",
+                str(float(null_exclusion)),
+                "--trial-class",
+                str(trial_class),
+                "--post-cue-window",
+                str(float(post_cue_window)),
+                "--derived-event-window",
+                str(float(derived_event_window[0])),
+                str(float(derived_event_window[1])),
             ]
         )
         command.append("--heatmaps" if heatmaps else "--no-heatmaps")

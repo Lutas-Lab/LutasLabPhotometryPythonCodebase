@@ -42,10 +42,44 @@ def _write_processed_session(data_root, info, value):
         cue_onset=np.array([10.0]),
         cue_offset=np.array([10.5]),
         lick_times=np.array([9.25, 10.25, 10.75]),
+        lick_bout_onset=np.array([9.25, 10.25]),
+        lick_bout_offset=np.array([9.5, 11.0]),
+        lick_bout_duration=np.array([0.25, 0.75]),
+        lick_bout_lick_count=np.array([1, 2]),
+        solenoid_onset=np.array([8.0]),
     )
 
 
 class GroupAnalysisTests(unittest.TestCase):
+    def test_manifest_aligns_to_first_lick_and_bout_after_ensure(self):
+        sessions = [{"mouse": "M1", "date": "260101", "run": 1, "channel": "1"}]
+        data_root = Path("tests/_group_analysis_data")
+        try:
+            _write_processed_session(data_root, sessions[0], 1.0)
+            lick = compute_manifest_psth(
+                sessions,
+                data_root,
+                event_key="first_lick_after_ensure",
+                derived_event_window=(0.0, 3.0),
+                window=(-0.2, 0.2),
+                dt=0.1,
+                normalization="none",
+            )
+            bout = compute_manifest_psth(
+                sessions,
+                data_root,
+                event_key="first_lick_bout_after_ensure",
+                derived_event_window=(0.0, 3.0),
+                window=(-0.2, 0.2),
+                dt=0.1,
+                normalization="none",
+            )
+        finally:
+            shutil.rmtree(data_root, ignore_errors=True)
+
+        np.testing.assert_allclose(lick["session_results"][0]["alignment_times"], [9.25])
+        np.testing.assert_allclose(bout["session_results"][0]["alignment_times"], [9.25])
+
     def test_extracts_cue_aligned_lick_rate(self):
         peri_time, trials, valid = extract_perievent_event_rate(
             [9.25, 10.25, 10.75, 19.0],

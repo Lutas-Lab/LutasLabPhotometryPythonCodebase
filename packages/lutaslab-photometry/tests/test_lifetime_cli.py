@@ -127,6 +127,13 @@ def test_lifetime_cli_dispatches_psth_options(workflow_stubs):
         "--dt",
         "0.2",
         "--no-heatmaps",
+        "--null-method",
+        "circular_shift",
+        "--n-shuffles",
+        "25",
+        "--derived-event-window",
+        "0.5",
+        "8",
     ]
 
     assert cli.main(arguments) == 0
@@ -141,6 +148,9 @@ def test_lifetime_cli_dispatches_psth_options(workflow_stubs):
     assert kwargs["dt"] == 0.2
     assert kwargs["heatmaps"] is False
     assert kwargs["normalization"] == "subtract"
+    assert kwargs["null_method"] == "circular_shift"
+    assert kwargs["n_shuffles"] == 25
+    assert kwargs["derived_event_window"] == (0.5, 8.0)
     assert callable(kwargs["progress_callback"])
 
 

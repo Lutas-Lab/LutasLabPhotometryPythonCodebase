@@ -266,6 +266,14 @@ For the `psth` and `glm` actions, `--group LABEL` and `--condition LABEL`
 select a subset of the lifetime manifest. The original manifest and processed
 files are unchanged.
 
+Both conventional and lifetime PSTH commands accept derived alignment events
+for the first lick or first lick-bout onset after Ensure. Use
+`--derived-event-window START END` to set the nonnegative matching interval.
+Lifetime PSTHs also expose cue-trial classes, random-onset/circular-shift nulls,
+and the same behavioral heatmap ordering controls as conventional PSTHs. Cue
+classification on lifetime data requires reprocessing older artifacts once so
+visual-cue offsets are retained.
+
 ```powershell
 lutaslab-run-lifetime-workflow psth `
     --workflow fluopulse `

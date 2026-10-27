@@ -284,7 +284,11 @@ The two lifetime modes share the sensor-independent session representation in
   per recording, fixes residual fit background to zero, and leaves only
   component counts time-point-specific.
 - **Event-aligned PSTH** aligns a selected lifetime/QC signal to Ensure, visual
-  cue, individual lick, lick-bout onset, or lick-bout offset events. It can use
+  cue, individual lick, lick-bout onset, or lick-bout offset events. Every
+  acquisition system also supports derived alignment to the first lick or first
+  lick-bout onset after each Ensure delivery. A configurable nonnegative matching
+  window is applied independently to each Ensure and stops at the next Ensure;
+  unmatched deliveries are excluded and reported. It can use
   every event or only the first event in each session. Long windows can retain
   the available portion of recordings that end before the requested window,
   representing the unavailable tail as missing data rather than excluding the
@@ -293,7 +297,12 @@ The two lifetime modes share the sensor-independent session representation in
   mouse-level mean and session, equally
   weighted mouse-level, and descriptive pooled-trial heatmaps. Lifetime
   heatmaps support recorded order, response magnitude, Ensure latency,
-  first-lick latency, post-event lick count, and pre-event lick rate. Optional
+  first-lick and first-bout latency, bout size and duration, post-event lick
+  count, pre-event lick rate, and cue-to-bout latency where applicable. Lifetime
+  PSTHs now also support visual-cue trial classes based on licking, random-onset
+  or circular-shift controls, heatmap direction/unmatched-trial policies, and
+  selectable color maps. Cue classification requires cue offsets retained by
+  current preprocessing; reprocess older lifetime files once before using it. Optional
   checkboxes add licking-rate (licks/s) and running-speed (cm/s) PSTHs in separate
   output subdirectories, with running omitted only for sessions that lack a
   running trace. Heatmaps are controlled separately and apply to every selected

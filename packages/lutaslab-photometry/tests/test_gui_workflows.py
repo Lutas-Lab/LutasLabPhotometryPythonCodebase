@@ -292,6 +292,10 @@ def test_build_lifetime_command_includes_sensor_specific_options():
         y_limits=(-50, 150),
         heatmap_sort="first_lick_latency",
         heatmap_sort_window=(0, 12),
+        null_method="circular_shift",
+        n_shuffles=250,
+        trial_class="cue_lick",
+        derived_event_window=(0.5, 10.0),
         first_event_only=True,
         allow_partial_windows=True,
         group_filter="Experimental",
@@ -315,6 +319,13 @@ def test_build_lifetime_command_includes_sensor_specific_options():
     assert "--allow-partial-windows" in command
     assert command[command.index("--group") + 1] == "Experimental"
     assert command[command.index("--condition") + 1] == "PostEnsure"
+    assert command[command.index("--null-method") + 1] == "circular_shift"
+    assert command[command.index("--n-shuffles") + 1] == "250"
+    assert command[command.index("--trial-class") + 1] == "cue_lick"
+    assert command[command.index("--derived-event-window") + 1 :][:2] == [
+        "0.5",
+        "10.0",
+    ]
 
 
 def test_build_lifetime_preprocess_command_writes_beside_raw_data():

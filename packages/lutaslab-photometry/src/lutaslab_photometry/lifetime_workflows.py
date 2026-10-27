@@ -29,12 +29,25 @@ from lutaslab_core.perievent import (
     normalize_trials,
     summarize_trials,
 )
-from lutaslab_core.session import AlignedSession, ContinuousSignal, EventSeries
+from lutaslab_core.session import (
+    AlignedSession,
+    ContinuousSignal,
+    EventSeries,
+    IntervalSeries,
+)
 
-from .group_analysis import extract_perievent_event_rate, save_psth_heatmaps
+from .event_matching import DERIVED_ALIGNMENT_EVENTS, derived_alignment_times
+from .group_analysis import (
+    _null_session_means,
+    _session_rng,
+    extract_perievent_event_rate,
+    save_null_diagnostics,
+    save_psth_heatmaps,
+)
 from .processed_provenance import build_processed_provenance, provenance_json
 from .psth_results import save_psth_timecourse_tables
 from .publication_figures import save_prediction_diagnostic_figures
+from .trial_classification import TRIAL_CLASS_KEYS, classify_cue_licking
 from .update_check import local_git_commit
 
 LIFETIME_COMMON_COLUMNS = ("mouse", "date", "run", "group", "condition")
@@ -60,6 +73,7 @@ LIFETIME_EVENTS = (
     "licks",
     "lick_bout_onset",
     "lick_bout_offset",
+    *DERIVED_ALIGNMENT_EVENTS,
 )
 LIFETIME_PROCESSED_SCHEMA_VERSION = "1.0"
 IFLIP3_CALIBRATION_SCHEMA_VERSION = "2.0"
@@ -1391,6 +1405,9 @@ def _save_processed_lifetime_session(
         arrays[f"continuous_{name}_units"] = np.asarray(signal.units)
     for name, events in session.events.items():
         arrays[f"events_{name}"] = events.timestamps
+    for name, intervals in session.intervals.items():
+        arrays[f"intervals_{name}_starts"] = intervals.starts
+        arrays[f"intervals_{name}_ends"] = intervals.ends
     temporary_path = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -1513,6 +1530,14 @@ def load_processed_lifetime_session(
             for key in data.files
             if key.startswith("events_")
         }
+        intervals = {}
+        for key in data.files:
+            if not key.startswith("intervals_") or not key.endswith("_starts"):
+                continue
+            name = key[len("intervals_") : -len("_starts")]
+            end_key = f"intervals_{name}_ends"
+            if end_key in data.files:
+                intervals[name] = IntervalSeries(data[key], data[end_key], name)
         metadata = json.loads(str(data["metadata_json"].item()))
         if "provenance_json" in data.files:
             metadata["provenance"] = json.loads(str(data["provenance_json"].item()))
@@ -1523,6 +1548,7 @@ def load_processed_lifetime_session(
             session_id=session_id,
             continuous=continuous,
             events=events,
+            intervals=intervals,
             metadata=metadata,
         ),
         {**paths, "processed_path": str(path)},
@@ -1542,11 +1568,47 @@ def _behavioral_events(session) -> dict[str, np.ndarray]:
     }
 
 
-def _lifetime_event_times(session, event: str) -> np.ndarray:
+def _lifetime_event_times(
+    session, event: str, derived_event_window=(0.0, 20.0)
+) -> tuple[np.ndarray, int | None]:
+    if event in DERIVED_ALIGNMENT_EVENTS:
+        bouts = find_lick_bouts(session.events.get("licks", _EMPTY_EVENT).timestamps)
+        ensure = session.events.get("ensure", _EMPTY_EVENT).timestamps
+        times, _ = derived_alignment_times(
+            event,
+            ensure,
+            session.events.get("licks", _EMPTY_EVENT).timestamps,
+            bouts.onset_times,
+            derived_event_window,
+        )
+        return times, len(ensure)
     if event in {"lick_bout_onset", "lick_bout_offset"}:
         bouts = find_lick_bouts(session.events.get("licks", _EMPTY_EVENT).timestamps)
-        return bouts.onset_times if event.endswith("onset") else bouts.offset_times
-    return session.events[event].timestamps
+        return (
+            bouts.onset_times if event.endswith("onset") else bouts.offset_times,
+            None,
+        )
+    return session.events[event].timestamps, None
+
+
+def _lifetime_cue_trial_mask(session, trial_class, post_cue_window):
+    if trial_class == "all":
+        return np.ones(
+            len(session.events.get("visual_cue", _EMPTY_EVENT).timestamps), dtype=bool
+        )
+    intervals = session.intervals.get("visual_cue")
+    if intervals is None:
+        raise ValueError(
+            "Cue-trial classification requires saved visual-cue offsets. Rerun "
+            "lifetime preprocessing for this session with the current software."
+        )
+    values = classify_cue_licking(
+        intervals.starts,
+        intervals.ends,
+        session.events.get("licks", _EMPTY_EVENT).timestamps,
+        post_cue_window,
+    )
+    return dict(zip(TRIAL_CLASS_KEYS[1:], values, strict=True))[trial_class]
 
 
 class _EmptyEvent:
@@ -1599,6 +1661,13 @@ def run_lifetime_psth(
     heatmap_sort_direction="auto",
     heatmap_unmatched="bottom",
     heatmap_cmap="coolwarm",
+    null_method="none",
+    n_shuffles=500,
+    random_seed=0,
+    null_exclusion=0.0,
+    trial_class="all",
+    post_cue_window=2.0,
+    derived_event_window=(0.0, 20.0),
     first_event_only=False,
     allow_partial_windows=False,
     progress_callback=None,
@@ -1623,6 +1692,22 @@ def run_lifetime_psth(
     effective_normalization = (
         "none" if signal in LIFETIME_BEHAVIOR_SIGNALS else normalization or "none"
     )
+    if null_method not in {"none", "random_onsets", "circular_shift"}:
+        raise ValueError("Unsupported null method")
+    if not isinstance(random_seed, int) or isinstance(random_seed, bool):
+        raise ValueError("random_seed must be an integer")
+    if null_method != "none" and (
+        not isinstance(n_shuffles, int)
+        or isinstance(n_shuffles, bool)
+        or n_shuffles < 1
+    ):
+        raise ValueError("n_shuffles must be a positive integer")
+    if signal == "licking" and null_method != "none":
+        raise ValueError("Null alignment is not supported for the licking response.")
+    if trial_class not in TRIAL_CLASS_KEYS:
+        raise ValueError(f"trial_class must be one of {TRIAL_CLASS_KEYS}")
+    if trial_class != "all" and event != "visual_cue":
+        raise ValueError("Cue-trial classes can only filter visual_cue analyses.")
     if y_limits is not None and y_limits[0] >= y_limits[1]:
         raise ValueError("y_limits minimum must be less than maximum")
     destination = Path(output_dir)
@@ -1637,7 +1722,21 @@ def run_lifetime_psth(
                 f"{row['mouse']} {row['date']} run {int(row['run'])}",
             )
         session, paths = load_processed_lifetime_session(workflow, row, data_root)
-        alignment_times = _lifetime_event_times(session, event)
+        alignment_times, ensure_count = _lifetime_event_times(
+            session, event, derived_event_window
+        )
+        if ensure_count is not None and len(alignment_times) < ensure_count:
+            warnings.warn(
+                f"{session.session_id}: matched {len(alignment_times)}/{ensure_count} "
+                f"Ensure events for {event}; excluded "
+                f"{ensure_count - len(alignment_times)} without a qualifying event.",
+                UserWarning,
+                stacklevel=2,
+            )
+        if trial_class != "all":
+            alignment_times = alignment_times[
+                _lifetime_cue_trial_mask(session, trial_class, post_cue_window)
+            ]
         if first_event_only:
             alignment_times = alignment_times[:1]
         if signal == "licking":
@@ -1688,8 +1787,7 @@ def run_lifetime_psth(
                 stacklevel=2,
             )
             continue
-        results.append(
-            {
+        result = {
                 **row,
                 **paths,
                 "trials": normalized,
@@ -1697,8 +1795,28 @@ def run_lifetime_psth(
                 "behavioral_events": _behavioral_events(session),
                 "session_id": session.session_id,
                 "units": units,
+                "n_events": len(valid),
             }
-        )
+        if null_method != "none":
+            if signal == "licking":  # Guarded above; keeps type narrowing explicit.
+                raise ValueError("Null alignment is not supported for licking")
+            valid_alignment_times = alignment_times[valid]
+            result["null_means"], result["null_diagnostics"] = _null_session_means(
+                np.asarray(continuous.timestamps, dtype=float),
+                np.asarray(plot_values, dtype=float),
+                valid_alignment_times,
+                window=window,
+                dt=dt,
+                normalization=effective_normalization,
+                baseline=baseline,
+                n_shuffles=n_shuffles,
+                null_method=null_method,
+                null_exclusion=null_exclusion,
+                rng=_session_rng(random_seed, row),
+                real_trials=trials,
+                behavioral_events=_behavioral_events(session),
+            )
+        results.append(result)
     if not results:
         raise ValueError(
             f"No sessions contained usable {signal} data and {event} windows"
@@ -1710,6 +1828,23 @@ def run_lifetime_psth(
     mouse_matrix = np.vstack(
         [summarize_trials(np.vstack(by_mouse[mouse]))[0] for mouse in mouse_names]
     )
+    null_results = {}
+    if null_method != "none":
+        mouse_null = {}
+        for mouse in mouse_names:
+            selected = [item for item in results if item["mouse"] == mouse]
+            mouse_null[mouse] = np.nanmean(
+                np.stack([item["null_means"] for item in selected], axis=0), axis=0
+            )
+        group_null_matrix = np.nanmean(
+            np.stack([mouse_null[mouse] for mouse in mouse_names], axis=0), axis=0
+        )
+        null_results = {
+            "group_null_matrix": group_null_matrix,
+            "group_null_mean": np.nanmean(group_null_matrix, axis=0),
+            "group_null_lower": np.nanpercentile(group_null_matrix, 2.5, axis=0),
+            "group_null_upper": np.nanpercentile(group_null_matrix, 97.5, axis=0),
+        }
     ylabel = _lifetime_psth_ylabel(signal, effective_normalization, units)
     bundle = {
         "time": time,
@@ -1724,12 +1859,35 @@ def run_lifetime_psth(
         "session_results": results,
         "mouse_names": mouse_names,
         "mouse_matrix": mouse_matrix,
+        "null_method": null_method,
+        "n_shuffles": n_shuffles if null_method != "none" else 0,
+        "random_seed": random_seed,
+        "null_exclusion": null_exclusion,
+        "trial_class": trial_class,
+        "post_cue_window": float(post_cue_window),
+        "derived_event_window": (
+            tuple(map(float, derived_event_window))
+            if event in DERIVED_ALIGNMENT_EVENTS
+            else None
+        ),
+        **null_results,
     }
     outputs = []
     mean, sem = summarize_trials(mouse_matrix)
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(time, mean)
     ax.fill_between(time, mean - sem, mean + sem, alpha=0.3)
+    if null_method != "none":
+        ax.plot(time, null_results["group_null_mean"], color="0.45", label="Null mean")
+        ax.fill_between(
+            time,
+            null_results["group_null_lower"],
+            null_results["group_null_upper"],
+            color="0.7",
+            alpha=0.3,
+            label="95% null interval",
+        )
+        ax.legend()
     ax.axvline(0, color="black", linestyle="--")
     ax.set(
         xlabel=f"Time from {event} (s)",
@@ -1756,6 +1914,9 @@ def run_lifetime_psth(
                 cmap=heatmap_cmap,
             )
         )
+    if null_method != "none":
+        null_report = save_null_diagnostics(bundle, destination)
+        outputs.extend(null_report["paths"])
     outputs.extend(save_psth_timecourse_tables(bundle, destination))
     session_metadata = []
     for item in results:
@@ -1792,6 +1953,17 @@ def run_lifetime_psth(
         "baseline": list(baseline),
         "y_limits": None if y_limits is None else list(y_limits),
         "first_event_only": bool(first_event_only),
+        "trial_class": trial_class,
+        "post_cue_window": float(post_cue_window),
+        "derived_event_window": (
+            list(map(float, derived_event_window))
+            if event in DERIVED_ALIGNMENT_EVENTS
+            else None
+        ),
+        "null_method": null_method,
+        "n_shuffles": n_shuffles if null_method != "none" else 0,
+        "random_seed": random_seed,
+        "null_exclusion": float(null_exclusion),
         "allow_partial_windows": bool(allow_partial_windows),
         "heatmaps": {
             "enabled": bool(heatmaps),

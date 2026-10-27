@@ -19,6 +19,7 @@ from lutaslab_core.perievent import (
     normalize_trials as _normalize_trials,
 )
 
+from .event_matching import DERIVED_ALIGNMENT_EVENTS, derived_alignment_times
 from .save_sessiondata import load_session
 from .session_manifest import processed_session_path, resolve_session_channel
 from .trial_classification import TRIAL_CLASS_KEYS, cue_trial_mask
@@ -353,6 +354,7 @@ def compute_manifest_psth(
     null_exclusion=0.0,
     trial_class="all",
     post_cue_window=2.0,
+    derived_event_window=(0.0, 20.0),
     first_event_only=False,
     allow_partial_windows=False,
     progress_callback=None,
@@ -418,7 +420,12 @@ def compute_manifest_psth(
                 session[event_key] = np.asarray(
                     session["lick_bout_onset"], dtype=float
                 ) + np.asarray(session["lick_bout_duration"], dtype=float)
-        required = {event_key}
+        if event_key == "first_lick_after_ensure":
+            required = {"solenoid_onset", "lick_times"}
+        elif event_key == "first_lick_bout_after_ensure":
+            required = {"solenoid_onset", "lick_bout_onset"}
+        else:
+            required = {event_key}
         if signal_type == "photometry":
             required.update((time_key, signal_key))
         elif signal_type == "licking":
@@ -447,7 +454,26 @@ def compute_manifest_psth(
                 stacklevel=2,
             )
             continue
-        event_times = np.asarray(session[event_key], dtype=float)
+        if event_key in DERIVED_ALIGNMENT_EVENTS:
+            event_times, matched_ensure_indices = derived_alignment_times(
+                event_key,
+                session["solenoid_onset"],
+                session.get("lick_times", ()),
+                session.get("lick_bout_onset", ()),
+                derived_event_window,
+            )
+            ensure_count = len(np.asarray(session["solenoid_onset"]))
+            unmatched_count = ensure_count - len(matched_ensure_indices)
+            if unmatched_count:
+                warnings.warn(
+                    f"{info['mouse']} {info['date']} run {info['run']}: matched "
+                    f"{len(event_times)}/{ensure_count} Ensure events for {event_key}; "
+                    f"excluded {unmatched_count} without a qualifying event.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+        else:
+            event_times = np.asarray(session[event_key], dtype=float)
         if trial_class != "all":
             mask = cue_trial_mask(session, trial_class, post_cue_window)
             event_times = event_times[mask]
@@ -512,6 +538,11 @@ def compute_manifest_psth(
                 "running": "processed_locomotion",
             }[signal_type],
             "n_events": len(valid_indices),
+            "derived_event_window": (
+                tuple(map(float, derived_event_window))
+                if event_key in DERIVED_ALIGNMENT_EVENTS
+                else None
+            ),
             "alignment_times": event_times[valid_indices],
             "behavioral_events": {
                 key: np.asarray(session.get(key, []), dtype=float)
@@ -631,6 +662,11 @@ def compute_manifest_psth(
         "null_exclusion": null_exclusion,
         "trial_class": trial_class,
         "post_cue_window": float(post_cue_window),
+        "derived_event_window": (
+            tuple(map(float, derived_event_window))
+            if event_key in DERIVED_ALIGNMENT_EVENTS
+            else None
+        ),
         "first_event_only": bool(first_event_only),
         "allow_partial_windows": bool(allow_partial_windows),
         **null_results,
@@ -1107,7 +1143,11 @@ def save_null_diagnostics(
             "mouse": session["mouse"],
             "date": session["date"],
             "run": int(session["run"]),
-            "channel": int(session["channel"]),
+            "channel": (
+                int(session["channel"])
+                if session.get("channel") not in (None, "")
+                else ""
+            ),
             "n_real_events": int(session["n_events"]),
             "n_null_trials": int(null_std.size),
             "real_baseline_sd_median": (

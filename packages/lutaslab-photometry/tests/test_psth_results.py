@@ -166,3 +166,29 @@ def test_saved_statistics_reject_incompatible_signals(tmp_path):
 
     with pytest.raises(ValueError, match="incompatible PSTH"):
         load_saved_psth_timecourses(tmp_path)
+
+
+def test_saved_statistics_reject_incompatible_trial_classes_and_match_windows(
+    tmp_path,
+):
+    class_parent = tmp_path / "classes"
+    cue_only = _result("A")
+    cue_only.update(trial_class="cue_only", post_cue_window=2.0)
+    cue_and_post = _result("B")
+    cue_and_post.update(trial_class="cue_and_post", post_cue_window=2.0)
+    save_psth_timecourse_tables(cue_only, class_parent / "cue_only")
+    save_psth_timecourse_tables(cue_and_post, class_parent / "cue_and_post")
+
+    with pytest.raises(ValueError, match="incompatible PSTH"):
+        load_saved_psth_timecourses(class_parent)
+
+    window_parent = tmp_path / "windows"
+    first = _result("A")
+    first.update(derived_event_window=(0.0, 5.0))
+    second = _result("B")
+    second.update(derived_event_window=(0.0, 10.0))
+    save_psth_timecourse_tables(first, window_parent / "window_5")
+    save_psth_timecourse_tables(second, window_parent / "window_10")
+
+    with pytest.raises(ValueError, match="incompatible PSTH"):
+        load_saved_psth_timecourses(window_parent)
