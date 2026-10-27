@@ -1100,6 +1100,7 @@ def apply_iflip3_calibration(
         session_t0,
         calibration.irf_sigma,
         calibration.pulse_interval,
+        normalize="area",
     )
     long_basis = periodic_exgaussian_basis(
         time,
@@ -1107,10 +1108,11 @@ def apply_iflip3_calibration(
         session_t0,
         calibration.irf_sigma,
         calibration.pulse_interval,
+        normalize="area",
     )
     short_component = aggregate_coefficients[0] * short_basis
     long_component = aggregate_coefficients[1] * long_basis
-    fitted = short_component + long_component
+    fitted = target.fitted.sum(axis=1)
     residuals = aggregate - fitted
     residual_sum_squares = float(np.sum(residuals**2))
     total_sum_squares = float(np.sum((aggregate - aggregate.mean()) ** 2))

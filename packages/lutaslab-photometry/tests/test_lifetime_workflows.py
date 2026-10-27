@@ -129,6 +129,16 @@ def test_multi_session_iflip3_calibration_roundtrips_and_fixes_background(
     decomposition = workflows.apply_iflip3_calibration(rows[0], tmp_path, loaded)
     assert decomposition.background == 0.0
     assert decomposition.t0 == pytest.approx(loaded.session_qc[0]["t0_ns"])
+    np.testing.assert_allclose(
+        decomposition.fitted_decay,
+        decomposition.short_component + decomposition.long_component,
+    )
+    np.testing.assert_allclose(
+        decomposition.fitted_decay,
+        decomposition.aggregate_decay,
+        rtol=0.03,
+    )
+    assert decomposition.r_squared > 0.999
     np.testing.assert_allclose(decomposition.lifetimes, loaded.lifetimes)
     assert decomposition.short_component_counts.shape == (2,)
     assert decomposition.long_component_counts.shape == (2,)
