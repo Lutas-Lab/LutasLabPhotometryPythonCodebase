@@ -8,7 +8,6 @@ from pathlib import Path
 import numpy as np
 from lutaslab_core.glm import (
     lagged_basis_matrix,
-    raised_cosine_basis,
     reconstruct_kernel,
     zero_split_raised_cosine_basis,
 )
@@ -111,7 +110,9 @@ def build_tastant_design(
     bout_basis = zero_split_raised_cosine_basis(
         (-5.0, 8.0), bout_basis_count, dt
     )
-    delivery_basis = raised_cosine_basis((0.0, 10.0), delivery_basis_count, dt)
+    delivery_basis = zero_split_raised_cosine_basis(
+        (0.0, 10.0), delivery_basis_count, dt
+    )
     lick_lags = np.rint(lick_basis.lag_times / dt).astype(int)
     bout_lags = np.rint(bout_basis.lag_times / dt).astype(int)
     delivery_lags = np.rint(delivery_basis.lag_times / dt).astype(int)

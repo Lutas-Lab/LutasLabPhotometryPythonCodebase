@@ -2398,7 +2398,8 @@ def run_lifetime_glm(
                 "pre_event_seconds": float(pre_event_seconds),
                 "temporal_basis": (
                     "independent raised-cosine bases before zero and from zero onward; "
-                    "no basis column crosses time zero"
+                    "no basis column crosses time zero; post-event kernels are "
+                    "constrained to zero at onset"
                 ),
                 "selection": (
                     "nested leave-one-session-out cross-validation; final alpha is "
@@ -2471,6 +2472,10 @@ def _summarize_lifetime_kernel_rows(rows):
 
 
 def _plot_lifetime_kernel_summary(ax, mouse_rows, group_rows, kernel, label, color):
+    def segments(lag):
+        negative = lag < 0
+        return [mask for mask in (negative, ~negative) if np.any(mask)]
+
     for mouse in sorted({row["mouse"] for row in mouse_rows}):
         selected = sorted(
             (
@@ -2481,13 +2486,18 @@ def _plot_lifetime_kernel_summary(ax, mouse_rows, group_rows, kernel, label, col
             key=lambda row: row["lag_s"],
         )
         if selected:
-            ax.plot(
-                [row["lag_s"] for row in selected],
-                [row["coefficient"] for row in selected],
-                color=color,
-                linewidth=0.7,
-                alpha=0.2,
+            mouse_lag = np.asarray([row["lag_s"] for row in selected], dtype=float)
+            mouse_values = np.asarray(
+                [row["coefficient"] for row in selected], dtype=float
             )
+            for mask in segments(mouse_lag):
+                ax.plot(
+                    mouse_lag[mask],
+                    mouse_values[mask],
+                    color=color,
+                    linewidth=0.7,
+                    alpha=0.2,
+                )
     selected = sorted(
         (row for row in group_rows if row["kernel"] == kernel),
         key=lambda row: row["lag_s"],
@@ -2497,8 +2507,21 @@ def _plot_lifetime_kernel_summary(ax, mouse_rows, group_rows, kernel, label, col
     lag = np.asarray([row["lag_s"] for row in selected], dtype=float)
     mean = np.asarray([row["mean"] for row in selected], dtype=float)
     sem = np.asarray([row["sem"] for row in selected], dtype=float)
-    ax.plot(lag, mean, color=color, linewidth=2.0, label=label)
-    ax.fill_between(lag, mean - sem, mean + sem, color=color, alpha=0.2)
+    for index, mask in enumerate(segments(lag)):
+        ax.plot(
+            lag[mask],
+            mean[mask],
+            color=color,
+            linewidth=2.0,
+            label=label if index == 0 else None,
+        )
+        ax.fill_between(
+            lag[mask],
+            mean[mask] - sem[mask],
+            mean[mask] + sem[mask],
+            color=color,
+            alpha=0.2,
+        )
 
 
 def _write_dict_rows(path: Path, rows: list[dict]) -> None:

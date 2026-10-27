@@ -2297,7 +2297,7 @@ def _lifetime_gui(workflow: str) -> None:
                     "How far before each lick or Ensure delivery to estimate an association. "
                     "Negative-time effects are predictive associations, not effects caused "
                     "by the future event. Pre- and post-event basis functions are separated "
-                    "at zero so post-event smoothing cannot leak into negative time."
+                    "at zero, and post-event kernels are constrained to zero at onset."
                 ),
             )
         with glm_middle:

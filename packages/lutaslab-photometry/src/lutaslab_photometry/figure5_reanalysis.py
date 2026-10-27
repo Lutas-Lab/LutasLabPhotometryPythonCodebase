@@ -12,7 +12,6 @@ from lutaslab_core.glm import (
     fit_grouped_ridge_cv,
     lagged_basis_matrix,
     r2_score,
-    raised_cosine_basis,
     reconstruct_kernel,
     zero_split_raised_cosine_basis,
 )
@@ -311,8 +310,10 @@ def build_figure5_design(
     lick_basis = zero_split_raised_cosine_basis(
         (-5.0, 8.0), lick_basis_count, dt
     )
-    cue_basis = raised_cosine_basis((0.0, 8.0), cue_basis_count, dt)
-    ensure_basis = raised_cosine_basis((0.0, 7.0), ensure_basis_count, dt)
+    cue_basis = zero_split_raised_cosine_basis((0.0, 8.0), cue_basis_count, dt)
+    ensure_basis = zero_split_raised_cosine_basis(
+        (0.0, 7.0), ensure_basis_count, dt
+    )
     lick_lags = np.rint(lick_basis.lag_times / dt).astype(int)
     cue_lags = np.rint(cue_basis.lag_times / dt).astype(int)
     ensure_lags = np.rint(ensure_basis.lag_times / dt).astype(int)

@@ -40,6 +40,9 @@ def test_adaptive_ensure_design_and_grouped_fit():
         support_before = np.any(basis.values[negative] != 0, axis=0)
         support_after = np.any(basis.values[~negative] != 0, axis=0)
         assert not np.any(support_before & support_after)
+        np.testing.assert_array_equal(
+            basis.values[basis.lag_times == 0], 0.0
+        )
     ensure_columns = designs[0].column_slices["ensure"]
     assert np.any(designs[0].matrix[25:50, ensure_columns] != 0)
     assert np.any(designs[0].matrix[51:75, ensure_columns] != 0)

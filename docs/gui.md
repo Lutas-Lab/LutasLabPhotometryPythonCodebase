@@ -314,7 +314,10 @@ The two lifetime modes share the sensor-independent session representation in
   The GUI separately controls the shared pre-event duration and the post-lick and
   post-Ensure durations; the default window begins 5 seconds before each event.
   Independent pre- and post-event basis sets meet at zero, so smoothing of a
-  post-event response cannot create a negative-time kernel contribution.
+  post-event response cannot create a negative-time kernel contribution. The
+  post-event kernel is constrained to zero at onset and reaches its first basis
+  peak only at a positive lag. Plots leave the independently estimated pre- and
+  post-event segments disconnected at zero.
   Negative-time coefficients are associations preceding the event and must not
   be interpreted as effects caused by that future event. Ridge strength is
   selected inside each outer leave-one-session-out fold; performance is reported

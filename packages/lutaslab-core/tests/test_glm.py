@@ -43,13 +43,16 @@ def test_zero_split_basis_has_no_columns_crossing_time_zero():
     assert not np.any(support_before & support_after)
     np.testing.assert_array_equal(basis.values[nonnegative, :3], 0.0)
     np.testing.assert_array_equal(basis.values[negative, 3:], 0.0)
+    np.testing.assert_array_equal(basis.values[basis.lag_times == 0], 0.0)
 
 
-def test_zero_split_basis_preserves_one_sided_basis():
-    expected = raised_cosine_basis((0.0, 8.0), count=8, dt=0.1)
-    actual = zero_split_raised_cosine_basis((0.0, 8.0), count=8, dt=0.1)
-    np.testing.assert_allclose(actual.lag_times, expected.lag_times)
-    np.testing.assert_allclose(actual.values, expected.values)
+def test_zero_split_basis_delays_one_sided_peak_beyond_onset():
+    basis = zero_split_raised_cosine_basis((0.0, 8.0), count=8, dt=0.1)
+    onset = np.flatnonzero(basis.lag_times == 0)
+
+    np.testing.assert_array_equal(basis.values[onset], 0.0)
+    first_peak = basis.lag_times[np.argmax(basis.values[:, 0])]
+    assert np.isclose(first_peak, 1.0)
 
 
 def test_signed_lag_basis_marks_unobserved_edges():
