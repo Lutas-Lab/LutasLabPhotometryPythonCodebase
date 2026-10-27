@@ -2396,6 +2396,10 @@ def run_lifetime_glm(
                 "sessions": labels,
                 "final_alpha": final_alpha,
                 "pre_event_seconds": float(pre_event_seconds),
+                "temporal_basis": (
+                    "independent raised-cosine bases before zero and from zero onward; "
+                    "no basis column crosses time zero"
+                ),
                 "selection": (
                     "nested leave-one-session-out cross-validation; final alpha is "
                     "the median outer-fold selection"

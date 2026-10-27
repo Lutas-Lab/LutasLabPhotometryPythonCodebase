@@ -26,6 +26,7 @@ from .glm import (
     predict_lagged_signal,
     raised_cosine_basis,
     reconstruct_kernel,
+    zero_split_raised_cosine_basis,
 )
 from .manifest import load_session_manifest
 from .nidaq import (
@@ -115,6 +116,7 @@ __all__ = [
     "utc_now",
     "validate_publication_bundle",
     "write_run_record",
+    "zero_split_raised_cosine_basis",
 ]
 
 __version__ = "0.1.0"

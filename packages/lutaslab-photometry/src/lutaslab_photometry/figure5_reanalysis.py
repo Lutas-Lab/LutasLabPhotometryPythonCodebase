@@ -14,6 +14,7 @@ from lutaslab_core.glm import (
     r2_score,
     raised_cosine_basis,
     reconstruct_kernel,
+    zero_split_raised_cosine_basis,
 )
 from lutaslab_core.manifest import load_session_manifest
 from lutaslab_core.perievent import extract_perievent_trials, normalize_trials
@@ -307,7 +308,9 @@ def build_figure5_design(
     if rows.size < 2:
         raise ValueError(f"mouse_id {mouse_id} has fewer than two trials")
     dt = 1.0 / trials.sample_rate_hz
-    lick_basis = raised_cosine_basis((-5.0, 8.0), lick_basis_count, dt)
+    lick_basis = zero_split_raised_cosine_basis(
+        (-5.0, 8.0), lick_basis_count, dt
+    )
     cue_basis = raised_cosine_basis((0.0, 8.0), cue_basis_count, dt)
     ensure_basis = raised_cosine_basis((0.0, 7.0), ensure_basis_count, dt)
     lick_lags = np.rint(lick_basis.lag_times / dt).astype(int)

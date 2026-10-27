@@ -11,8 +11,8 @@ from lutaslab_core.glm import (
     TemporalBasis,
     fit_grouped_ridge_cv,
     lagged_basis_matrix,
-    raised_cosine_basis,
     reconstruct_kernel,
+    zero_split_raised_cosine_basis,
 )
 
 
@@ -57,10 +57,10 @@ def build_adaptive_ensure_design(
 
     if not np.isfinite(pre_event_seconds) or pre_event_seconds < 0:
         raise ValueError("pre_event_seconds must be finite and nonnegative")
-    lick_basis = raised_cosine_basis(
+    lick_basis = zero_split_raised_cosine_basis(
         (-pre_event_seconds, lick_kernel_seconds), lick_basis_count, dt
     )
-    ensure_basis = raised_cosine_basis(
+    ensure_basis = zero_split_raised_cosine_basis(
         (-pre_event_seconds, ensure_kernel_seconds), ensure_basis_count, dt
     )
     event_indices = np.flatnonzero(ensures > 0)

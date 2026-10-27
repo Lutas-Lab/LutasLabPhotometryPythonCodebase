@@ -35,6 +35,11 @@ def test_adaptive_ensure_design_and_grouped_fit():
         labels.append(label)
     assert designs[0].lick_basis.lag_times[0] == -5.0
     assert designs[0].ensure_basis.lag_times[0] == -5.0
+    for basis in (designs[0].lick_basis, designs[0].ensure_basis):
+        negative = basis.lag_times < 0
+        support_before = np.any(basis.values[negative] != 0, axis=0)
+        support_after = np.any(basis.values[~negative] != 0, axis=0)
+        assert not np.any(support_before & support_after)
     ensure_columns = designs[0].column_slices["ensure"]
     assert np.any(designs[0].matrix[25:50, ensure_columns] != 0)
     assert np.any(designs[0].matrix[51:75, ensure_columns] != 0)

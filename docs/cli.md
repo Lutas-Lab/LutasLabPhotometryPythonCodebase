@@ -292,6 +292,8 @@ never recompute the raw lifetime inputs. Use `glm` to fit nested
 session-validated lick/Ensure lifetime kernels. Lifetime kernels default to
 5 seconds before each event and extend through the configured post-event
 durations. Change the shared negative-lag window with `--pre-event-seconds`.
+Pre- and post-event temporal bases are separated at zero, preventing smooth
+post-event basis functions from contributing to negative-time kernels.
 Run
 `lutaslab-run-lifetime-workflow --help` for all signal, window, normalization,
 and heatmap options.

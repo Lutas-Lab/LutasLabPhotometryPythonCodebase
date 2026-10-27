@@ -6,7 +6,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from lutaslab_core.glm import lagged_basis_matrix, raised_cosine_basis, reconstruct_kernel
+from lutaslab_core.glm import (
+    lagged_basis_matrix,
+    raised_cosine_basis,
+    reconstruct_kernel,
+    zero_split_raised_cosine_basis,
+)
 from scipy.io import loadmat
 from scipy.signal import find_peaks
 
@@ -100,8 +105,12 @@ def build_tastant_design(
     if rows.size < 3:
         raise ValueError(f"{mouse_name} has fewer than three trials")
     dt = 1.0 / trials.sample_rate_hz
-    lick_basis = raised_cosine_basis((-5.0, 8.0), lick_basis_count, dt)
-    bout_basis = raised_cosine_basis((-5.0, 8.0), bout_basis_count, dt)
+    lick_basis = zero_split_raised_cosine_basis(
+        (-5.0, 8.0), lick_basis_count, dt
+    )
+    bout_basis = zero_split_raised_cosine_basis(
+        (-5.0, 8.0), bout_basis_count, dt
+    )
     delivery_basis = raised_cosine_basis((0.0, 10.0), delivery_basis_count, dt)
     lick_lags = np.rint(lick_basis.lag_times / dt).astype(int)
     bout_lags = np.rint(bout_basis.lag_times / dt).astype(int)

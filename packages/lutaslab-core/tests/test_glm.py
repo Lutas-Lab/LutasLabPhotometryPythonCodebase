@@ -14,6 +14,7 @@ from lutaslab_core.glm import (
     predict_lagged_signal,
     raised_cosine_basis,
     reconstruct_kernel,
+    zero_split_raised_cosine_basis,
 )
 
 
@@ -27,6 +28,28 @@ def test_basis_convolution_and_kernel_reconstruction():
     np.testing.assert_allclose(
         reconstruct_kernel(basis.values, coefficients), basis.values @ coefficients
     )
+
+
+def test_zero_split_basis_has_no_columns_crossing_time_zero():
+    basis = zero_split_raised_cosine_basis((-5.0, 20.0), count=14, dt=0.1)
+    negative = basis.lag_times < 0
+    nonnegative = ~negative
+    support_before = np.any(basis.values[negative] != 0, axis=0)
+    support_after = np.any(basis.values[nonnegative] != 0, axis=0)
+
+    assert basis.values.shape[1] == 14
+    assert np.any(support_before)
+    assert np.any(support_after)
+    assert not np.any(support_before & support_after)
+    np.testing.assert_array_equal(basis.values[nonnegative, :3], 0.0)
+    np.testing.assert_array_equal(basis.values[negative, 3:], 0.0)
+
+
+def test_zero_split_basis_preserves_one_sided_basis():
+    expected = raised_cosine_basis((0.0, 8.0), count=8, dt=0.1)
+    actual = zero_split_raised_cosine_basis((0.0, 8.0), count=8, dt=0.1)
+    np.testing.assert_allclose(actual.lag_times, expected.lag_times)
+    np.testing.assert_allclose(actual.values, expected.values)
 
 
 def test_signed_lag_basis_marks_unobserved_edges():

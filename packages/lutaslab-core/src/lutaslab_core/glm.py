@@ -60,6 +60,67 @@ def raised_cosine_basis(
     return TemporalBasis(lag_times, values)
 
 
+def zero_split_raised_cosine_basis(
+    window: tuple[float, float],
+    count: int,
+    dt: float,
+    *,
+    pre_count: int | None = None,
+) -> TemporalBasis:
+    """Create independent raised-cosine columns before and from time zero.
+
+    When ``window`` crosses zero, pre-event columns are exactly zero at and
+    after zero, while post-event columns are exactly zero before zero. The
+    total column count is unchanged. One-sided windows retain the ordinary
+    raised-cosine construction.
+    """
+
+    base = raised_cosine_basis(window, count, dt)
+    start, stop = map(float, window)
+    if start >= 0 or stop <= 0:
+        return base
+    if count < 2:
+        raise ValueError("A zero-crossing basis requires at least two columns")
+    if pre_count is None:
+        fraction = abs(start) / (abs(start) + stop)
+        pre_count = int(np.clip(np.rint(count * fraction), 1, count - 1))
+    if not isinstance(pre_count, int) or isinstance(pre_count, bool):
+        raise ValueError("pre_count must be an integer")
+    if not 1 <= pre_count < count:
+        raise ValueError("pre_count must be between one and count - 1")
+    post_count = count - pre_count
+    lag_times = base.lag_times.copy()
+    zero_tolerance = abs(dt) * 1e-8
+    lag_times[np.abs(lag_times) <= zero_tolerance] = 0.0
+
+    def evaluate(segment_start, segment_stop, segment_count):
+        centers = np.linspace(segment_start, segment_stop, segment_count)
+        width = (
+            centers[1] - centers[0]
+            if segment_count > 1
+            else segment_stop - segment_start
+        )
+        width = max(float(width), dt)
+        output = np.zeros((lag_times.size, segment_count), dtype=float)
+        for column, center in enumerate(centers):
+            distance = (lag_times - center) / width
+            inside = np.abs(distance) <= 1
+            output[inside, column] = 0.5 * (
+                1 + np.cos(np.pi * distance[inside])
+            )
+        return output
+
+    pre_values = evaluate(start, 0.0, pre_count)
+    post_values = evaluate(0.0, stop, post_count)
+    negative = lag_times < 0
+    pre_values[~negative] = 0.0
+    post_values[negative] = 0.0
+    return TemporalBasis(
+        lag_times,
+        np.column_stack((pre_values, post_values)),
+    )
+
+
 def convolve_basis(events: np.ndarray, basis_values: np.ndarray) -> np.ndarray:
     """Causally convolve a binned event signal with each basis column."""
 

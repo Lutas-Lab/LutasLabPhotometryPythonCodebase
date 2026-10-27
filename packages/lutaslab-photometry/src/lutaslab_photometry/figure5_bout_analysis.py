@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from lutaslab_core.glm import lagged_basis_matrix, raised_cosine_basis
+from lutaslab_core.glm import lagged_basis_matrix, zero_split_raised_cosine_basis
 
 from .figure5_reanalysis import Figure5Trials, build_figure5_design
 
@@ -90,7 +90,9 @@ def build_figure5_bout_design(
     )
     rows = np.flatnonzero(trials.mouse_ids == mouse_id)
     dt = 1.0 / trials.sample_rate_hz
-    bout_basis = raised_cosine_basis((-5.0, 8.0), bout_basis_count, dt)
+    bout_basis = zero_split_raised_cosine_basis(
+        (-5.0, 8.0), bout_basis_count, dt
+    )
     bout_lags = np.rint(bout_basis.lag_times / dt).astype(int)
     bout_matrices = []
     bout_counts = []

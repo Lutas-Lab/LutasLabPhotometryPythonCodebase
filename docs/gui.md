@@ -313,6 +313,8 @@ The two lifetime modes share the sensor-independent session representation in
   a separate first Ensure response, and adaptation across subsequent deliveries.
   The GUI separately controls the shared pre-event duration and the post-lick and
   post-Ensure durations; the default window begins 5 seconds before each event.
+  Independent pre- and post-event basis sets meet at zero, so smoothing of a
+  post-event response cannot create a negative-time kernel contribution.
   Negative-time coefficients are associations preceding the event and must not
   be interpreted as effects caused by that future event. Ridge strength is
   selected inside each outer leave-one-session-out fold; performance is reported
@@ -329,9 +331,8 @@ The two lifetime modes share the sensor-independent session representation in
   picoseconds. The exported kernels and figures describe predictive
   associations, not causal effects.
 
-The conventional random-onset/circular-shift null diagnostics currently apply
-only to conventional photometry. Lifetime modes do not silently reuse those
-controls because their sampling and correction pipelines differ.
+Random-onset and circular-shift null diagnostics are available for conventional
+and lifetime PSTHs, using each workflow's native processed sampling.
 
 Running files that are empty or flat at zero are recoverable quality-control
 exclusions. The GUI combines them into one concise warning with an expandable
