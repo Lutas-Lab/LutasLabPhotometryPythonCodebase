@@ -40,6 +40,17 @@ def test_next_iflip3_calibration_path_is_descriptive_and_unique(tmp_path):
     assert second.name == "iflip3_80mhz_3sessions__2026-10-26_191500Z__r02.json"
 
 
+def test_iflip3_residual_summary_reports_scale_free_percentages():
+    summary = workflows.iflip3_residual_summary(
+        np.array([0.0, 10.0, 5.0]),
+        np.array([0.0, 1.0, -1.0]),
+    )
+
+    assert summary["max_absolute_residual_percent_peak"] == pytest.approx(10.0)
+    assert summary["rmse_percent_peak"] == pytest.approx(8.1649658)
+    assert summary["absolute_residual_area_percent"] == pytest.approx(13.3333333)
+
+
 def _touch(path):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.touch()
@@ -121,6 +132,7 @@ def test_multi_session_iflip3_calibration_roundtrips_and_fixes_background(
     assert loaded.session_qc[0]["t0_ns"] == pytest.approx(1.0, abs=0.2)
     assert loaded.session_qc[1]["t0_ns"] == pytest.approx(1.05, abs=0.2)
     assert loaded.session_qc[2]["t0_ns"] == pytest.approx(3.0, abs=0.2)
+    assert loaded.session_qc[0]["max_absolute_residual_percent_peak"] < 3.0
     assert [item["t0_offset_flag"] for item in loaded.session_qc] == [
         False,
         False,

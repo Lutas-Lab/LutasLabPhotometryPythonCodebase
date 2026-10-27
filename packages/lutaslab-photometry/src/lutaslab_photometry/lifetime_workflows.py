@@ -93,6 +93,43 @@ class IFLIP3FitPreview:
     fit_rmse_by_sample: np.ndarray
 
 
+def iflip3_residual_summary(data, residuals) -> dict[str, float]:
+    """Return scale-free aggregate-decay residual metrics as percentages."""
+
+    observed = np.asarray(data, dtype=float)
+    errors = np.asarray(residuals, dtype=float)
+    if observed.shape != errors.shape:
+        raise ValueError("data and residuals must have the same shape")
+    finite = np.isfinite(observed) & np.isfinite(errors)
+    if not np.any(finite):
+        return {
+            "max_absolute_residual_percent_peak": float("nan"),
+            "rmse_percent_peak": float("nan"),
+            "absolute_residual_area_percent": float("nan"),
+        }
+    observed = observed[finite]
+    errors = errors[finite]
+    peak = float(np.max(np.abs(observed)))
+    decay_area = float(np.sum(np.abs(observed)))
+    return {
+        "max_absolute_residual_percent_peak": (
+            100.0 * float(np.max(np.abs(errors))) / peak
+            if peak > 0
+            else float("nan")
+        ),
+        "rmse_percent_peak": (
+            100.0 * float(np.sqrt(np.mean(errors**2))) / peak
+            if peak > 0
+            else float("nan")
+        ),
+        "absolute_residual_area_percent": (
+            100.0 * float(np.sum(np.abs(errors))) / decay_area
+            if decay_area > 0
+            else float("nan")
+        ),
+    }
+
+
 @dataclass(frozen=True)
 class IFLIP3Calibration:
     """Saved shared decay-shape calibration for one acquisition configuration."""
@@ -850,10 +887,12 @@ def calibrate_iflip3_sessions(
         residuals = observed - fitted
         total_sum_squares = float(np.sum((observed - observed.mean()) ** 2))
         residual_sum_squares = float(np.sum(residuals**2))
+        residual_summary = iflip3_residual_summary(observed, residuals)
         session_qc.append(
             {
                 **info,
                 "rmse_normalized": float(np.sqrt(np.mean(residuals**2))),
+                **residual_summary,
                 "peak_time_ns": float(reference_time[int(np.argmax(observed))]),
                 "t0_ns": recording.t0,
                 "r_squared": (

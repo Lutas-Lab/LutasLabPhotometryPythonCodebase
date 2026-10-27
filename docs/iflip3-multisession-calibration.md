@@ -105,9 +105,10 @@ calibration, include multiple mice and recording dates where possible.
 The decay overlay shows normalized observed curves and their fitted curves. The
 residual heatmap makes systematic late-bin offsets easier to detect. The table
 reports each session's decay peak, fitted `t0`, offset from the cohort median,
-normalized RMSE, R-squared, and aggregate component fractions. Large `t0`
-offsets are highlighted for review; they are retained in the fit and are not
-silently excluded.
+normalized RMSE, R-squared, aggregate component fractions, maximum absolute
+residual relative to the decay peak, RMSE relative to the peak, and absolute
+residual area relative to total decay area. Large `t0` offsets are highlighted
+for review; they are retained in the fit and are not silently excluded.
 
 Pay particular attention to:
 

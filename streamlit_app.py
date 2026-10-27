@@ -35,6 +35,7 @@ from lutaslab_photometry.lifetime_workflows import (
     apply_iflip3_calibration,
     calibrate_iflip3_sessions,
     discover_lifetime_paths,
+    iflip3_residual_summary,
     lifetime_manifest_columns,
     lifetime_preprocessing_parameters,
     lifetime_processed_path,
@@ -310,6 +311,28 @@ def _show_iflip3_fit_preview(preview) -> None:
     )
     for column, (name, value) in zip(metrics, metric_values, strict=True):
         column.metric(name, value)
+    residual_summary = iflip3_residual_summary(
+        preview.aggregate_decay, preview.residuals
+    )
+    residual_metrics = st.columns(3)
+    residual_values = (
+        (
+            "Maximum |residual| / peak",
+            f"{residual_summary['max_absolute_residual_percent_peak']:.3g}%",
+        ),
+        (
+            "Residual RMSE / peak",
+            f"{residual_summary['rmse_percent_peak']:.3g}%",
+        ),
+        (
+            "Absolute residual area",
+            f"{residual_summary['absolute_residual_area_percent']:.3g}%",
+        ),
+    )
+    for column, (name, value) in zip(
+        residual_metrics, residual_values, strict=True
+    ):
+        column.metric(name, value)
     st.caption(f"Residual background: {preview.background:.5g} aggregate counts/bin")
 
 
@@ -395,21 +418,32 @@ def _show_iflip3_calibration(calibration) -> None:
     st.pyplot(figure, clear_figure=True)
     plt.close(figure)
 
-    table_rows = [
-        {
+    table_rows = []
+    for item in calibration.session_qc:
+        residual_summary = iflip3_residual_summary(
+            item["normalized_decay"], item["residuals"]
+        )
+        table_rows.append(
+            {
             "session": item["session_id"],
             "measured background": item["measured_background_applied"],
             "R²": item["r_squared"],
             "RMSE": item["rmse_normalized"],
+            "max |residual| / peak (%)": residual_summary[
+                "max_absolute_residual_percent_peak"
+            ],
+            "RMSE / peak (%)": residual_summary["rmse_percent_peak"],
+            "absolute residual area (%)": residual_summary[
+                "absolute_residual_area_percent"
+            ],
             "peak time (ns)": item.get("peak_time_ns"),
             "t0 (ns)": item.get("t0_ns", calibration.t0),
             "t0 offset (ns)": item.get("t0_offset_from_median_ns", 0.0),
             "t0 review": item.get("t0_offset_flag", False),
             "short fraction": item["short_fraction_aggregate"],
             "long fraction": item["long_fraction_aggregate"],
-        }
-        for item in calibration.session_qc
-    ]
+            }
+        )
     st.dataframe(pd.DataFrame(table_rows), hide_index=True, width="stretch")
 
 
