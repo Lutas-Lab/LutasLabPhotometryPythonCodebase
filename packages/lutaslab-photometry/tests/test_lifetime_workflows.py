@@ -32,9 +32,7 @@ def test_next_iflip3_calibration_path_is_descriptive_and_unique(tmp_path):
     )
     first.write_text("{}", encoding="utf-8")
 
-    second = workflows.next_iflip3_calibration_path(
-        first, calibration, now=now
-    )
+    second = workflows.next_iflip3_calibration_path(first, calibration, now=now)
 
     assert first.name == "iflip3_80mhz_3sessions__2026-10-26_191500Z.json"
     assert second.name == "iflip3_80mhz_3sessions__2026-10-26_191500Z__r02.json"
@@ -364,11 +362,7 @@ def test_discover_fluopulse_paths_accepts_descriptive_suffixes(tmp_path):
         / "260923_SC81_run1_0000_EnsureTask.doric"
     )
     nidaq = _touch(
-        tmp_path
-        / "Photometry"
-        / "SC81"
-        / "SC81_260923"
-        / "SC81-260923-001-nidaq.mat"
+        tmp_path / "Photometry" / "SC81" / "SC81_260923" / "SC81-260923-001-nidaq.mat"
     )
     choices = discover_lifetime_paths("fluopulse", "SC81", "260923", 1, tmp_path)
     assert choices["doric_path"] == [doric]
@@ -490,6 +484,7 @@ def test_lifetime_preprocessing_saves_beside_raw_and_roundtrips(monkeypatch, tmp
         window=(-0.2, 0.2),
         dt=0.1,
         normalization="none",
+        y_limits=(-10.0, 20.0),
         heatmaps=False,
     )
     assert any(path.name == "fluopulse_tau_ensure_psth.png" for path in psth_outputs)
@@ -498,6 +493,7 @@ def test_lifetime_preprocessing_saves_beside_raw_and_roundtrips(monkeypatch, tmp
     )
     assert psth_metadata["units"] == "ps"
     assert psth_metadata["ylabel"] == "τ (ps)"
+    assert psth_metadata["y_limits"] == [-10.0, 20.0]
     assert psth_metadata["run_label"] == "psth"
     assert psth_metadata["heatmaps"]["enabled"] is False
     assert psth_metadata["sessions"][0]["session_id"] == session.session_id
@@ -519,9 +515,7 @@ def test_processed_lifetime_file_is_required_for_downstream_analysis(tmp_path):
         load_processed_lifetime_session("fluopulse", row, tmp_path)
 
 
-def test_lifetime_glm_saves_mouse_level_kernels_in_picoseconds(
-    monkeypatch, tmp_path
-):
+def test_lifetime_glm_saves_mouse_level_kernels_in_picoseconds(monkeypatch, tmp_path):
     time = np.arange(0.0, 35.0, 0.1)
     rows = [
         {"mouse": "M1", "date": "260101", "run": 1},
@@ -574,7 +568,9 @@ def test_lifetime_glm_saves_mouse_level_kernels_in_picoseconds(
     assert metadata["ylabel"] == "Δτ (ps)"
 
 
-def test_lifetime_preprocessing_error_identifies_session_and_paths(monkeypatch, tmp_path):
+def test_lifetime_preprocessing_error_identifies_session_and_paths(
+    monkeypatch, tmp_path
+):
     row = {
         "mouse": "AL166",
         "date": "261013",
@@ -609,9 +605,7 @@ def test_lifetime_psth_writes_mouse_and_pooled_heatmaps(monkeypatch, tmp_path):
         del workflow, data_root
         session = AlignedSession(
             session_id=f"{row['mouse']}_{row['run']}",
-            continuous={
-                "tau": ContinuousSignal(time, np.sin(time / 4), "ns")
-            },
+            continuous={"tau": ContinuousSignal(time, np.sin(time / 4), "ns")},
             events={
                 "ensure": EventSeries(np.array([10.0, 20.0, 30.0])),
                 "visual_cue": EventSeries(np.array([9.0, 19.0, 29.0])),
@@ -745,9 +739,7 @@ def test_lifetime_running_skips_sessions_without_running_data(monkeypatch, tmp_p
             heatmaps=False,
         )
 
-    assert "fluopulse_running_speed_ensure_psth.png" in {
-        path.name for path in outputs
-    }
+    assert "fluopulse_running_speed_ensure_psth.png" in {path.name for path in outputs}
 
 
 def test_lifetime_bout_offset_first_event_keeps_partial_tail(monkeypatch, tmp_path):

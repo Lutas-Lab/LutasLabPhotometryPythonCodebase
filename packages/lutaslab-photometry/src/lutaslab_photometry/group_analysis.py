@@ -169,13 +169,9 @@ def _null_session_means(
             signal_time, signal, onsets, window=window, dt=dt
         )
         baseline_values = trials[:, baseline_mask]
-        null_baseline_std.extend(
-            np.nanstd(baseline_values, axis=1, ddof=1).tolist()
-        )
+        null_baseline_std.extend(np.nanstd(baseline_values, axis=1, ddof=1).tolist())
         event_distance["alignment"].extend(
-            np.min(
-                np.abs(onsets[:, None] - real_event_times[None, :]), axis=1
-            ).tolist()
+            np.min(np.abs(onsets[:, None] - real_event_times[None, :]), axis=1).tolist()
         )
         for name, event_times in behavioral_events.items():
             event_times = np.asarray(event_times, dtype=float)
@@ -318,8 +314,7 @@ def _psth_description(results):
         ""
         if trial_class == "all"
         else (
-            f" ({trial_class} trials; "
-            f"post-cue {results.get('post_cue_window', 2.0):g} s)"
+            f" ({trial_class} trials; post-cue {results.get('post_cue_window', 2.0):g} s)"
         )
     )
     if results.get("signal_type", "photometry") == "licking":
@@ -367,13 +362,14 @@ def compute_manifest_psth(
         raise ValueError("signal_type must be 'photometry', 'licking', or 'running'.")
     if photometry_signal not in CONVENTIONAL_PHOTOMETRY_SIGNALS:
         raise ValueError(
-            "photometry_signal must be one of "
-            f"{tuple(CONVENTIONAL_PHOTOMETRY_SIGNALS)}."
+            f"photometry_signal must be one of {tuple(CONVENTIONAL_PHOTOMETRY_SIGNALS)}."
         )
     if signal_type in ("licking", "running"):
         normalization = "none"
     if signal_type == "licking" and null_method != "none":
-        raise ValueError("Null alignment is not yet supported for the licking response.")
+        raise ValueError(
+            "Null alignment is not yet supported for the licking response."
+        )
     if null_method not in ("none", "random_onsets", "circular_shift"):
         raise ValueError(
             "null_method must be 'none', 'random_onsets', or 'circular_shift'."
@@ -525,7 +521,9 @@ def compute_manifest_psth(
             "mean": session_mean,
         }
         if null_method != "none":
-            null_time_key = time_key if signal_type == "photometry" else "locomotion_time"
+            null_time_key = (
+                time_key if signal_type == "photometry" else "locomotion_time"
+            )
             null_signal_key = (
                 signal_key if signal_type == "photometry" else "processed_locomotion"
             )
@@ -652,6 +650,7 @@ def compute_manifest_psth_strata(sessions, data_root, **kwargs):
     completed = 0
     total = len(sessions)
     for (group, condition), stratum_sessions in sorted(strata.items()):
+
         def stratum_progress(current, _subtotal, label, *, offset=completed):
             if progress_callback is not None:
                 progress_callback(offset + current, total, label)
@@ -676,6 +675,7 @@ def save_condition_comparison_figures(
     formats=("svg", "png"),
     dpi=300,
     font_family="Arial",
+    y_limits=None,
 ):
     """Save condition PSTHs and paired within-mouse differences for each group."""
     import matplotlib.pyplot as plt
@@ -712,7 +712,9 @@ def save_condition_comparison_figures(
 
         paired_names = set(condition_results[conditions[0]]["mouse_names"])
         for condition in conditions[1:]:
-            paired_names.intersection_update(condition_results[condition]["mouse_names"])
+            paired_names.intersection_update(
+                condition_results[condition]["mouse_names"]
+            )
         paired_names = sorted(paired_names)
         use_difference_panel = len(conditions) == 2 and len(paired_names) > 0
         n_rows = 2 if use_difference_panel else 1
@@ -747,6 +749,8 @@ def save_condition_comparison_figures(
             title=f"{group}: {_psth_description(reference)} by condition",
             ylabel=signal_ylabel,
         )
+        if y_limits is not None:
+            top.set_ylim(*y_limits)
         top.legend(title="Condition")
         top.spines["top"].set_visible(False)
         top.spines["right"].set_visible(False)
@@ -897,7 +901,9 @@ def save_psth_heatmaps(
             unmatched=unmatched,
         )
         session_orderings.append(ordered)
-        sorted_position = {int(index): row for row, index in enumerate(ordered["order"], start=1)}
+        sorted_position = {
+            int(index): row for row, index in enumerate(ordered["order"], start=1)
+        }
         for original_index, (alignment, value, matched_time) in enumerate(
             zip(
                 session["alignment_times"],
@@ -960,7 +966,9 @@ def save_psth_heatmaps(
                 if session["mouse"] == mouse
             ]
         )
-        mouse_values.append(float(np.nanmedian(values)) if np.any(np.isfinite(values)) else np.nan)
+        mouse_values.append(
+            float(np.nanmedian(values)) if np.any(np.isfinite(values)) else np.nan
+        )
     mouse_values = np.asarray(mouse_values, dtype=float)
     mouse_matrix = np.asarray(results["mouse_matrix"], dtype=float)
     if sort != "event_order":
@@ -990,8 +998,12 @@ def save_psth_heatmaps(
         figsize=(8, mouse_height),
     )
 
-    pooled_trials = np.vstack([session["trials"] for session in results["session_results"]])
-    pooled_values = np.concatenate([ordering["values"] for ordering in session_orderings])
+    pooled_trials = np.vstack(
+        [session["trials"] for session in results["session_results"]]
+    )
+    pooled_values = np.concatenate(
+        [ordering["values"] for ordering in session_orderings]
+    )
     pooled_order = np.arange(len(pooled_values), dtype=int)
     if sort != "event_order":
         finite = np.flatnonzero(np.isfinite(pooled_values))
@@ -1006,7 +1018,8 @@ def save_psth_heatmaps(
         metadata_rows[int(original_index)]["pooled_sorted_index"] = sorted_index
     save_matrix(
         pooled_trials,
-        output_dir / f"group_{results['event_key']}{response_suffix}_pooled_trials_heatmap",
+        output_dir
+        / f"group_{results['event_key']}{response_suffix}_pooled_trials_heatmap",
         (
             f"{context_prefix}{_psth_description(results)}\n"
             f"All pooled trials ordered by {order_label} "
@@ -1041,7 +1054,9 @@ def save_null_diagnostics(
     from .publication_figures import configure_publication_style, save_figure_formats
 
     if results.get("null_method") == "none":
-        raise ValueError("Null diagnostics require a random-onset or circular-shift run.")
+        raise ValueError(
+            "Null diagnostics require a random-onset or circular-shift run."
+        )
     output_dir = Path(output_dir) / "null_diagnostics"
     output_dir.mkdir(parents=True, exist_ok=True)
     configure_publication_style(font_family=font_family)
@@ -1089,31 +1104,31 @@ def save_null_diagnostics(
             float(np.mean(trial_max_z >= extreme_z)) if trial_max_z.size else np.nan
         )
         summary_row = {
-                "mouse": session["mouse"],
-                "date": session["date"],
-                "run": int(session["run"]),
-                "channel": int(session["channel"]),
-                "n_real_events": int(session["n_events"]),
-                "n_null_trials": int(null_std.size),
-                "real_baseline_sd_median": (
-                    float(np.median(real_std)) if real_std.size else np.nan
-                ),
-                "null_baseline_sd_median": (
-                    float(np.median(null_std)) if null_std.size else np.nan
-                ),
-                "near_zero_sd_threshold": near_zero_threshold,
-                "near_zero_null_fraction": near_zero_fraction,
-                "extreme_z_threshold": extreme_z,
-                "extreme_null_fraction": extreme_fraction,
-                "null_distance_median_seconds": (
-                    float(np.median(distances)) if distances.size else np.nan
-                ),
-                "null_distance_min_seconds": (
-                    float(np.min(distances)) if distances.size else np.nan
-                ),
-                "warning_near_zero_baseline": bool(near_zero_fraction > 0.01),
-                "warning_extreme_z": bool(extreme_fraction > 0.01),
-            }
+            "mouse": session["mouse"],
+            "date": session["date"],
+            "run": int(session["run"]),
+            "channel": int(session["channel"]),
+            "n_real_events": int(session["n_events"]),
+            "n_null_trials": int(null_std.size),
+            "real_baseline_sd_median": (
+                float(np.median(real_std)) if real_std.size else np.nan
+            ),
+            "null_baseline_sd_median": (
+                float(np.median(null_std)) if null_std.size else np.nan
+            ),
+            "near_zero_sd_threshold": near_zero_threshold,
+            "near_zero_null_fraction": near_zero_fraction,
+            "extreme_z_threshold": extreme_z,
+            "extreme_null_fraction": extreme_fraction,
+            "null_distance_median_seconds": (
+                float(np.median(distances)) if distances.size else np.nan
+            ),
+            "null_distance_min_seconds": (
+                float(np.min(distances)) if distances.size else np.nan
+            ),
+            "warning_near_zero_baseline": bool(near_zero_fraction > 0.01),
+            "warning_extreme_z": bool(extreme_fraction > 0.01),
+        }
         for name, values in event_distances.items():
             summary_row[f"distance_to_{name}_median_seconds"] = (
                 float(np.median(values)) if values.size else np.nan
@@ -1145,8 +1160,7 @@ def save_null_diagnostics(
         "event_key": results["event_key"],
         "normalization": results["normalization"],
         "near_zero_definition": (
-            "null baseline SD <= 1% of that session's median positive real-trial "
-            "baseline SD"
+            "null baseline SD <= 1% of that session's median positive real-trial baseline SD"
         ),
         "near_zero_ratio": near_zero_ratio,
         "extreme_z_threshold": extreme_z,
@@ -1186,7 +1200,9 @@ def save_null_diagnostics(
     if finite_max_z.size:
         ax.hist(finite_max_z, bins=50)
     ax.axvline(extreme_z, color="red", linestyle="--", label=f"Warning = {extreme_z:g}")
-    ax.set(xlabel="Maximum absolute trial z-score", ylabel="Count", title="Null extremes")
+    ax.set(
+        xlabel="Maximum absolute trial z-score", ylabel="Count", title="Null extremes"
+    )
     ax.legend()
     fig.tight_layout()
     paths.extend(
@@ -1279,6 +1295,7 @@ def save_psth_figures(
     formats=("svg", "png"),
     dpi=300,
     font_family="Arial",
+    y_limits=None,
 ):
     """Save one figure per mouse and/or a mouse-level group mean ± SEM."""
     import matplotlib.pyplot as plt
@@ -1347,6 +1364,8 @@ def save_psth_figures(
                     f"({mouse_result['n_sessions']} sessions)"
                 ),
             )
+            if y_limits is not None:
+                ax.set_ylim(*y_limits)
             ax.legend()
             fig.tight_layout()
             paths = save_figure_formats(
@@ -1381,7 +1400,9 @@ def save_psth_figures(
                 linewidth=2,
                 label="Shuffled mean",
             )
-        ax.plot(time, results["group_mean"], color="black", linewidth=3, label="Group mean")
+        ax.plot(
+            time, results["group_mean"], color="black", linewidth=3, label="Group mean"
+        )
         if results["n_mice"] > 1:
             ax.fill_between(
                 time,
@@ -1401,6 +1422,8 @@ def save_psth_figures(
                 f"{description} PSTH ({results['n_mice']} mice)"
             ),
         )
+        if y_limits is not None:
+            ax.set_ylim(*y_limits)
         ax.legend()
         fig.tight_layout()
         paths = save_figure_formats(

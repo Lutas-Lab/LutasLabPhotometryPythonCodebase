@@ -36,12 +36,15 @@ def sample_rows():
 
 
 def test_psth_run_label_is_readable_and_windows_safe():
-    assert suggest_psth_run_label(
-        "long_lifetime_fraction",
-        "ensure",
-        (-5, 20),
-        condition_filter="BLA input",
-    ) == "BLA_input__long_lifetime_fraction__ensure__m5to20s"
+    assert (
+        suggest_psth_run_label(
+            "long_lifetime_fraction",
+            "ensure",
+            (-5, 20),
+            condition_filter="BLA input",
+        )
+        == "BLA_input__long_lifetime_fraction__ensure__m5to20s"
+    )
     assert safe_analysis_run_label(" custom: label? ") == "custom_label"
 
 
@@ -128,6 +131,7 @@ def test_build_psth_command_includes_gui_choices():
         photometry_signal="fitted405",
         channel="2",
         window=(-5, 20),
+        y_limits=(-2, 3),
         stratify=False,
         null_method="random_onsets",
         n_shuffles=25,
@@ -155,6 +159,7 @@ def test_build_psth_command_includes_gui_choices():
     assert command[command.index("--null-exclusion") + 1] == "3.5"
     assert command[command.index("--trial-class") + 1] == "cue_miss"
     assert command[command.index("--post-cue-window") + 1] == "4.0"
+    assert command[command.index("--y-limits") + 1 :][:2] == ["-2.0", "3.0"]
     assert "--heatmaps" in command
     assert command[command.index("--heatmap-sort") + 1] == "ensure_latency"
     assert command[command.index("--heatmap-sort-window") + 1 :][:2] == ["0.0", "12.0"]
@@ -206,6 +211,7 @@ def test_build_lifetime_command_includes_sensor_specific_options():
         "analysis/iflip3/psth",
         signal="mpet",
         event="ensure",
+        y_limits=(-50, 150),
         heatmap_sort="first_lick_latency",
         heatmap_sort_window=(0, 12),
         first_event_only=True,
@@ -222,6 +228,7 @@ def test_build_lifetime_command_includes_sensor_specific_options():
     assert command[command.index("--workflow") + 1] == "iflip3"
     assert command[command.index("--signal") + 1] == "mpet"
     assert command[command.index("--event") + 1] == "ensure"
+    assert command[command.index("--y-limits") + 1 :][:2] == ["-50.0", "150.0"]
     assert command[command.index("--heatmap-sort-window") + 1 :][:2] == [
         "0.0",
         "12.0",
@@ -246,9 +253,7 @@ def test_build_lifetime_preprocess_command_writes_beside_raw_data():
 
 
 def test_build_iflip3_preprocess_command_includes_fit_controls():
-    settings = {
-        "tau1": {"mode": "fixed", "value": 0.7, "lower": 0.03, "upper": 5.0}
-    }
+    settings = {"tau1": {"mode": "fixed", "value": 0.7, "lower": 0.03, "upper": 5.0}}
     command = build_lifetime_command(
         ".",
         "preprocess",

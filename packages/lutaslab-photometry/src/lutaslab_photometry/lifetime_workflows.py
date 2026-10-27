@@ -113,9 +113,7 @@ def iflip3_residual_summary(data, residuals) -> dict[str, float]:
     decay_area = float(np.sum(np.abs(observed)))
     return {
         "max_absolute_residual_percent_peak": (
-            100.0 * float(np.max(np.abs(errors))) / peak
-            if peak > 0
-            else float("nan")
+            100.0 * float(np.max(np.abs(errors))) / peak if peak > 0 else float("nan")
         ),
         "rmse_percent_peak": (
             100.0 * float(np.sqrt(np.mean(errors**2))) / peak
@@ -197,13 +195,17 @@ class IFLIP3Calibration:
         }
 
 
-def normalize_iflip3_fit_settings(settings: dict | None) -> dict[str, dict[str, float | str]]:
+def normalize_iflip3_fit_settings(
+    settings: dict | None,
+) -> dict[str, dict[str, float | str]]:
     """Validate GUI/CLI controls for the aggregate iFLIP3 decay fit."""
 
     supplied = settings or {}
     unknown = set(supplied) - set(IFLIP3_FIT_PARAMETER_DEFAULTS)
     if unknown:
-        raise ValueError(f"Unknown iFLIP3 fit parameter(s): {', '.join(sorted(unknown))}")
+        raise ValueError(
+            f"Unknown iFLIP3 fit parameter(s): {', '.join(sorted(unknown))}"
+        )
     normalized: dict[str, dict[str, float | str]] = {}
     for name, defaults in IFLIP3_FIT_PARAMETER_DEFAULTS.items():
         raw = supplied.get(name, {})
@@ -242,21 +244,29 @@ def _calibration_from_dict(payload: dict[str, Any]) -> IFLIP3Calibration:
     fit = payload.get("fit") or {}
     lifetimes = np.asarray(model.get("lifetimes_ns"), dtype=float)
     lifetime_time = np.asarray(acquisition.get("lifetime_time_ns"), dtype=float)
-    if lifetimes.shape != (2,) or np.any(~np.isfinite(lifetimes)) or np.any(lifetimes <= 0):
+    if (
+        lifetimes.shape != (2,)
+        or np.any(~np.isfinite(lifetimes))
+        or np.any(lifetimes <= 0)
+    ):
         raise ValueError("Calibration must contain two positive finite lifetimes")
-    if lifetime_time.ndim != 1 or lifetime_time.size < 3 or np.any(~np.isfinite(lifetime_time)):
+    if (
+        lifetime_time.ndim != 1
+        or lifetime_time.size < 3
+        or np.any(~np.isfinite(lifetime_time))
+    ):
         raise ValueError("Calibration lifetime-time axis is invalid")
     background = float(model.get("residual_background_counts_per_bin", np.nan))
     if background != 0.0:
-        raise ValueError("This calibration schema requires residual background fixed at zero")
+        raise ValueError(
+            "This calibration schema requires residual background fixed at zero"
+        )
     spc_range = tuple(map(float, acquisition.get("spc_range_ns", ())))
     if len(spc_range) != 2 or spc_range[0] >= spc_range[1]:
         raise ValueError("Calibration SPC range is invalid")
     calibration = IFLIP3Calibration(
         lifetimes=np.sort(lifetimes),
-        t0=float(
-            model.get("reference_t0_ns", model.get("t0_ns"))
-        ),
+        t0=float(model.get("reference_t0_ns", model.get("t0_ns"))),
         irf_sigma=float(model.get("irf_sigma_ns")),
         lifetime_time=lifetime_time,
         pulse_interval=float(acquisition.get("pulse_interval_ns")),
@@ -269,7 +279,9 @@ def _calibration_from_dict(payload: dict[str, Any]) -> IFLIP3Calibration:
         nfev=int(fit.get("nfev", 0)),
         created_utc=str(payload.get("created_utc", "")),
         code_commit=(
-            None if payload.get("code_commit") in (None, "") else str(payload["code_commit"])
+            None
+            if payload.get("code_commit") in (None, "")
+            else str(payload["code_commit"])
         ),
         schema_version=schema,
     )
@@ -306,9 +318,7 @@ def next_iflip3_calibration_path(
     requested = Path(path).expanduser()
     frequency_mhz = 1e3 / calibration.pulse_interval
     frequency_label = f"{frequency_mhz:.6g}".replace(".", "p")
-    stem = re.sub(
-        r"__\d{4}-\d{2}-\d{2}_\d{6}Z(?:__r\d{2})?$", "", requested.stem
-    )
+    stem = re.sub(r"__\d{4}-\d{2}-\d{2}_\d{6}Z(?:__r\d{2})?$", "", requested.stem)
     if stem.casefold() in {"shared", "calibration", "iflip3_calibration"}:
         stem = f"iflip3_{frequency_label}mhz_{len(calibration.session_qc)}sessions"
     safe_stem = "_".join(
@@ -509,12 +519,8 @@ def discover_lifetime_paths(
     root = Path(data_root).expanduser()
     photometry_folder = root / "Photometry" / mouse / f"{mouse}_{date}"
     result = {
-        "nidaq_path": _mat_candidates(
-            photometry_folder, mouse, date, run, "nidaq"
-        ),
-        "running_path": _mat_candidates(
-            photometry_folder, mouse, date, run, "running"
-        ),
+        "nidaq_path": _mat_candidates(photometry_folder, mouse, date, run, "nidaq"),
+        "running_path": _mat_candidates(photometry_folder, mouse, date, run, "running"),
     }
 
     lifetime_folders = _session_folders(root, "FLIM FLIP", mouse, date)
@@ -542,7 +548,9 @@ def discover_lifetime_paths(
         path
         for path in all_iflip
         if _iflip_recording_matches(path, mouse, date, run)
-        and not re.search(r"(?:^|[_\- ])(?:bg|background|dark)(?:$|[_\- ])", path.stem, re.I)
+        and not re.search(
+            r"(?:^|[_\- ])(?:bg|background|dark)(?:$|[_\- ])", path.stem, re.I
+        )
     ]
     background_folders = (*lifetime_folders, root / "FLIM FLIP" / "backgrounds")
     background_pool = _files_with_suffix(background_folders, ".iFLiP3")
@@ -608,7 +616,10 @@ def normalize_lifetime_manifest_rows(workflow: str, rows) -> list[dict]:
             "condition": str(row["condition"] or "").strip(),
         }
         clean.update(
-            {column: str(row[column] or "").strip() for column in LIFETIME_PATH_COLUMNS[workflow]}
+            {
+                column: str(row[column] or "").strip()
+                for column in LIFETIME_PATH_COLUMNS[workflow]
+            }
         )
         normalized.append(clean)
     if not normalized:
@@ -742,7 +753,9 @@ def _load_corrected_iflip3_curves(
     recording = read_iflip3(resolved["source_path"])
     measured_background = None
     if resolved["background_path"] is not None:
-        measured_background = average_background([read_iflip3(resolved["background_path"])])
+        measured_background = average_background(
+            [read_iflip3(resolved["background_path"])]
+        )
     _, correction = calculate_mpet(
         recording,
         spc_range,
@@ -841,7 +854,9 @@ def calibrate_iflip3_sessions(
         aggregate = np.sum(curves, axis=1)
         positive_area = float(np.sum(np.clip(aggregate, 0.0, None)))
         if not np.isfinite(positive_area) or positive_area <= 0:
-            raise ValueError(f"Session {_session_id(row)} has no positive aggregate decay area")
+            raise ValueError(
+                f"Session {_session_id(row)} has no positive aggregate decay area"
+            )
         normalized = aggregate / positive_area
         normalized_decays.append(normalized[:, None])
         estimated_t0s.append(float(time_axis[int(np.argmax(normalized))] - 0.5))
@@ -853,7 +868,9 @@ def calibrate_iflip3_sessions(
                 "run": int(row["run"]),
                 "source_path": str(resolved["source_path"]),
                 "background_path": (
-                    "" if resolved["background_path"] is None else str(resolved["background_path"])
+                    ""
+                    if resolved["background_path"] is None
+                    else str(resolved["background_path"])
                 ),
                 "measured_background_applied": has_background,
                 "positive_aggregate_area": positive_area,
@@ -877,7 +894,9 @@ def calibrate_iflip3_sessions(
         max_nfev=250,
     )
     if not result.success:
-        raise RuntimeError(f"Multi-session calibration did not converge: {result.message}")
+        raise RuntimeError(
+            f"Multi-session calibration did not converge: {result.message}"
+        )
     session_qc = []
     for info, recording, normalized in zip(
         loaded, result.recordings, normalized_decays, strict=True
@@ -1048,7 +1067,9 @@ def _session_t0_from_calibration(
         return calibration.t0, "legacy shared calibration t0"
     session_id = _session_id(row)
     for item in calibration.session_qc:
-        if item.get("session_id") == session_id and np.isfinite(item.get("t0_ns", np.nan)):
+        if item.get("session_id") == session_id and np.isfinite(
+            item.get("t0_ns", np.nan)
+        ):
             return float(item["t0_ns"]), "saved calibration-session t0"
 
     from iflip3 import fit_target
@@ -1117,9 +1138,7 @@ def apply_iflip3_calibration(
             f"{_pulse_interval_description(pulse_interval)}, but the calibration uses "
             f"{_pulse_interval_description(calibration.pulse_interval)}"
         )
-    session_t0, t0_source = _session_t0_from_calibration(
-        row, time, curves, calibration
-    )
+    session_t0, t0_source = _session_t0_from_calibration(row, time, curves, calibration)
     weighting = "none" if np.any(curves < 0) else "poisson"
     target = fit_target(
         time,
@@ -1232,7 +1251,9 @@ def _load_iflip3(
             "aggregate_rmse": preview.rmse,
             "aggregate_r_squared": preview.r_squared,
             "fit_settings": (
-                None if calibration is not None else normalize_iflip3_fit_settings(fit_settings)
+                None
+                if calibration is not None
+                else normalize_iflip3_fit_settings(fit_settings)
             ),
             "calibration": (
                 None
@@ -1261,10 +1282,7 @@ def _load_iflip3(
 
 
 def _stringify_paths(paths: dict[str, Path | None]) -> dict[str, str]:
-    return {
-        name: "" if path is None else str(path)
-        for name, path in paths.items()
-    }
+    return {name: "" if path is None else str(path) for name, path in paths.items()}
 
 
 def _session_id(row: dict) -> str:
@@ -1353,7 +1371,9 @@ def _save_processed_lifetime_session(
         "processed_schema_version": np.asarray(LIFETIME_PROCESSED_SCHEMA_VERSION),
         "workflow": np.asarray(workflow),
         "session_id": np.asarray(session.session_id),
-        "metadata_json": np.asarray(json.dumps(session.metadata, default=_json_default)),
+        "metadata_json": np.asarray(
+            json.dumps(session.metadata, default=_json_default)
+        ),
         "source_paths_json": np.asarray(json.dumps(paths)),
         "provenance_json": np.asarray(provenance_json(provenance)),
     }
@@ -1397,7 +1417,9 @@ def preprocess_lifetime_sessions(
         else iflip3_calibration
     )
     if calibration is not None and iflip3_fit_settings is not None:
-        raise ValueError("Use either an iFLIP3 calibration or per-session fit settings, not both")
+        raise ValueError(
+            "Use either an iFLIP3 calibration or per-session fit settings, not both"
+        )
     preprocessing_parameters = lifetime_preprocessing_parameters(
         workflow,
         iflip3_fit_settings,
@@ -1460,8 +1482,7 @@ def load_processed_lifetime_session(
         stored_workflow = str(data["workflow"].item())
         if schema != LIFETIME_PROCESSED_SCHEMA_VERSION:
             raise ValueError(
-                f"Unsupported processed lifetime schema {schema!r} in {path}; "
-                "rerun preprocessing."
+                f"Unsupported processed lifetime schema {schema!r} in {path}; rerun preprocessing."
             )
         if stored_workflow != workflow:
             raise ValueError(
@@ -1561,6 +1582,7 @@ def run_lifetime_psth(
     dt=0.1,
     normalization="subtract",
     baseline=(-5.0, 0.0),
+    y_limits=None,
     heatmaps=True,
     heatmap_sort="event_order",
     heatmap_sort_window=None,
@@ -1585,10 +1607,14 @@ def run_lifetime_psth(
         "none",
         None,
     ):
-        raise ValueError("Lifetime PSTHs support only baseline subtraction or no normalization.")
+        raise ValueError(
+            "Lifetime PSTHs support only baseline subtraction or no normalization."
+        )
     effective_normalization = (
         "none" if signal in LIFETIME_BEHAVIOR_SIGNALS else normalization or "none"
     )
+    if y_limits is not None and y_limits[0] >= y_limits[1]:
+        raise ValueError("y_limits minimum must be less than maximum")
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
     results = []
@@ -1664,7 +1690,9 @@ def run_lifetime_psth(
             }
         )
     if not results:
-        raise ValueError(f"No sessions contained usable {signal} data and {event} windows")
+        raise ValueError(
+            f"No sessions contained usable {signal} data and {event} windows"
+        )
     by_mouse = defaultdict(list)
     for item in results:
         by_mouse[item["mouse"]].append(summarize_trials(item["trials"])[0])
@@ -1695,6 +1723,8 @@ def run_lifetime_psth(
         ylabel=ylabel,
         title=f"{workflow}: {signal} aligned to {event} (mouse mean ± SEM)",
     )
+    if y_limits is not None:
+        ax.set_ylim(*y_limits)
     fig.tight_layout()
     for suffix in ("png", "svg"):
         path = destination / f"{workflow}_{signal}_{event}_psth.{suffix}"
@@ -1746,15 +1776,14 @@ def run_lifetime_psth(
         "units": units,
         "ylabel": ylabel,
         "baseline": list(baseline),
+        "y_limits": None if y_limits is None else list(y_limits),
         "first_event_only": bool(first_event_only),
         "allow_partial_windows": bool(allow_partial_windows),
         "heatmaps": {
             "enabled": bool(heatmaps),
             "sort": heatmap_sort,
             "sort_window": (
-                None
-                if heatmap_sort_window is None
-                else list(heatmap_sort_window)
+                None if heatmap_sort_window is None else list(heatmap_sort_window)
             ),
             "sort_direction": heatmap_sort_direction,
             "unmatched": heatmap_unmatched,
@@ -1816,7 +1845,9 @@ def run_lifetime_glm(
             response.timestamps[0], response.timestamps[-1], response.timestamps.size
         )
         outcome = np.interp(uniform_time, response.timestamps, plot_values)
-        lick_counts = event_times_to_counts(session.events["licks"].timestamps, uniform_time)
+        lick_counts = event_times_to_counts(
+            session.events["licks"].timestamps, uniform_time
+        )
         ensure_counts = event_times_to_counts(
             session.events["ensure"].timestamps, uniform_time
         )
@@ -1854,7 +1885,9 @@ def run_lifetime_glm(
     penalty = designs[0].penalty_weights
     outer_rows = []
     selected_alphas = []
-    for outer_fold, (outer_train, outer_test) in enumerate(group_folds(groups), start=1):
+    for outer_fold, (outer_train, outer_test) in enumerate(
+        group_folds(groups), start=1
+    ):
         training_groups = groups[outer_train]
         inner_scores = np.full(
             (alphas.size, len(np.unique(training_groups))), np.nan, dtype=float
@@ -1892,9 +1925,7 @@ def run_lifetime_glm(
                 "outer_fold": outer_fold,
                 "held_out_session": held_out,
                 "mouse": next(
-                    str(row["mouse"])
-                    for row in rows
-                    if _session_id(row) == held_out
+                    str(row["mouse"]) for row in rows if _session_id(row) == held_out
                 ),
                 "selected_alpha": best_alpha,
                 "baseline_r2": r2_score(
@@ -1902,7 +1933,8 @@ def run_lifetime_glm(
                     np.full(outer_test.size, np.mean(response[outer_train])),
                 ),
                 "r2": r2_score(
-                    response[outer_test], matrix[outer_test] / outer_scale @ coefficients
+                    response[outer_test],
+                    matrix[outer_test] / outer_scale @ coefficients,
                 ),
             }
         )
@@ -2012,7 +2044,12 @@ def run_lifetime_glm(
     )
     for color, name, label in zip(
         ensure_colors,
-        ("ensure_first", "ensure_progress_0", "ensure_progress_0.5", "ensure_progress_1"),
+        (
+            "ensure_first",
+            "ensure_progress_0",
+            "ensure_progress_0.5",
+            "ensure_progress_1",
+        ),
         ensure_labels,
         strict=True,
     ):
@@ -2088,8 +2125,7 @@ def run_lifetime_glm(
                 ),
                 "interpretation": "predictive association; not causal",
                 "kernel_summary": (
-                    "sessions averaged within mouse; individual mice and mean plus SEM "
-                    "are shown"
+                    "sessions averaged within mouse; individual mice and mean plus SEM are shown"
                 ),
             },
             indent=2,
@@ -2148,9 +2184,7 @@ def _summarize_lifetime_kernel_rows(rows):
     return mouse_rows, group_rows
 
 
-def _plot_lifetime_kernel_summary(
-    ax, mouse_rows, group_rows, kernel, label, color
-):
+def _plot_lifetime_kernel_summary(ax, mouse_rows, group_rows, kernel, label, color):
     for mouse in sorted({row["mouse"] for row in mouse_rows}):
         selected = sorted(
             (

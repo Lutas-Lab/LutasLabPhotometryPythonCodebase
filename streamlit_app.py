@@ -72,6 +72,19 @@ CONVENTIONAL_PHOTOMETRY_SIGNAL_LABELS = {
     "raw405": "405 isosbestic fluorescence (QC)",
     "fitted405": "Fitted 405 control (QC)",
 }
+LIFETIME_GLM_RESPONSE_HELP = {
+    "fluopulse": (
+        "Response predicted by the GLM. tau is fluorescence lifetime (ps); "
+        "amplitude is fitted fluorescence amplitude; fit_r_square is the vendor-fit "
+        "quality trace and is primarily a QC response."
+    ),
+    "iflip3": (
+        "Response predicted by the GLM. MPET is mean photon emission time (ps); "
+        "long_lifetime_fraction is the fraction assigned to the long component; "
+        "short/long_component_counts are fitted component photon counts; raw_intensity "
+        "is the unseparated photon-count signal."
+    ),
+}
 DEFAULT_ROWS = [
     {
         "mouse": "DK21",
@@ -111,8 +124,7 @@ def _show_update_status() -> None:
         st.info("This checkout is newer than GitHub main.")
     elif status.state == "diverged":
         st.warning(
-            "This checkout differs from GitHub main. Ask the repository maintainer "
-            "before updating."
+            "This checkout differs from GitHub main. Ask the repository maintainer before updating."
         )
     elif status.state == "not_a_clone":
         st.info(
@@ -161,6 +173,10 @@ def _analysis_subset_controls(rows, key_prefix):
             [None, *group_options],
             format_func=lambda value: "All groups" if value is None else value,
             key=f"{key_prefix}_group_filter",
+            help=(
+                "Restrict this analysis to one manifest group. All groups includes every "
+                "row that also passes the condition filter."
+            ),
         )
     with right:
         condition_filter = st.selectbox(
@@ -168,6 +184,10 @@ def _analysis_subset_controls(rows, key_prefix):
             [None, *condition_options],
             format_func=lambda value: "All conditions" if value is None else value,
             key=f"{key_prefix}_condition_filter",
+            help=(
+                "Restrict this analysis to one manifest condition. All conditions includes "
+                "every row that also passes the group filter."
+            ),
         )
     return group_filter, condition_filter
 
@@ -283,13 +303,21 @@ def _show_iflip3_fit_preview(preview) -> None:
         gridspec_kw={"height_ratios": (3, 1)},
         constrained_layout=True,
     )
-    fit_axis.plot(preview.lifetime_time, preview.aggregate_decay, color="black", label="Data")
-    fit_axis.plot(preview.lifetime_time, preview.fitted_decay, color="#d62728", label="Total fit")
     fit_axis.plot(
-        preview.lifetime_time, preview.short_component + preview.background, label="Short component"
+        preview.lifetime_time, preview.aggregate_decay, color="black", label="Data"
     )
     fit_axis.plot(
-        preview.lifetime_time, preview.long_component + preview.background, label="Long component"
+        preview.lifetime_time, preview.fitted_decay, color="#d62728", label="Total fit"
+    )
+    fit_axis.plot(
+        preview.lifetime_time,
+        preview.short_component + preview.background,
+        label="Short component",
+    )
+    fit_axis.plot(
+        preview.lifetime_time,
+        preview.long_component + preview.background,
+        label="Long component",
     )
     fit_axis.set_ylabel("Aggregate counts")
     fit_axis.legend(frameon=False, ncols=2)
@@ -329,9 +357,7 @@ def _show_iflip3_fit_preview(preview) -> None:
             f"{residual_summary['absolute_residual_area_percent']:.3g}%",
         ),
     )
-    for column, (name, value) in zip(
-        residual_metrics, residual_values, strict=True
-    ):
+    for column, (name, value) in zip(residual_metrics, residual_values, strict=True):
         column.metric(name, value)
     st.caption(f"Residual background: {preview.background:.5g} aggregate counts/bin")
 
@@ -372,9 +398,7 @@ def _show_iflip3_calibration(calibration) -> None:
         if item.get("t0_offset_flag")
     ]
     if flagged_sessions:
-        st.warning(
-            "Large t0 offsets require review: " + ", ".join(flagged_sessions)
-        )
+        st.warning("Large t0 offsets require review: " + ", ".join(flagged_sessions))
 
     figure, (fit_axis, residual_axis) = plt.subplots(
         2,
@@ -425,23 +449,23 @@ def _show_iflip3_calibration(calibration) -> None:
         )
         table_rows.append(
             {
-            "session": item["session_id"],
-            "measured background": item["measured_background_applied"],
-            "R²": item["r_squared"],
-            "RMSE": item["rmse_normalized"],
-            "max |residual| / peak (%)": residual_summary[
-                "max_absolute_residual_percent_peak"
-            ],
-            "RMSE / peak (%)": residual_summary["rmse_percent_peak"],
-            "absolute residual area (%)": residual_summary[
-                "absolute_residual_area_percent"
-            ],
-            "peak time (ns)": item.get("peak_time_ns"),
-            "t0 (ns)": item.get("t0_ns", calibration.t0),
-            "t0 offset (ns)": item.get("t0_offset_from_median_ns", 0.0),
-            "t0 review": item.get("t0_offset_flag", False),
-            "short fraction": item["short_fraction_aggregate"],
-            "long fraction": item["long_fraction_aggregate"],
+                "session": item["session_id"],
+                "measured background": item["measured_background_applied"],
+                "R²": item["r_squared"],
+                "RMSE": item["rmse_normalized"],
+                "max |residual| / peak (%)": residual_summary[
+                    "max_absolute_residual_percent_peak"
+                ],
+                "RMSE / peak (%)": residual_summary["rmse_percent_peak"],
+                "absolute residual area (%)": residual_summary[
+                    "absolute_residual_area_percent"
+                ],
+                "peak time (ns)": item.get("peak_time_ns"),
+                "t0 (ns)": item.get("t0_ns", calibration.t0),
+                "t0 offset (ns)": item.get("t0_offset_from_median_ns", 0.0),
+                "t0 review": item.get("t0_offset_flag", False),
+                "short fraction": item["short_fraction_aggregate"],
+                "long fraction": item["long_fraction_aggregate"],
             }
         )
     st.dataframe(pd.DataFrame(table_rows), hide_index=True, width="stretch")
@@ -478,7 +502,9 @@ def _processed_provenance_panel(
             format_func=lambda index: labels[index],
             key=f"{workflow}_provenance_session",
         )
-        if not st.button("Check processed-file version", key=f"{workflow}_check_provenance"):
+        if not st.button(
+            "Check processed-file version", key=f"{workflow}_check_provenance"
+        ):
             return
         row = valid_rows[selected]
         try:
@@ -560,7 +586,9 @@ def _run_command_batch(command, workflow_name, command_labels=None):
             )
 
         try:
-            return_code, output = run_command(current_command, PROJECT_ROOT, show_output)
+            return_code, output = run_command(
+                current_command, PROJECT_ROOT, show_output
+            )
         except OSError as error:
             st.error(f"{label} could not start: {error}")
             return False
@@ -587,7 +615,9 @@ def _run_workflow(
 ):
     data_root_path = Path(data_root).expanduser()
     if not data_root_path.is_dir():
-        st.error(f"Raw-data root does not exist or is not a directory: {data_root_path}")
+        st.error(
+            f"Raw-data root does not exist or is not a directory: {data_root_path}"
+        )
         return
 
     try:
@@ -739,7 +769,9 @@ def _lifetime_gui(workflow: str) -> None:
                 str(Path(data_root).expanduser()),
             )
             if choices is not None and identity == current_identity:
-                recording_field = "doric_path" if workflow == "fluopulse" else "iflip_path"
+                recording_field = (
+                    "doric_path" if workflow == "fluopulse" else "iflip_path"
+                )
                 recording_label = (
                     "Doric recording" if workflow == "fluopulse" else "iFLIP3 recording"
                 )
@@ -875,7 +907,9 @@ def _lifetime_gui(workflow: str) -> None:
         st.session_state[state_key] = rows
         left, middle, right = st.columns(3)
         with left:
-            if st.button("Validate sessions", width="stretch", key=f"{workflow}_validate"):
+            if st.button(
+                "Validate sessions", width="stretch", key=f"{workflow}_validate"
+            ):
                 try:
                     sessions = normalize_lifetime_manifest_rows(workflow, rows)
                     st.success(f"Validated {len(sessions)} unique sessions.")
@@ -958,7 +992,13 @@ def _lifetime_gui(workflow: str) -> None:
                 st.session_state["iflip3_calibration_path"] = pending_calibration_path
             calibration_path_text = st.text_input(
                 "Calibration JSON",
-                value=str(PROJECT_ROOT / "analysis" / "iflip3" / "calibrations" / "shared.json"),
+                value=str(
+                    PROJECT_ROOT
+                    / "analysis"
+                    / "iflip3"
+                    / "calibrations"
+                    / "shared.json"
+                ),
                 key="iflip3_calibration_path",
             ).strip()
             calibration_path = Path(calibration_path_text).expanduser()
@@ -977,7 +1017,10 @@ def _lifetime_gui(workflow: str) -> None:
                             "Loading selected sessions and fitting shared parameters..."
                         ):
                             calibration = calibrate_iflip3_sessions(
-                                [preview_rows[index] for index in selected_calibration_indices],
+                                [
+                                    preview_rows[index]
+                                    for index in selected_calibration_indices
+                                ],
                                 data_root,
                             )
                     except (OSError, ValueError, RuntimeError) as error:
@@ -1015,7 +1058,9 @@ def _lifetime_gui(workflow: str) -> None:
                 if save_new_version:
                     st.caption(f"New calibration file: {save_target}")
                 elif calibration_path.exists():
-                    st.warning(f"The existing calibration will be replaced: {calibration_path}")
+                    st.warning(
+                        f"The existing calibration will be replaced: {calibration_path}"
+                    )
                     confirm_calibration_replace = st.checkbox(
                         "I understand that saving will replace this calibration JSON",
                         value=False,
@@ -1033,7 +1078,9 @@ def _lifetime_gui(workflow: str) -> None:
                         )
                     else:
                         try:
-                            saved_calibration = save_iflip3_calibration(calibration, save_target)
+                            saved_calibration = save_iflip3_calibration(
+                                calibration, save_target
+                            )
                         except OSError as error:
                             st.error(f"Calibration could not be saved: {error}")
                         else:
@@ -1058,7 +1105,9 @@ def _lifetime_gui(workflow: str) -> None:
             )
             if use_calibration:
                 try:
-                    active_iflip3_calibration = load_iflip3_calibration(calibration_path)
+                    active_iflip3_calibration = load_iflip3_calibration(
+                        calibration_path
+                    )
                 except (OSError, ValueError) as error:
                     st.error(f"Calibration cannot be used: {error}")
                 else:
@@ -1097,7 +1146,9 @@ def _lifetime_gui(workflow: str) -> None:
                     key="iflip3_preview_calibrated_session",
                 ):
                     try:
-                        with st.spinner("Applying the shared calibration to this recording..."):
+                        with st.spinner(
+                            "Applying the shared calibration to this recording..."
+                        ):
                             calibrated_preview = apply_iflip3_calibration(
                                 preview_rows[calibrated_preview_index],
                                 data_root,
@@ -1106,10 +1157,12 @@ def _lifetime_gui(workflow: str) -> None:
                     except (OSError, ValueError, RuntimeError) as error:
                         st.error(f"The calibrated session preview failed: {error}")
                     else:
-                        st.session_state["iflip3_calibrated_preview_result"] = calibrated_preview
-                        st.session_state["iflip3_calibrated_preview_identity"] = preview_labels[
-                            calibrated_preview_index
-                        ]
+                        st.session_state["iflip3_calibrated_preview_result"] = (
+                            calibrated_preview
+                        )
+                        st.session_state["iflip3_calibrated_preview_identity"] = (
+                            preview_labels[calibrated_preview_index]
+                        )
                         st.session_state["iflip3_calibrated_preview_created_utc"] = (
                             diagnostic_calibration.created_utc
                         )
@@ -1159,22 +1212,30 @@ def _lifetime_gui(workflow: str) -> None:
                         key="iflip3_preview_fit",
                     ):
                         try:
-                            with st.spinner("Loading the recording and fitting its decay..."):
+                            with st.spinner(
+                                "Loading the recording and fitting its decay..."
+                            ):
                                 preview = preview_iflip3_fit(
                                     preview_rows[preview_index],
                                     data_root,
                                     iflip3_fit_settings,
                                 )
                         except (OSError, ValueError, RuntimeError) as error:
-                            st.error(f"The unconstrained fit could not be generated: {error}")
+                            st.error(
+                                f"The unconstrained fit could not be generated: {error}"
+                            )
                         else:
                             st.session_state["iflip3_fit_preview_result"] = preview
-                            st.session_state["iflip3_fit_preview_identity"] = preview_labels[
-                                preview_index
-                            ]
-                            st.session_state["iflip3_fit_preview_settings"] = iflip3_fit_settings
+                            st.session_state["iflip3_fit_preview_identity"] = (
+                                preview_labels[preview_index]
+                            )
+                            st.session_state["iflip3_fit_preview_settings"] = (
+                                iflip3_fit_settings
+                            )
                     preview = st.session_state.get("iflip3_fit_preview_result")
-                    preview_identity = st.session_state.get("iflip3_fit_preview_identity")
+                    preview_identity = st.session_state.get(
+                        "iflip3_fit_preview_identity"
+                    )
                     if preview is not None:
                         st.caption(f"Unconstrained session: {preview_identity}")
                         if (
@@ -1195,7 +1256,9 @@ def _lifetime_gui(workflow: str) -> None:
                         else:
                             st.warning(f"The optimizer reported: {preview.message}")
                 else:
-                    st.info("Add a complete session row before previewing an iFLIP3 fit.")
+                    st.info(
+                        "Add a complete session row before previewing an iFLIP3 fit."
+                    )
             st.divider()
             st.caption(
                 "When a saved calibration is enabled, preprocessing ignores the advanced "
@@ -1243,7 +1306,9 @@ def _lifetime_gui(workflow: str) -> None:
                 command, workflow, rows, manifest_path, data_root, "Preprocessing"
             )
         with st.expander("Advanced: inspect or copy command"):
-            if st.button("Preview preprocessing command", key=f"{workflow}_preview_align"):
+            if st.button(
+                "Preview preprocessing command", key=f"{workflow}_preview_align"
+            ):
                 _preview_command(command)
 
     with psth_tab:
@@ -1254,20 +1319,45 @@ def _lifetime_gui(workflow: str) -> None:
         first, second, third = st.columns(3)
         with first:
             signal = st.selectbox(
-                "Lifetime/QC signal", LIFETIME_SIGNALS[workflow], key=f"{workflow}_signal"
+                "Lifetime/QC signal",
+                LIFETIME_SIGNALS[workflow],
+                key=f"{workflow}_signal",
+                help="Processed signal to align and average around the selected event.",
             )
             event = st.selectbox(
-                "Alignment event", LIFETIME_EVENTS, key=f"{workflow}_event"
+                "Alignment event",
+                LIFETIME_EVENTS,
+                key=f"{workflow}_event",
+                help="Each occurrence becomes time zero for one peri-event trial.",
             )
         with second:
             window_start = st.number_input(
-                "Window start (s)", value=-5.0, key=f"{workflow}_window_start"
+                "Window start (s)",
+                value=-5.0,
+                key=f"{workflow}_window_start",
+                help=(
+                    "Earliest time retained relative to the alignment event; "
+                    "negative is before the event."
+                ),
             )
             window_end = st.number_input(
-                "Window end (s)", value=20.0, key=f"{workflow}_window_end"
+                "Window end (s)",
+                value=20.0,
+                key=f"{workflow}_window_end",
+                help=(
+                    "Latest time retained relative to the alignment event; "
+                    "positive is after the event."
+                ),
             )
             dt = st.number_input(
-                "Time bin (s)", min_value=0.01, value=0.1, key=f"{workflow}_dt"
+                "Time bin (s)",
+                min_value=0.01,
+                value=0.1,
+                key=f"{workflow}_dt",
+                help=(
+                    "Spacing of the common time grid used to resample and average "
+                    "trials. Smaller bins preserve more temporal detail."
+                ),
             )
         with third:
             lifetime_label = {"tau": "τ", "mpet": "MPET"}.get(signal)
@@ -1287,19 +1377,65 @@ def _lifetime_gui(workflow: str) -> None:
                 ("subtract", "none"),
                 format_func=normalization_labels.get,
                 key=f"{workflow}_normalization",
+                help=(
+                    "Baseline subtraction expresses each trial relative to its own "
+                    "pre-event baseline; none preserves native values."
+                ),
             )
             baseline_start = st.number_input(
                 "Baseline start (s)",
                 value=-5.0,
                 disabled=normalization == "none",
                 key=f"{workflow}_baseline_start",
+                help=(
+                    "Start of the pre-event interval used to calculate each trial's "
+                    "baseline. Must fall within the plotted window and precede "
+                    "Baseline end."
+                ),
             )
             baseline_end = st.number_input(
                 "Baseline end (s)",
                 value=0.0,
                 disabled=normalization == "none",
                 key=f"{workflow}_baseline_end",
+                help=(
+                    "End of the baseline interval (exclusive). Zero uses samples "
+                    "strictly before the alignment event."
+                ),
             )
+        fixed_y_axis = st.checkbox(
+            "Use fixed y-axis limits for the primary PSTH",
+            value=False,
+            key=f"{workflow}_fixed_y_axis",
+            help=(
+                "Uses the exact same vertical range on this signal's PSTH, making "
+                "figures directly comparable across analysis runs. Licking and running "
+                "plots retain automatic scaling because they use different units."
+            ),
+        )
+        y_limits = None
+        y_limits_valid = True
+        if fixed_y_axis:
+            y_left, y_right = st.columns(2)
+            with y_left:
+                y_min = st.number_input(
+                    "Y-axis minimum",
+                    value=-100.0,
+                    key=f"{workflow}_y_min",
+                    help="Lowest value displayed on the primary PSTH y-axis.",
+                )
+            with y_right:
+                y_max = st.number_input(
+                    "Y-axis maximum",
+                    value=100.0,
+                    key=f"{workflow}_y_max",
+                    help="Highest value displayed on the primary PSTH y-axis.",
+                )
+            y_limits_valid = y_min < y_max
+            if y_limits_valid:
+                y_limits = (y_min, y_max)
+            else:
+                st.error("Y-axis minimum must be less than the maximum.")
         selection_left, selection_right = st.columns(2)
         with selection_left:
             first_event_only = st.checkbox(
@@ -1430,6 +1566,7 @@ def _lifetime_gui(workflow: str) -> None:
             dt=dt,
             normalization=normalization,
             baseline=(baseline_start, baseline_end),
+            y_limits=y_limits,
             heatmaps=save_heatmaps,
             heatmap_sort=heatmap_sort,
             heatmap_sort_window=sort_window,
@@ -1475,6 +1612,7 @@ def _lifetime_gui(workflow: str) -> None:
             type="primary",
             width="stretch",
             key=f"{workflow}_run_psth",
+            disabled=not y_limits_valid,
         ):
             _run_lifetime_workflow(
                 commands,
@@ -1509,7 +1647,10 @@ def _lifetime_gui(workflow: str) -> None:
             rows, f"{workflow}_glm"
         )
         glm_signal = st.selectbox(
-            "GLM response", LIFETIME_SIGNALS[workflow], key=f"{workflow}_glm_signal"
+            "GLM response",
+            LIFETIME_SIGNALS[workflow],
+            key=f"{workflow}_glm_signal",
+            help=LIFETIME_GLM_RESPONSE_HELP[workflow],
         )
         glm_left, glm_right = st.columns(2)
         with glm_left:
@@ -1518,6 +1659,10 @@ def _lifetime_gui(workflow: str) -> None:
                 min_value=1.0,
                 value=10.0,
                 key=f"{workflow}_lick_kernel",
+                help=(
+                    "How long after each lick the model estimates a possible association "
+                    "with the selected lifetime response."
+                ),
             )
         with glm_right:
             ensure_kernel = st.number_input(
@@ -1525,11 +1670,20 @@ def _lifetime_gui(workflow: str) -> None:
                 min_value=1.0,
                 value=20.0,
                 key=f"{workflow}_ensure_kernel",
+                help=(
+                    "How long after each Ensure delivery the model estimates its response. "
+                    "This also sets the duration of the separate first-Ensure and "
+                    "later-delivery adaptation kernels."
+                ),
             )
         glm_output = st.text_input(
             "GLM output directory",
             value=str(PROJECT_ROOT / "analysis" / workflow / "glm"),
             key=f"{workflow}_glm_output",
+            help=(
+                "Folder for held-out performance tables, fitted kernel tables, figures, "
+                "and analysis metadata."
+            ),
         )
         command = build_lifetime_command(
             PROJECT_ROOT,
@@ -1717,6 +1871,7 @@ with psth_tab:
                 "lick_bout_offset",
                 "lick_times",
             ),
+            help="Each occurrence becomes time zero for one peri-event trial.",
         )
         photometry_signal = st.selectbox(
             "Photometry signal",
@@ -1728,22 +1883,101 @@ with psth_tab:
                 "405 traces are controls for inspecting artifacts."
             ),
         )
-        channel = st.selectbox("Photoreceiver channel", ("manifest", "1", "2"))
+        channel = st.selectbox(
+            "Photoreceiver channel",
+            ("manifest", "1", "2"),
+            help=(
+                "Use the channel recorded in each manifest row or override all "
+                "sessions with channel 1 or 2."
+            ),
+        )
     with second:
-        window_start = st.number_input("Window start (s)", value=-5.0)
-        window_end = st.number_input("Window end (s)", value=20.0)
-        dt = st.number_input("Time bin (s)", min_value=0.001, value=0.02, format="%.3f")
+        window_start = st.number_input(
+            "Window start (s)",
+            value=-5.0,
+            help=(
+                "Earliest time retained relative to the alignment event; negative "
+                "is before the event."
+            ),
+        )
+        window_end = st.number_input(
+            "Window end (s)",
+            value=20.0,
+            help=(
+                "Latest time retained relative to the alignment event; positive is after the event."
+            ),
+        )
+        dt = st.number_input(
+            "Time bin (s)",
+            min_value=0.001,
+            value=0.02,
+            format="%.3f",
+            help=(
+                "Spacing of the common time grid used to resample and average trials. "
+                "Smaller bins preserve more temporal detail."
+            ),
+        )
     with third:
         normalization = st.selectbox(
             "Normalization",
             ("zscore", "subtract", "none"),
+            help=(
+                "Z-score and subtraction use each trial's selected pre-event baseline; "
+                "none preserves the processed signal values."
+            ),
         )
         baseline_start = st.number_input(
-            "Baseline start (s)", value=-5.0, disabled=normalization == "none"
+            "Baseline start (s)",
+            value=-5.0,
+            disabled=normalization == "none",
+            help=(
+                "Start of the pre-event interval used to calculate each trial's "
+                "baseline. Must fall within the plotted window and precede Baseline end."
+            ),
         )
         baseline_end = st.number_input(
-            "Baseline end (s)", value=0.0, disabled=normalization == "none"
+            "Baseline end (s)",
+            value=0.0,
+            disabled=normalization == "none",
+            help=(
+                "End of the baseline interval (exclusive). Zero uses samples strictly "
+                "before the alignment event."
+            ),
         )
+
+    fixed_y_axis = st.checkbox(
+        "Use fixed y-axis limits for the primary PSTH",
+        value=False,
+        key="conventional_fixed_y_axis",
+        help=(
+            "Uses the exact same vertical range on photometry PSTHs and their "
+            "condition-comparison panels. Licking and running plots retain automatic "
+            "scaling because they use different units."
+        ),
+    )
+    y_limits = None
+    y_limits_valid = True
+    if fixed_y_axis:
+        y_left, y_right = st.columns(2)
+        with y_left:
+            y_min = st.number_input(
+                "Y-axis minimum",
+                value=-2.0,
+                key="conventional_y_min",
+                help="Lowest value displayed on the primary photometry PSTH y-axis.",
+            )
+        with y_right:
+            y_max = st.number_input(
+                "Y-axis maximum",
+                value=2.0,
+                key="conventional_y_max",
+                help="Highest value displayed on the primary photometry PSTH y-axis.",
+            )
+        y_limits_valid = y_min < y_max
+        if y_limits_valid:
+            y_limits = (y_min, y_max)
+        else:
+            st.error("Y-axis minimum must be less than the maximum.")
 
     selection_left, selection_right = st.columns(2)
     with selection_left:
@@ -1769,8 +2003,7 @@ with psth_tab:
                 tuple(TRIAL_CLASS_LABELS),
                 format_func=TRIAL_CLASS_LABELS.get,
                 help=(
-                    "Recomputed from the saved cue and lick timestamps each time "
-                    "the analysis runs."
+                    "Recomputed from the saved cue and lick timestamps each time the analysis runs."
                 ),
             )
         with class_right:
@@ -1970,6 +2203,7 @@ with psth_tab:
         dt=dt,
         normalization=normalization,
         baseline=(baseline_start, baseline_end),
+        y_limits=y_limits,
         stratify=stratify,
         null_method=null_method,
         n_shuffles=n_shuffles,
@@ -2031,7 +2265,12 @@ with psth_tab:
             )
         )
         psth_command_labels.append(behavior_label)
-    if st.button("Run PSTH and plots", type="primary", width="stretch"):
+    if st.button(
+        "Run PSTH and plots",
+        type="primary",
+        width="stretch",
+        disabled=not y_limits_valid,
+    ):
         _run_workflow(
             psth_commands,
             editor_rows,
@@ -2069,6 +2308,10 @@ with glm_tab:
         glm_channel = st.selectbox(
             "GLM photoreceiver channel",
             ("manifest", "1", "2"),
+            help=(
+                "Use the photoreceiver channel listed for each session in the manifest, "
+                "or force channel 1 or 2 for every included session."
+            ),
         )
         photometry_source = st.selectbox(
             "Photometry response",
@@ -2077,6 +2320,11 @@ with glm_tab:
                 "raw465": "Raw 465 fluorescence",
                 "dff": "Processed dF/F",
             }[value],
+            help=(
+                "Signal predicted by the GLM. Processed dF/F is the artifact-corrected "
+                "response used for standard analysis; raw 465 fluorescence retains "
+                "brightness, bleaching, and shared motion effects."
+            ),
         )
     with glm_second:
         glm_history = st.number_input(
@@ -2106,15 +2354,33 @@ with glm_tab:
         )
     with glm_third:
         glm_folds = st.number_input(
-            "Outer validation folds", min_value=2, value=5, step=1
+            "Outer validation folds",
+            min_value=2,
+            value=5,
+            step=1,
+            help=(
+                "Number of chronological held-out partitions used to estimate performance "
+                "on data not used for fitting or parameter selection."
+            ),
         )
         glm_inner_folds = st.number_input(
-            "Inner alpha-selection folds", min_value=2, value=3, step=1
+            "Inner alpha-selection folds",
+            min_value=2,
+            value=3,
+            step=1,
+            help=(
+                "Number of chronological partitions within each training set used to "
+                "choose ridge regularization strength without seeing the outer test fold."
+            ),
         )
 
     glm_output_dir = st.text_input(
         "GLM output directory",
         value=str(PROJECT_ROOT / "analysis" / "gui_glm"),
+        help=(
+            "Folder for held-out performance tables, predictor-kernel tables, figures, "
+            "and analysis metadata."
+        ),
     )
     glm_command = build_behavior_glm_command(
         PROJECT_ROOT,

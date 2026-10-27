@@ -89,6 +89,20 @@ generation time, and code commit. The advanced option to save directly into the
 base directory restores the older behavior and can replace matching files, so it
 should be selected only for an intentional overwrite.
 
+PSTH controls include hover explanations for the alignment window, time bin,
+normalization, and baseline interval. Enable **Use fixed y-axis limits for the
+primary PSTH** and enter a minimum and maximum when figures from separate runs
+must use an identical vertical scale. The limits apply to the selected
+photometry or lifetime signal and to conventional condition-comparison PSTHs.
+Optional licking and running outputs retain automatic scaling because they use
+different physical units.
+
+The conventional, FluoPulse, and iFLIP3 GLM tabs provide hover explanations for
+every response/source choice and numerical model control. These descriptions
+distinguish processed and raw photometry responses, define lifetime-derived
+responses, and explain kernel durations, time grids, validation folds, and
+output locations.
+
 Explicit relative paths are resolved from the selected data root. Absolute
 paths override discovery. Running files remain optional for lifetime analyses;
 the recording inputs are required. NI-DAQ is optional for both lifetime sensors:

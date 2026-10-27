@@ -87,6 +87,14 @@ def parse_arguments():
     )
     parser.add_argument("--baseline", type=float, nargs=2, default=(-5.0, 0.0))
     parser.add_argument(
+        "--y-limits",
+        type=float,
+        nargs=2,
+        default=None,
+        metavar=("MIN", "MAX"),
+        help="Fix the y-axis range on PSTH response plots for cross-plot comparison.",
+    )
+    parser.add_argument(
         "--figures",
         choices=("individual", "group", "both"),
         default="both",
@@ -145,7 +153,7 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def _save_numeric_results(results, output_dir):
+def _save_numeric_results(results, output_dir, *, y_limits=None):
     result_path = output_dir / "psth_results.npz"
     np.savez_compressed(
         result_path,
@@ -167,6 +175,11 @@ def _save_numeric_results(results, output_dir):
         post_cue_window=results.get("post_cue_window", 2.0),
         first_event_only=results.get("first_event_only", False),
         allow_partial_windows=results.get("allow_partial_windows", False),
+        y_limits=(
+            np.asarray(y_limits, dtype=float)
+            if y_limits is not None
+            else np.empty(0, dtype=float)
+        ),
         mouse_null_mean_matrix=results.get(
             "mouse_null_mean_matrix", np.empty((0, len(results["time"])))
         ),
@@ -223,6 +236,8 @@ def _safe_path_component(value):
 
 def main():
     args = parse_arguments()
+    if args.y_limits is not None and args.y_limits[0] >= args.y_limits[1]:
+        raise ValueError("--y-limits MIN must be less than MAX")
     sessions = load_session_manifest(args.manifest)
     sessions = filter_manifest_sessions(
         sessions,
@@ -275,6 +290,7 @@ def main():
                 formats=args.formats,
                 dpi=args.dpi,
                 font_family=args.font_family,
+                y_limits=args.y_limits,
             )
             heatmap_paths = (
                 save_psth_heatmaps(
@@ -303,7 +319,9 @@ def main():
                 if args.null_method != "none"
                 else {"paths": [], "summary_rows": []}
             )
-            result_path, summary_path = _save_numeric_results(results, stratum_dir)
+            result_path, summary_path = _save_numeric_results(
+                results, stratum_dir, y_limits=args.y_limits
+            )
             saved_figures.extend(
                 figure_paths + heatmap_paths + diagnostic_report["paths"]
             )
@@ -328,6 +346,7 @@ def main():
             formats=args.formats,
             dpi=args.dpi,
             font_family=args.font_family,
+            y_limits=args.y_limits,
         )
         for path in saved_figures + comparison_paths:
             print(f"Saved output: {path}")
@@ -342,6 +361,7 @@ def main():
         formats=args.formats,
         dpi=args.dpi,
         font_family=args.font_family,
+        y_limits=args.y_limits,
     )
     if args.heatmaps:
         figure_paths.extend(
@@ -370,7 +390,9 @@ def main():
         else {"paths": [], "summary_rows": []}
     )
     figure_paths.extend(diagnostic_report["paths"])
-    result_path, summary_path = _save_numeric_results(results, args.output_dir)
+    result_path, summary_path = _save_numeric_results(
+        results, args.output_dir, y_limits=args.y_limits
+    )
 
     print(f"Analyzed {len(results['session_results'])} sessions.")
     print(f"Biological units in group SEM: {results['n_mice']} mice.")

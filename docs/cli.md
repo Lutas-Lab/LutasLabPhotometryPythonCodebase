@@ -112,6 +112,9 @@ shows paired within-mouse difference traces in a second panel. Use
 `--no-stratify` to intentionally combine conditions.
 Use `--group LABEL` and/or `--condition LABEL` to analyze only matching manifest
 rows without creating a second manifest.
+Use `--y-limits MIN MAX` to force the same vertical range on individual, group,
+and condition-comparison PSTH response panels across separate runs. Omit it for
+automatic scaling.
 
 Optional null comparisons are available with `--null-method random_onsets` or
 `--null-method circular_shift`. Both operate independently within every session,

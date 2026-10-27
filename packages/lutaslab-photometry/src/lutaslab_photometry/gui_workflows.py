@@ -101,9 +101,7 @@ def normalize_manifest_rows(rows):
 
         identifier = (mouse, date, run)
         if identifier in seen:
-            raise ValueError(
-                f"Row {index} duplicates {mouse} {date} run {run}."
-            )
+            raise ValueError(f"Row {index} duplicates {mouse} {date} run {run}.")
         seen.add(identifier)
         normalized.append(
             {
@@ -208,6 +206,7 @@ def build_psth_command(
     dt=0.02,
     normalization="zscore",
     baseline=(-5.0, 0.0),
+    y_limits=None,
     stratify=True,
     null_method="none",
     n_shuffles=500,
@@ -269,6 +268,8 @@ def build_psth_command(
         ]
     )
     command.append("--stratify" if stratify else "--no-stratify")
+    if y_limits is not None:
+        command.extend(["--y-limits", str(float(y_limits[0])), str(float(y_limits[1]))])
     if group_filter is not None:
         command.extend(["--group", str(group_filter)])
     if condition_filter is not None:
@@ -369,6 +370,7 @@ def build_lifetime_command(
     dt=0.1,
     normalization="zscore",
     baseline=(-5.0, 0.0),
+    y_limits=None,
     heatmaps=True,
     heatmap_sort="event_order",
     heatmap_sort_window=None,
@@ -411,14 +413,22 @@ def build_lifetime_command(
         command.extend(["--condition", str(condition_filter)])
     if action == "preprocess" and overwrite:
         command.append("--overwrite")
-    if action == "preprocess" and workflow == "iflip3" and iflip3_fit_settings is not None:
+    if (
+        action == "preprocess"
+        and workflow == "iflip3"
+        and iflip3_fit_settings is not None
+    ):
         command.extend(
             [
                 "--iflip3-fit-settings",
                 json.dumps(iflip3_fit_settings, separators=(",", ":"), sort_keys=True),
             ]
         )
-    if action == "preprocess" and workflow == "iflip3" and iflip3_calibration is not None:
+    if (
+        action == "preprocess"
+        and workflow == "iflip3"
+        and iflip3_calibration is not None
+    ):
         command.extend(["--iflip3-calibration", str(Path(iflip3_calibration))])
     if signal is not None:
         command.extend(["--signal", str(signal)])
@@ -448,6 +458,10 @@ def build_lifetime_command(
             ]
         )
         command.append("--heatmaps" if heatmaps else "--no-heatmaps")
+        if y_limits is not None:
+            command.extend(
+                ["--y-limits", str(float(y_limits[0])), str(float(y_limits[1]))]
+            )
         if first_event_only:
             command.append("--first-event-only")
         if allow_partial_windows:

@@ -33,9 +33,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Saved multi-session iFLIP3 calibration JSON to apply during preprocessing.",
     )
     parser.add_argument("--signal")
-    parser.add_argument("--event", choices=(
-        "ensure", "visual_cue", "licks", "lick_bout_onset", "lick_bout_offset"
-    ))
+    parser.add_argument(
+        "--event",
+        choices=(
+            "ensure",
+            "visual_cue",
+            "licks",
+            "lick_bout_onset",
+            "lick_bout_offset",
+        ),
+    )
     parser.add_argument("--first-event-only", action="store_true")
     parser.add_argument("--allow-partial-windows", action="store_true")
     parser.add_argument("--window", nargs=2, type=float, default=(-5.0, 20.0))
@@ -44,7 +51,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--normalization", choices=("subtract", "none"), default="subtract"
     )
     parser.add_argument("--baseline", nargs=2, type=float, default=(-5.0, 0.0))
-    parser.add_argument("--heatmaps", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--y-limits", nargs=2, type=float)
+    parser.add_argument(
+        "--heatmaps", action=argparse.BooleanOptionalAction, default=True
+    )
     parser.add_argument("--heatmap-sort", default="event_order")
     parser.add_argument("--heatmap-sort-window", nargs=2, type=float)
     parser.add_argument("--heatmap-sort-direction", default="auto")
@@ -79,6 +89,8 @@ def main(argv=None) -> int:
     elif args.action == "psth":
         if not args.signal or not args.event or not args.output_dir:
             raise ValueError("PSTH requires --signal, --event, and --output-dir")
+        if args.y_limits is not None and args.y_limits[0] >= args.y_limits[1]:
+            raise ValueError("--y-limits MIN must be less than MAX")
         outputs = run_lifetime_psth(
             args.workflow,
             rows,
@@ -90,6 +102,7 @@ def main(argv=None) -> int:
             dt=args.dt,
             normalization=args.normalization,
             baseline=tuple(args.baseline),
+            y_limits=None if args.y_limits is None else tuple(args.y_limits),
             heatmaps=args.heatmaps,
             heatmap_sort=args.heatmap_sort,
             heatmap_sort_window=(
