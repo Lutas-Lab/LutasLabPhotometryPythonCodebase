@@ -2014,7 +2014,7 @@ def run_lifetime_glm(
     ensure_kernel_seconds=20.0,
     progress_callback=None,
 ) -> list[Path]:
-    """Fit the maintained lick/Ensure adaptive ridge model across sessions."""
+    """Fit the maintained shared lick/Ensure ridge model across sessions."""
 
     from fluopulse_analysis.glm import (
         build_adaptive_ensure_design,
@@ -2287,6 +2287,8 @@ def run_lifetime_glm(
         kernel_path,
         lick_time=designs[0].lick_basis.lag_times,
         ensure_time=designs[0].ensure_basis.lag_times,
+        lick_basis_values=designs[0].lick_basis.values,
+        ensure_basis_values=designs[0].ensure_basis.values,
         **kernels,
     )
     report("Saved GLM tables and numeric kernels", advance=True)
@@ -2302,37 +2304,30 @@ def run_lifetime_glm(
     axes[0].axhline(0, color="black", linewidth=0.8)
     axes[0].axvline(0, color="black", linestyle=":", linewidth=0.8)
     axes[0].set(xlabel="Time from lick (s)", ylabel=ylabel, title="Lick kernel")
-    ensure_colors = ("C1", "C2", "C3", "C4")
-    ensure_labels = (
-        "First Ensure",
-        "Subsequent Ensure: early",
-        "Subsequent Ensure: middle",
-        "Subsequent Ensure: late",
-    )
-    for color, name, label in zip(
-        ensure_colors,
-        (
-            "ensure_first",
-            "ensure_progress_0",
-            "ensure_progress_0.5",
-            "ensure_progress_1",
-        ),
-        ensure_labels,
-        strict=True,
-    ):
-        if name.startswith("ensure"):
-            _plot_lifetime_kernel_summary(
-                axes[1],
-                mouse_kernel_rows,
-                group_kernel_rows,
-                name,
-                label,
-                color,
-            )
+    if "ensure_first" in kernels:
+        ensure_specs = (
+            ("C1", "ensure_first", "First Ensure"),
+            ("C2", "ensure_progress_0", "Subsequent Ensure: early"),
+            ("C3", "ensure_progress_0.5", "Subsequent Ensure: middle"),
+            ("C4", "ensure_progress_1", "Subsequent Ensure: late"),
+        )
+        ensure_title = "Ensure/adaptation kernels"
+    else:
+        ensure_specs = (("C1", "ensure", "Ensure"),)
+        ensure_title = "Ensure kernel"
+    for color, name, label in ensure_specs:
+        _plot_lifetime_kernel_summary(
+            axes[1],
+            mouse_kernel_rows,
+            group_kernel_rows,
+            name,
+            label,
+            color,
+        )
     axes[1].axhline(0, color="black", linewidth=0.8)
     axes[1].axvline(0, color="black", linestyle=":", linewidth=0.8)
     axes[1].set(
-        xlabel="Time from Ensure (s)", ylabel=ylabel, title="Ensure/adaptation kernels"
+        xlabel="Time from Ensure (s)", ylabel=ylabel, title=ensure_title
     )
     axes[1].legend()
     fig.suptitle(f"{workflow} lifetime GLM")
@@ -2396,11 +2391,29 @@ def run_lifetime_glm(
                 "sessions": labels,
                 "final_alpha": final_alpha,
                 "pre_event_seconds": float(pre_event_seconds),
+                "ensure_model": "one shared kernel across all Ensure deliveries",
                 "temporal_basis": (
                     "independent raised-cosine bases before zero and from zero onward; "
-                    "no basis column crosses time zero; post-event kernels are "
-                    "constrained to zero at onset"
+                    "post-event time is log-warped for dense early and broad late "
+                    "coverage; no basis column crosses time zero; post-event kernels "
+                    "are constrained to zero at onset"
                 ),
+                "lick_basis_peak_seconds": [
+                    float(
+                        designs[0].lick_basis.lag_times[
+                            np.argmax(basis_column)
+                        ]
+                    )
+                    for basis_column in designs[0].lick_basis.values.T
+                ],
+                "ensure_basis_peak_seconds": [
+                    float(
+                        designs[0].ensure_basis.lag_times[
+                            np.argmax(basis_column)
+                        ]
+                    )
+                    for basis_column in designs[0].ensure_basis.values.T
+                ],
                 "selection": (
                     "nested leave-one-session-out cross-validation; final alpha is "
                     "the median outer-fold selection"

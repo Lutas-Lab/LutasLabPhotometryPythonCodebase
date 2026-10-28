@@ -294,8 +294,10 @@ session-validated lick/Ensure lifetime kernels. Lifetime kernels default to
 durations. Change the shared negative-lag window with `--pre-event-seconds`.
 Pre- and post-event temporal bases are separated at zero, preventing smooth
 post-event basis functions from contributing to negative-time kernels. Event
-kernels are constrained to zero at onset, with their first basis peak at a
-positive lag.
+kernels are constrained to zero at onset. Post-event basis peaks use a
+logarithmic time warp for dense early and broad late coverage. The default model
+fits one shared Ensure kernel across all deliveries rather than separate
+first/early/middle/late adaptation kernels.
 Run
 `lutaslab-run-lifetime-workflow --help` for all signal, window, normalization,
 and heatmap options.

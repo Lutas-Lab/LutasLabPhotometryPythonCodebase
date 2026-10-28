@@ -50,4 +50,34 @@ def test_adaptive_ensure_design_and_grouped_fit():
     kernels = reconstruct_adaptive_kernels(designs[0], result.coefficients)
     assert result.fold_scores.shape == (3, 3)
     assert kernels["lick"].shape == designs[0].lick_basis.lag_times.shape
-    assert kernels["ensure_first"].shape == designs[0].ensure_basis.lag_times.shape
+    assert set(kernels) == {"lick", "ensure"}
+    assert kernels["ensure"].shape == designs[0].ensure_basis.lag_times.shape
+
+
+def test_adaptation_kernels_remain_available_as_an_opt_in():
+    time = np.arange(0.0, 30.0, 0.1)
+    licks = np.zeros(time.size)
+    ensures = np.zeros(time.size)
+    ensures[[50, 120, 200]] = 1
+    design = build_adaptive_ensure_design(
+        time,
+        licks,
+        ensures,
+        lick_kernel_seconds=1.0,
+        ensure_kernel_seconds=2.0,
+        lick_basis_count=3,
+        ensure_basis_count=4,
+        include_adaptation=True,
+    )
+    kernels = reconstruct_adaptive_kernels(
+        design, np.zeros(design.matrix.shape[1], dtype=float)
+    )
+
+    assert {
+        "lick",
+        "ensure",
+        "ensure_first",
+        "ensure_progress_0",
+        "ensure_progress_0.5",
+        "ensure_progress_1",
+    } == set(kernels)

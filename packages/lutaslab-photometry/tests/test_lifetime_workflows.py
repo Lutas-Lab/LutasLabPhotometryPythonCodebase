@@ -676,6 +676,18 @@ def test_lifetime_glm_saves_mouse_level_kernels_in_picoseconds(monkeypatch, tmp_
     metadata = json.loads((tmp_path / "glm" / "glm_metadata.json").read_text())
     assert metadata["units"] == "ps"
     assert metadata["ylabel"] == "Δτ (ps)"
+    assert metadata["ensure_model"] == "one shared kernel across all Ensure deliveries"
+    assert metadata["ensure_basis_peak_seconds"]
+    with np.load(tmp_path / "glm" / "glm_kernels.npz") as kernel_data:
+        assert kernel_data["ensure_basis_values"].shape[1] == len(
+            metadata["ensure_basis_peak_seconds"]
+        )
+    kernel_rows = list(
+        csv.DictReader(
+            (tmp_path / "glm" / "glm_group_kernels.csv").open(encoding="utf-8")
+        )
+    )
+    assert {row["kernel"] for row in kernel_rows} == {"lick", "ensure"}
     assert progress[-1][0] == progress[-1][1]
     assert progress[-1][2] == "Lifetime GLM complete"
     assert any("Cross-validation: outer fold" in item[2] for item in progress)

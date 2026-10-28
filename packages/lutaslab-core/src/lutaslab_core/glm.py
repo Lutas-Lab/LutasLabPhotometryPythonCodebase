@@ -72,8 +72,9 @@ def zero_split_raised_cosine_basis(
     When ``window`` crosses zero, pre-event columns are exactly zero at and
     after zero, while post-event columns are exactly zero before zero. A
     post-event segment that begins at zero is also constrained to equal zero
-    at onset, with its first basis peak at a positive lag. The total column
-    count is unchanged.
+    at onset. Post-event centers are evenly spaced after a ``log1p`` time warp,
+    giving the early response finer resolution and the tail broader support.
+    The total column count is unchanged.
     """
 
     base = raised_cosine_basis(window, count, dt)
@@ -114,11 +115,17 @@ def zero_split_raised_cosine_basis(
         return output
 
     def evaluate_causal(segment_start, segment_stop, segment_count):
-        width = max(float((segment_stop - segment_start) / segment_count), dt)
-        centers = segment_start + width * np.arange(1, segment_count + 1)
+        span = float(segment_stop - segment_start)
+        warp_scale = 1.0
+        transformed_stop = np.log1p(span / warp_scale)
+        width = transformed_stop / segment_count
+        centers = width * np.arange(1, segment_count + 1)
         output = np.zeros((lag_times.size, segment_count), dtype=float)
+        transformed_time = np.log1p(
+            np.maximum(lag_times - segment_start, 0.0) / warp_scale
+        )
         for column, center in enumerate(centers):
-            distance = (lag_times - center) / width
+            distance = (transformed_time - center) / width
             inside = np.abs(distance) <= 1
             output[inside, column] = 0.5 * (
                 1 + np.cos(np.pi * distance[inside])

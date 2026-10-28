@@ -24,6 +24,7 @@ class AdaptiveEnsureDesign:
     ensure_basis: TemporalBasis
     column_slices: dict[str, slice]
     penalty_weights: np.ndarray
+    include_adaptation: bool
 
 
 def build_adaptive_ensure_design(
@@ -36,8 +37,9 @@ def build_adaptive_ensure_design(
     pre_event_seconds: float = 5.0,
     lick_basis_count: int = 8,
     ensure_basis_count: int = 14,
+    include_adaptation: bool = False,
 ) -> AdaptiveEnsureDesign:
-    """Construct the drift, lick, and adapting Ensure design used by FluoPulse."""
+    """Construct the shared lick/Ensure design, optionally including adaptation."""
 
     time = np.asarray(time, dtype=float)
     licks = np.asarray(lick_counts, dtype=float)
@@ -63,14 +65,6 @@ def build_adaptive_ensure_design(
     ensure_basis = zero_split_raised_cosine_basis(
         (-pre_event_seconds, ensure_kernel_seconds), ensure_basis_count, dt
     )
-    event_indices = np.flatnonzero(ensures > 0)
-    first_ensure = np.zeros_like(ensures)
-    progress = np.zeros_like(ensures)
-    if event_indices.size:
-        first_ensure[event_indices[0]] = ensures[event_indices[0]]
-    if event_indices.size > 1:
-        progress[event_indices[1:]] = np.linspace(0.0, 1.0, event_indices.size - 1)
-
     components = {
         "lick": lagged_basis_matrix(
             licks, np.rint(lick_basis.lag_times / dt).astype(int), lick_basis.values
@@ -78,22 +72,36 @@ def build_adaptive_ensure_design(
         "ensure": lagged_basis_matrix(
             ensures, np.rint(ensure_basis.lag_times / dt).astype(int), ensure_basis.values
         ),
-        "first_ensure": lagged_basis_matrix(
-            first_ensure,
-            np.rint(ensure_basis.lag_times / dt).astype(int),
-            ensure_basis.values,
-        ),
-        "ensure_linear": lagged_basis_matrix(
-            ensures * progress,
-            np.rint(ensure_basis.lag_times / dt).astype(int),
-            ensure_basis.values,
-        ),
-        "ensure_quadratic": lagged_basis_matrix(
-            ensures * progress**2,
-            np.rint(ensure_basis.lag_times / dt).astype(int),
-            ensure_basis.values,
-        ),
     }
+    if include_adaptation:
+        event_indices = np.flatnonzero(ensures > 0)
+        first_ensure = np.zeros_like(ensures)
+        progress = np.zeros_like(ensures)
+        if event_indices.size:
+            first_ensure[event_indices[0]] = ensures[event_indices[0]]
+        if event_indices.size > 1:
+            progress[event_indices[1:]] = np.linspace(
+                0.0, 1.0, event_indices.size - 1
+            )
+        components.update(
+            {
+                "first_ensure": lagged_basis_matrix(
+                    first_ensure,
+                    np.rint(ensure_basis.lag_times / dt).astype(int),
+                    ensure_basis.values,
+                ),
+                "ensure_linear": lagged_basis_matrix(
+                    ensures * progress,
+                    np.rint(ensure_basis.lag_times / dt).astype(int),
+                    ensure_basis.values,
+                ),
+                "ensure_quadratic": lagged_basis_matrix(
+                    ensures * progress**2,
+                    np.rint(ensure_basis.lag_times / dt).astype(int),
+                    ensure_basis.values,
+                ),
+            }
+        )
     normalized_time = (time - time[0]) / max(float(time[-1] - time[0]), dt)
     matrices = [
         np.ones((time.size, 1)),
@@ -116,6 +124,7 @@ def build_adaptive_ensure_design(
         ensure_basis=ensure_basis,
         column_slices=column_slices,
         penalty_weights=penalty,
+        include_adaptation=bool(include_adaptation),
     )
 
 
@@ -155,27 +164,32 @@ def reconstruct_adaptive_kernels(
     *,
     progress_levels: Sequence[float] = (0.0, 0.5, 1.0),
 ) -> dict[str, np.ndarray]:
-    """Reconstruct lick, first-Ensure, and subsequent adaptation kernels."""
+    """Reconstruct shared Ensure kernels and optional adaptation variants."""
 
     coefficients = np.asarray(coefficients, dtype=float)
     slices = design.column_slices
     ensure_base = coefficients[slices["ensure"]]
-    first_delta = coefficients[slices["first_ensure"]]
-    linear = coefficients[slices["ensure_linear"]]
-    quadratic = coefficients[slices["ensure_quadratic"]]
     kernels = {
         "lick": reconstruct_kernel(
             design.lick_basis.values,
             coefficients[slices["lick"]],
         ),
-        "ensure_first": reconstruct_kernel(
+        "ensure": reconstruct_kernel(
             design.ensure_basis.values,
-            ensure_base + first_delta,
+            ensure_base,
         ),
     }
-    for level in progress_levels:
-        kernels[f"ensure_progress_{float(level):g}"] = reconstruct_kernel(
+    if design.include_adaptation:
+        first_delta = coefficients[slices["first_ensure"]]
+        linear = coefficients[slices["ensure_linear"]]
+        quadratic = coefficients[slices["ensure_quadratic"]]
+        kernels["ensure_first"] = reconstruct_kernel(
             design.ensure_basis.values,
-            ensure_base + float(level) * linear + float(level) ** 2 * quadratic,
+            ensure_base + first_delta,
         )
+        for level in progress_levels:
+            kernels[f"ensure_progress_{float(level):g}"] = reconstruct_kernel(
+                design.ensure_basis.values,
+                ensure_base + float(level) * linear + float(level) ** 2 * quadratic,
+            )
     return kernels

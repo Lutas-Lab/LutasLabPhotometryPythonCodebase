@@ -309,15 +309,19 @@ The two lifetime modes share the sensor-independent session representation in
   response. The GUI reports session-level progress across all selected signals.
 - **PSTH, heatmap, and GLM analyses** require and load the processed lifetime
   files. They do not reopen or recompute the raw sensor recordings.
-- **Lifetime GLM** estimates signed pre- and post-event lick and Ensure kernels,
-  a separate first Ensure response, and adaptation across subsequent deliveries.
+- **Lifetime GLM** estimates signed pre- and post-event lick kernels and one
+  shared Ensure kernel across all deliveries. Delivery adaptation is deliberately
+  omitted from the default model and can be restored as an explicit extension
+  later.
   The GUI separately controls the shared pre-event duration and the post-lick and
   post-Ensure durations; the default window begins 5 seconds before each event.
   Independent pre- and post-event basis sets meet at zero, so smoothing of a
   post-event response cannot create a negative-time kernel contribution. The
-  post-event kernel is constrained to zero at onset and reaches its first basis
-  peak only at a positive lag. Plots leave the independently estimated pre- and
-  post-event segments disconnected at zero.
+  post-event kernel is constrained to zero at onset. A logarithmic time warp
+  places basis peaks densely during the early response and progressively farther
+  apart in the tail, improving peak-time resolution without adding predictors.
+  Plots leave the independently estimated pre- and post-event segments
+  disconnected at zero.
   Negative-time coefficients are associations preceding the event and must not
   be interpreted as effects caused by that future event. Ridge strength is
   selected inside each outer leave-one-session-out fold; performance is reported

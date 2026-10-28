@@ -52,7 +52,18 @@ def test_zero_split_basis_delays_one_sided_peak_beyond_onset():
 
     np.testing.assert_array_equal(basis.values[onset], 0.0)
     first_peak = basis.lag_times[np.argmax(basis.values[:, 0])]
-    assert np.isclose(first_peak, 1.0)
+    assert 0 < first_peak < 0.5
+
+
+def test_zero_split_basis_is_denser_early_than_late():
+    basis = zero_split_raised_cosine_basis((0.0, 20.0), count=11, dt=0.01)
+    peaks = np.asarray(
+        [basis.lag_times[np.argmax(column)] for column in basis.values.T]
+    )
+
+    assert np.all(np.diff(peaks) > 0)
+    assert peaks[0] < 0.5
+    assert np.diff(peaks)[-1] > 5 * np.diff(peaks)[0]
 
 
 def test_signed_lag_basis_marks_unobserved_edges():

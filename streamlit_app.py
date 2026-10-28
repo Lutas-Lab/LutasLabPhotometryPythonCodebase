@@ -2269,7 +2269,7 @@ def _lifetime_gui(workflow: str) -> None:
         st.subheader("Lick and Ensure lifetime GLM")
         st.write(
             "Fits pre- and post-event kernels for licking and Ensure delivery, including "
-            "a separate first-Ensure effect and adaptation across later deliveries."
+            "one shared Ensure response across all deliveries."
         )
         st.caption(
             "Ridge strength is selected with leave-one-session-out validation. At least "
@@ -2319,8 +2319,7 @@ def _lifetime_gui(workflow: str) -> None:
                 key=f"{workflow}_ensure_kernel",
                 help=(
                     "How long after each Ensure delivery the model estimates its response. "
-                    "This also sets the duration of the separate first-Ensure and "
-                    "later-delivery adaptation kernels."
+                    "All Ensure deliveries contribute to one shared kernel."
                 ),
             )
         glm_output = st.text_input(
