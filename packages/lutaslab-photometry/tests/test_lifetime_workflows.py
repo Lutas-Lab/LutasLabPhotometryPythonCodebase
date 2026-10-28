@@ -339,6 +339,74 @@ def test_iflip3_fit_preview_returns_quality_and_time_resolved_components(monkeyp
     assert preview.fit_rmse_by_sample.shape == (12,)
 
 
+def test_iflip3_afterpulse_only_fit_reuses_corrected_decay_shape():
+    from iflip3.models import periodic_exgaussian_basis
+
+    lifetime_time = np.arange(126, dtype=float) * 0.1
+    short = periodic_exgaussian_basis(
+        lifetime_time, 0.7, 1.0, 0.14, 12.5, normalize="area"
+    )
+    long = periodic_exgaussian_basis(
+        lifetime_time, 2.6, 1.0, 0.14, 12.5, normalize="area"
+    )
+    curves = short[:, None] * np.array([[2000.0, 2200.0]]) + long[
+        :, None
+    ] * np.array([[4000.0, 3800.0]])
+    reference = workflows.IFLIP3FitPreview(
+        lifetime_time=lifetime_time,
+        aggregate_decay=curves.sum(axis=1),
+        fitted_decay=curves.sum(axis=1),
+        short_component=short,
+        long_component=long,
+        residuals=np.zeros(lifetime_time.size),
+        lifetimes=np.array([0.7, 2.6]),
+        t0=1.0,
+        irf_sigma=0.14,
+        background=0.0,
+        rmse=0.0,
+        r_squared=1.0,
+        success=True,
+        message="reference",
+        short_component_counts=np.array([2000.0, 2200.0]),
+        long_component_counts=np.array([4000.0, 3800.0]),
+        long_lifetime_fraction=np.array([2 / 3, 0.6333333333]),
+        fit_rmse_by_sample=np.zeros(2),
+    )
+
+    alternate = workflows._iflip3_preview_with_fixed_shape(
+        reference,
+        lifetime_time,
+        curves,
+        12.5,
+    )
+
+    np.testing.assert_allclose(alternate.lifetimes, reference.lifetimes)
+    assert alternate.t0 == reference.t0
+    assert alternate.irf_sigma == reference.irf_sigma
+    np.testing.assert_allclose(
+        alternate.short_component_counts,
+        reference.short_component_counts,
+        rtol=1e-5,
+    )
+    np.testing.assert_allclose(
+        alternate.long_component_counts,
+        reference.long_component_counts,
+        rtol=1e-5,
+    )
+
+
+def test_iflip3_comparison_signals_are_available_to_downstream_workflows():
+    assert {
+        "mpet_afterpulse_only",
+        "mpet_uncorrected",
+        "long_lifetime_fraction_afterpulse_only",
+        "short_component_counts_afterpulse_only",
+        "long_component_counts_afterpulse_only",
+    }.issubset(workflows.LIFETIME_SIGNALS["iflip3"])
+    assert "mpet_afterpulse_only" in workflows.LIFETIME_TIME_SIGNALS
+    assert "mpet_uncorrected" in workflows.LIFETIME_TIME_SIGNALS
+
+
 def test_write_iflip3_manifest_preserves_background_provenance(tmp_path):
     destination = tmp_path / "iflip3" / "sessions.csv"
     write_lifetime_manifest(

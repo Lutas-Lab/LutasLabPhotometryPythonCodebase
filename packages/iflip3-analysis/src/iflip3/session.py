@@ -49,6 +49,8 @@ class AlignedSession:
     sync_pulses: TTLPulses
     alignment: ClockAlignment | None
     measured_background_applied: bool = True
+    mpet_afterpulse_only_ns: np.ndarray | None = None
+    mpet_uncorrected_ns: np.ndarray | None = None
     running_time_nidaq: np.ndarray | None = None
     running_speed: np.ndarray | None = None
     running_quality: RunningQuality | None = None
@@ -68,6 +70,18 @@ class AlignedSession:
                 "counts",
             ),
         }
+        if self.mpet_afterpulse_only_ns is not None:
+            continuous["mpet_afterpulse_only"] = ContinuousSignal(
+                self.lifetime_time_nidaq,
+                self.mpet_afterpulse_only_ns,
+                "ns",
+            )
+        if self.mpet_uncorrected_ns is not None:
+            continuous["mpet_uncorrected"] = ContinuousSignal(
+                self.lifetime_time_nidaq,
+                self.mpet_uncorrected_ns,
+                "ns",
+            )
         if self.running_time_nidaq is not None and self.running_speed is not None:
             continuous["running_speed"] = ContinuousSignal(
                 self.running_time_nidaq,
@@ -194,6 +208,20 @@ class AlignedSession:
                 time_units="s",
             ),
         }
+        if self.mpet_afterpulse_only_ns is not None:
+            objects["mpet_afterpulse_only"] = nap.Tsd(
+                t=self.lifetime_time_nidaq,
+                d=self.mpet_afterpulse_only_ns,
+                time_units="s",
+                time_support=support,
+            )
+        if self.mpet_uncorrected_ns is not None:
+            objects["mpet_uncorrected"] = nap.Tsd(
+                t=self.lifetime_time_nidaq,
+                d=self.mpet_uncorrected_ns,
+                time_units="s",
+                time_support=support,
+            )
         if self.running_time_nidaq is not None and self.running_speed is not None:
             objects["running_speed"] = nap.Tsd(
                 t=self.running_time_nidaq,
@@ -231,6 +259,38 @@ def process_aligned_session(
         afterpulse_ratio=afterpulse_ratio,
     )
     mpet_values = np.asarray(mpet[:, 0] if mpet.ndim == 2 else mpet, dtype=float)
+    if measured_background is None:
+        mpet_afterpulse_only_values = mpet_values.copy()
+    else:
+        mpet_afterpulse_only, _ = calculate_mpet(
+            iflip,
+            spc_range,
+            t0=float(iflip.header.get_path("state.t0.Value")),
+            measured_background=None,
+            afterpulse_ratio=afterpulse_ratio,
+        )
+        mpet_afterpulse_only_values = np.asarray(
+            mpet_afterpulse_only[:, 0]
+            if mpet_afterpulse_only.ndim == 2
+            else mpet_afterpulse_only,
+            dtype=float,
+        )
+    if afterpulse_ratio == 0.0:
+        mpet_uncorrected_values = mpet_afterpulse_only_values.copy()
+    else:
+        mpet_uncorrected, _ = calculate_mpet(
+            iflip,
+            spc_range,
+            t0=float(iflip.header.get_path("state.t0.Value")),
+            measured_background=None,
+            afterpulse_ratio=0.0,
+        )
+        mpet_uncorrected_values = np.asarray(
+            mpet_uncorrected[:, 0]
+            if mpet_uncorrected.ndim == 2
+            else mpet_uncorrected,
+            dtype=float,
+        )
     raw_intensity = np.asarray(iflip.data[:, :, 0].sum(axis=0), dtype=float)
 
     marker_mask = external_marker_mask(iflip.marks, marker=1)
@@ -258,6 +318,8 @@ def process_aligned_session(
             sync_pulses=native_sync,
             alignment=None,
             measured_background_applied=measured_background is not None,
+            mpet_afterpulse_only_ns=mpet_afterpulse_only_values,
+            mpet_uncorrected_ns=mpet_uncorrected_values,
         )
 
     nidaq: NIDAQRecording = read_nidaq(nidaq_path)
@@ -317,6 +379,8 @@ def process_aligned_session(
         sync_pulses=sync_pulses,
         alignment=alignment,
         measured_background_applied=measured_background is not None,
+        mpet_afterpulse_only_ns=mpet_afterpulse_only_values,
+        mpet_uncorrected_ns=mpet_uncorrected_values,
         running_time_nidaq=running_time,
         running_speed=running_speed,
         running_quality=running_quality,

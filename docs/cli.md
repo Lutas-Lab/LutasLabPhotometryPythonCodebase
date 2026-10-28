@@ -255,6 +255,10 @@ FluoPulse accepts optional `doric_path`, `nidaq_path`, and `running_path`
 columns; iFLIP3 accepts `iflip_path`, optional `nidaq_path` and `running_path`, and
 an optional `background_path`. Without a background, measured-background
 subtraction is skipped while the configured afterpulse correction is retained.
+Preprocessing saves corrected, afterpulse-only, and fully uncorrected MPET traces.
+With decay decomposition enabled, it additionally saves afterpulse-only component
+signals using the same decay-shape parameters as the corrected fit. Existing
+lifetime processed files must be regenerated to obtain these comparison signals.
 
 The GUI's session path assistant can generate these path fields from mouse,
 date, and run. In Python or a notebook, the same candidate search is available

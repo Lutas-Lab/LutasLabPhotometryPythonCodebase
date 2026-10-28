@@ -80,6 +80,24 @@ CONVENTIONAL_PHOTOMETRY_SIGNAL_LABELS = {
     "raw405": "405 isosbestic fluorescence (QC)",
     "fitted405": "Fitted 405 control (QC)",
 }
+LIFETIME_SIGNAL_LABELS = {
+    "mpet": "MPET — standard correction (background if provided + afterpulse)",
+    "mpet_afterpulse_only": "MPET — afterpulse corrected only",
+    "mpet_uncorrected": "MPET — uncorrected",
+    "long_lifetime_fraction": "Long-lifetime fraction — standard correction",
+    "short_component_counts": "Short-component counts — standard correction",
+    "long_component_counts": "Long-component counts — standard correction",
+    "long_lifetime_fraction_afterpulse_only": (
+        "Long-lifetime fraction — afterpulse corrected only"
+    ),
+    "short_component_counts_afterpulse_only": (
+        "Short-component counts — afterpulse corrected only"
+    ),
+    "long_component_counts_afterpulse_only": (
+        "Long-component counts — afterpulse corrected only"
+    ),
+    "raw_intensity": "Raw photon intensity",
+}
 LIFETIME_GLM_RESPONSE_HELP = {
     "fluopulse": (
         "Response predicted by the GLM. tau is fluorescence lifetime (ps); "
@@ -87,10 +105,10 @@ LIFETIME_GLM_RESPONSE_HELP = {
         "quality trace and is primarily a QC response."
     ),
     "iflip3": (
-        "Response predicted by the GLM. MPET is mean photon emission time (ps); "
-        "long_lifetime_fraction is the fraction assigned to the long component; "
-        "short/long_component_counts are fitted component photon counts; raw_intensity "
-        "is the unseparated photon-count signal."
+        "Response predicted by the GLM. Corrected signals use the selected measured "
+        "background plus the configured afterpulse correction. Afterpulse-only signals "
+        "omit measured-background subtraction, and uncorrected MPET omits both. Fitted "
+        "component comparisons reuse the same decay-shape calibration."
     ),
 }
 DEFAULT_ROWS = [
@@ -1812,6 +1830,7 @@ def _lifetime_gui(workflow: str) -> None:
             signal = st.selectbox(
                 "Lifetime/QC signal",
                 LIFETIME_SIGNALS[workflow],
+                format_func=lambda value: LIFETIME_SIGNAL_LABELS.get(value, value),
                 key=f"{workflow}_signal",
                 help="Processed signal to align and average around the selected event.",
             )
@@ -1879,7 +1898,12 @@ def _lifetime_gui(workflow: str) -> None:
                 ),
             )
         with third:
-            lifetime_label = {"tau": "τ", "mpet": "MPET"}.get(signal)
+            lifetime_label = {
+                "tau": "τ",
+                "mpet": "MPET",
+                "mpet_afterpulse_only": "MPET",
+                "mpet_uncorrected": "MPET",
+            }.get(signal)
             normalization_labels = (
                 {
                     "subtract": f"Baseline-subtracted (Δ{lifetime_label}, ps)",
@@ -2283,6 +2307,7 @@ def _lifetime_gui(workflow: str) -> None:
         glm_signal = st.selectbox(
             "GLM response",
             LIFETIME_SIGNALS[workflow],
+            format_func=lambda value: LIFETIME_SIGNAL_LABELS.get(value, value),
             key=f"{workflow}_glm_signal",
             help=LIFETIME_GLM_RESPONSE_HELP[workflow],
         )

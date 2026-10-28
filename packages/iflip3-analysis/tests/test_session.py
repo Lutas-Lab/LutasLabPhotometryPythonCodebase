@@ -89,11 +89,18 @@ def test_process_session_without_nidaq_uses_iflip_clock(monkeypatch):
         "iflip3.session.average_background",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("background loaded")),
     )
-    observed = {}
+    observed = []
 
     def fake_calculate_mpet(*args, **kwargs):
-        observed["measured_background"] = kwargs["measured_background"]
-        return np.array([1.1, 1.2, 1.3]), None
+        observed.append(
+            (kwargs["measured_background"], kwargs["afterpulse_ratio"])
+        )
+        values = (
+            np.array([1.1, 1.2, 1.3])
+            if kwargs["afterpulse_ratio"] > 0
+            else np.array([2.1, 2.2, 2.3])
+        )
+        return values, None
 
     monkeypatch.setattr(
         "iflip3.session.calculate_mpet",
@@ -111,7 +118,15 @@ def test_process_session_without_nidaq_uses_iflip_clock(monkeypatch):
     assert common.metadata["timebase"] == "iflip_native"
     assert common.metadata["nidaq_aligned"] is False
     assert common.metadata["measured_background_applied"] is False
-    assert observed["measured_background"] is None
+    assert observed == [(None, 0.03), (None, 0.0)]
+    np.testing.assert_allclose(
+        common.continuous["mpet_afterpulse_only"].values,
+        [1.1, 1.2, 1.3],
+    )
+    np.testing.assert_allclose(
+        common.continuous["mpet_uncorrected"].values,
+        [2.1, 2.2, 2.3],
+    )
 
 
 def test_flat_zero_running_is_flagged_and_omitted(monkeypatch):

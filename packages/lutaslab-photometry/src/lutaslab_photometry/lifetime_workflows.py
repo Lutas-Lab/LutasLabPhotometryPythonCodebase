@@ -61,14 +61,19 @@ LIFETIME_SIGNALS = {
     "fluopulse": ("tau", "amplitude", "fit_r_square"),
     "iflip3": (
         "mpet",
+        "mpet_afterpulse_only",
+        "mpet_uncorrected",
         "long_lifetime_fraction",
         "short_component_counts",
         "long_component_counts",
+        "long_lifetime_fraction_afterpulse_only",
+        "short_component_counts_afterpulse_only",
+        "long_component_counts_afterpulse_only",
         "raw_intensity",
     ),
 }
 LIFETIME_BEHAVIOR_SIGNALS = ("licking", "running_speed")
-LIFETIME_TIME_SIGNALS = ("tau", "mpet")
+LIFETIME_TIME_SIGNALS = ("tau", "mpet", "mpet_afterpulse_only", "mpet_uncorrected")
 LIFETIME_EVENTS = (
     "ensure",
     "visual_cue",
@@ -77,7 +82,7 @@ LIFETIME_EVENTS = (
     "lick_bout_offset",
     *DERIVED_ALIGNMENT_EVENTS,
 )
-LIFETIME_PROCESSED_SCHEMA_VERSION = "1.0"
+LIFETIME_PROCESSED_SCHEMA_VERSION = "1.1"
 IFLIP3_CALIBRATION_SCHEMA_VERSION = "2.0"
 # The header sync rate may be a measured rather than nominal value. Differences
 # below 0.1% are small relative to the 0.1 ns lifetime-bin grid used by current
@@ -768,6 +773,7 @@ def _load_corrected_iflip3_curves(
     *,
     spc_range: tuple[float, float],
     afterpulse_ratio: float,
+    apply_measured_background: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, float, bool, dict[str, Path | None]]:
     """Load one recording and return its corrected curves inside the fit window."""
 
@@ -776,7 +782,7 @@ def _load_corrected_iflip3_curves(
     resolved = _iflip3_paths(row, data_root)
     recording = read_iflip3(resolved["source_path"])
     measured_background = None
-    if resolved["background_path"] is not None:
+    if apply_measured_background and resolved["background_path"] is not None:
         measured_background = average_background(
             [read_iflip3(resolved["background_path"])]
         )
@@ -797,6 +803,79 @@ def _load_corrected_iflip3_curves(
         float(recording.header.pulse_interval_ns),
         measured_background is not None,
         resolved,
+    )
+
+
+def _iflip3_preview_with_fixed_shape(
+    reference: IFLIP3FitPreview,
+    time: np.ndarray,
+    curves: np.ndarray,
+    pulse_interval: float,
+) -> IFLIP3FitPreview:
+    """Decompose alternate curves without changing calibrated decay shape."""
+
+    from iflip3 import fit_target, periodic_exgaussian_basis
+
+    if time.shape != reference.lifetime_time.shape or not np.allclose(
+        time, reference.lifetime_time, rtol=0.0, atol=1e-9
+    ):
+        raise ValueError("Alternate iFLIP3 curves have a different lifetime-bin axis")
+    per_sample_background = reference.background / max(curves.shape[1], 1)
+    target = fit_target(
+        time,
+        curves,
+        lifetimes=reference.lifetimes,
+        t0=reference.t0,
+        irf_sigma=reference.irf_sigma,
+        pulse_interval=pulse_interval,
+        residual_background_per_bin=per_sample_background,
+        weighting="none" if np.any(curves < 0) else "poisson",
+    )
+    aggregate = curves.sum(axis=1)
+    aggregate_coefficients = target.component_counts.sum(axis=0)
+    short_basis = periodic_exgaussian_basis(
+        time,
+        reference.lifetimes[0],
+        reference.t0,
+        reference.irf_sigma,
+        pulse_interval,
+        normalize="area",
+    )
+    long_basis = periodic_exgaussian_basis(
+        time,
+        reference.lifetimes[1],
+        reference.t0,
+        reference.irf_sigma,
+        pulse_interval,
+        normalize="area",
+    )
+    fitted = target.fitted.sum(axis=1)
+    residuals = aggregate - fitted
+    residual_sum_squares = float(np.sum(residuals**2))
+    total_sum_squares = float(np.sum((aggregate - aggregate.mean()) ** 2))
+    return IFLIP3FitPreview(
+        lifetime_time=time,
+        aggregate_decay=aggregate,
+        fitted_decay=fitted,
+        short_component=aggregate_coefficients[0] * short_basis,
+        long_component=aggregate_coefficients[1] * long_basis,
+        residuals=residuals,
+        lifetimes=reference.lifetimes.copy(),
+        t0=reference.t0,
+        irf_sigma=reference.irf_sigma,
+        background=reference.background,
+        rmse=float(np.sqrt(np.mean(residuals**2))),
+        r_squared=(
+            1.0 - residual_sum_squares / total_sum_squares
+            if total_sum_squares > 0
+            else float("nan")
+        ),
+        success=True,
+        message="Applied fixed decay shape without measured-background subtraction",
+        short_component_counts=target.component_counts[:, 0],
+        long_component_counts=target.component_counts[:, 1],
+        long_lifetime_fraction=target.component_fractions[:, 1],
+        fit_rmse_by_sample=np.sqrt(np.mean(target.residuals**2, axis=0)),
     )
 
 
@@ -1237,11 +1316,13 @@ def _load_iflip3(
     nidaq = resolved["nidaq_path"]
     running = resolved["running_path"]
     background = resolved["background_path"]
+    afterpulse_ratio = 0.03 if calibration is None else calibration.afterpulse_ratio
     session = process_aligned_session(
         iflip,
         nidaq,
         background,
         running_path=running,
+        afterpulse_ratio=afterpulse_ratio,
     )
     core = session.to_core_session(_session_id(row))
     if fit_settings is not None or calibration is not None:
@@ -1249,6 +1330,23 @@ def _load_iflip3(
             apply_iflip3_calibration(row, data_root, calibration)
             if calibration is not None
             else preview_iflip3_fit(row, data_root, fit_settings)
+        )
+        alternate_time, alternate_curves, alternate_pulse_interval, _, _ = (
+            _load_corrected_iflip3_curves(
+                row,
+                data_root,
+                spc_range=(
+                    (0.4, 12.3) if calibration is None else calibration.spc_range
+                ),
+                afterpulse_ratio=afterpulse_ratio,
+                apply_measured_background=False,
+            )
+        )
+        alternate_preview = _iflip3_preview_with_fixed_shape(
+            preview,
+            alternate_time,
+            alternate_curves,
+            alternate_pulse_interval,
         )
         timestamps = core.continuous["mpet"].timestamps
         core.continuous.update(
@@ -1265,6 +1363,26 @@ def _load_iflip3(
                 "lifetime_fit_rmse": ContinuousSignal(
                     timestamps, preview.fit_rmse_by_sample, "counts/bin"
                 ),
+                "short_component_counts_afterpulse_only": ContinuousSignal(
+                    timestamps,
+                    alternate_preview.short_component_counts,
+                    "counts",
+                ),
+                "long_component_counts_afterpulse_only": ContinuousSignal(
+                    timestamps,
+                    alternate_preview.long_component_counts,
+                    "counts",
+                ),
+                "long_lifetime_fraction_afterpulse_only": ContinuousSignal(
+                    timestamps,
+                    alternate_preview.long_lifetime_fraction,
+                    "fraction",
+                ),
+                "lifetime_fit_rmse_afterpulse_only": ContinuousSignal(
+                    timestamps,
+                    alternate_preview.fit_rmse_by_sample,
+                    "counts/bin",
+                ),
             }
         )
         core.metadata["lifetime_fit"] = {
@@ -1279,6 +1397,13 @@ def _load_iflip3(
                 if calibration is not None
                 else normalize_iflip3_fit_settings(fit_settings)
             ),
+            "afterpulse_only_comparison": {
+                "measured_background_applied": False,
+                "afterpulse_ratio": afterpulse_ratio,
+                "shape_parameters_reused_from_corrected_fit": True,
+                "aggregate_rmse": alternate_preview.rmse,
+                "aggregate_r_squared": alternate_preview.r_squared,
+            },
             "calibration": (
                 None
                 if calibration is None
@@ -1301,6 +1426,11 @@ def _load_iflip3(
             "short_component": preview.short_component.tolist(),
             "long_component": preview.long_component.tolist(),
             "residuals": preview.residuals.tolist(),
+            "afterpulse_only_aggregate_decay": (
+                alternate_preview.aggregate_decay.tolist()
+            ),
+            "afterpulse_only_fitted_decay": alternate_preview.fitted_decay.tolist(),
+            "afterpulse_only_residuals": alternate_preview.residuals.tolist(),
         }
     return core, _stringify_paths(resolved)
 
@@ -1639,7 +1769,12 @@ def _lifetime_psth_ylabel(signal: str, normalization: str, units: str) -> str:
         return "Lick rate (licks/s)"
     if signal == "running_speed":
         return "Running speed (cm/s)"
-    label = {"tau": "τ", "mpet": "MPET"}.get(signal, signal.replace("_", " "))
+    label = {
+        "tau": "τ",
+        "mpet": "MPET",
+        "mpet_afterpulse_only": "MPET (afterpulse only)",
+        "mpet_uncorrected": "MPET (uncorrected)",
+    }.get(signal, signal.replace("_", " "))
     prefix = "Δ" if normalization == "subtract" else ""
     return f"{prefix}{label} ({units})" if units else f"{prefix}{label}"
 
