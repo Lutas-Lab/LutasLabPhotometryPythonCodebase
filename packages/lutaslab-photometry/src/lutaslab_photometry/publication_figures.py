@@ -105,13 +105,18 @@ def save_prediction_diagnostic_figures(
             gridspec_kw={"height_ratios": (2.2, 1)},
         )
         axes[0].plot(time, actual, color="black", linewidth=1.0, label="Actual")
+        prediction_label = (
+            "Held-out modulation + observed session baseline"
+            if "observed_session_baseline" in session_rows[0]
+            else "Held-out prediction"
+        )
         axes[0].plot(
-            time, predicted, color="C3", linewidth=1.0, label="Held-out prediction"
+            time, predicted, color="C3", linewidth=1.0, label=prediction_label
         )
         axes[0].set_ylabel(ylabel)
         axes[0].legend()
         score_label = (
-            f"held-out $R^2$ = {r2:.3f}"
+            f"held-out modulation $R^2$ = {r2:.3f}"
             if np.isfinite(r2)
             else "held-out $R^2$ unavailable"
         )

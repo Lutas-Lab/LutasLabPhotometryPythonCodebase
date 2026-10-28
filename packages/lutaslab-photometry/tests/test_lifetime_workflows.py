@@ -728,7 +728,11 @@ def test_lifetime_glm_saves_mouse_level_kernels_in_picoseconds(monkeypatch, tmp_
     assert "glm_mouse_kernels.csv" in output_names
     assert "glm_group_kernels.csv" in output_names
     assert "glm_heldout_predictions.csv" in output_names
+    assert "glm_session_baselines.csv" in output_names
+    assert "glm_baseline_factor_effects.csv" in output_names
+    assert "glm_baseline_coefficients.csv" in output_names
     assert "fluopulse_tau_glm_performance.svg" in output_names
+    assert "fluopulse_tau_glm_session_baselines.svg" in output_names
     predictions = list(
         csv.DictReader(
             (tmp_path / "glm" / "glm_heldout_predictions.csv").open(
@@ -741,10 +745,26 @@ def test_lifetime_glm_saves_mouse_level_kernels_in_picoseconds(monkeypatch, tmp_
     assert float(first_prediction["residual"]) == pytest.approx(
         float(first_prediction["actual"]) - float(first_prediction["predicted"])
     )
+    assert float(first_prediction["centered_residual"]) == pytest.approx(
+        float(first_prediction["actual_centered"])
+        - float(first_prediction["predicted_centered"])
+    )
+    baseline_rows = list(
+        csv.DictReader(
+            (tmp_path / "glm" / "glm_session_baselines.csv").open(
+                encoding="utf-8"
+            )
+        )
+    )
+    assert len(baseline_rows) == len(rows)
+    expected_median_ps = float(np.median(2.4 + 0.01 * np.sin(time) + 0.001) * 1000)
+    assert float(baseline_rows[0]["median"]) == pytest.approx(expected_median_ps)
     metadata = json.loads((tmp_path / "glm" / "glm_metadata.json").read_text())
     assert metadata["units"] == "ps"
     assert metadata["ylabel"] == "Δτ (ps)"
     assert metadata["ensure_model"] == "one shared kernel across all Ensure deliveries"
+    assert "median-centered" in metadata["response_centering"]
+    assert metadata["baseline_model"]["n_sessions"] == len(rows)
     assert metadata["ensure_basis_peak_seconds"]
     with np.load(tmp_path / "glm" / "glm_kernels.npz") as kernel_data:
         assert kernel_data["ensure_basis_values"].shape[1] == len(
@@ -759,6 +779,48 @@ def test_lifetime_glm_saves_mouse_level_kernels_in_picoseconds(monkeypatch, tmp_
     assert progress[-1][0] == progress[-1][1]
     assert progress[-1][2] == "Lifetime GLM complete"
     assert any("Cross-validation: outer fold" in item[2] for item in progress)
+
+
+def test_lifetime_baseline_model_reports_condition_beyond_mouse():
+    rows = []
+    for mouse_index, mouse in enumerate(("M1", "M2", "M3")):
+        for condition, effect in (("fed", 0.0), ("fasted", 25.0)):
+            rows.append(
+                {
+                    "mouse": mouse,
+                    "group": "BLA",
+                    "condition": condition,
+                    "median": 1000.0 + 50.0 * mouse_index + effect,
+                }
+            )
+
+    factors, coefficients, summary = workflows._lifetime_baseline_fixed_effects(rows)
+
+    condition = next(row for row in factors if row["factor"] == "condition")
+    assert condition["identifiable_beyond_other_factors"] is True
+    assert condition["partial_r2"] > 0.9
+    assert summary["n_sessions"] == 6
+    assert any(row["term"].startswith("condition[") for row in coefficients)
+
+
+def test_lifetime_baseline_model_flags_mouse_placement_alias():
+    rows = [
+        {
+            "mouse": mouse,
+            "group": group,
+            "condition": condition,
+            "median": baseline + effect,
+        }
+        for mouse, group, baseline in (("M1", "BLA", 1000.0), ("M2", "NAc", 1100.0))
+        for condition, effect in (("fed", 0.0), ("fasted", 20.0))
+    ]
+
+    factors, _, summary = workflows._lifetime_baseline_fixed_effects(rows)
+
+    placement = next(row for row in factors if row["factor"] == "group")
+    assert placement["identifiable_beyond_other_factors"] is False
+    assert np.isnan(placement["partial_r2"])
+    assert summary["rank_deficient"] is True
 
 
 def test_lifetime_preprocessing_error_identifies_session_and_paths(

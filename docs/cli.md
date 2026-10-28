@@ -302,6 +302,14 @@ kernels are constrained to zero at onset. Post-event basis peaks use a
 logarithmic time warp for dense early and broad late coverage. The default model
 fits one shared Ensure kernel across all deliveries rather than separate
 first/early/middle/late adaptation kernels.
+FluoPulse and iFLIP3 responses are median-centered within session before fitting.
+The GLM therefore scores within-session modulation without penalizing a held-out
+recording for an unrelated absolute lifetime offset. Absolute baselines remain in
+`glm_session_baselines.csv`, and descriptive fixed-effect outputs summarize mouse,
+group/placement, condition, and group-by-condition contributions. For calibrated
+iFLIP3 data, short and long tau are fixed analysis parameters rather than time
+series; they are recorded in the baseline table and processed metadata instead of
+being offered as flat PSTH responses.
 Run
 `lutaslab-run-lifetime-workflow --help` for all signal, window, normalization,
 and heatmap options.

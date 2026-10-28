@@ -1832,7 +1832,16 @@ def _lifetime_gui(workflow: str) -> None:
                 LIFETIME_SIGNALS[workflow],
                 format_func=lambda value: LIFETIME_SIGNAL_LABELS.get(value, value),
                 key=f"{workflow}_signal",
-                help="Processed signal to align and average around the selected event.",
+                help=(
+                    "Processed signal to align and average around the selected event. "
+                    + (
+                        "Calibrated iFLIP3 short and long tau values are fixed parameters, "
+                        "not time-varying signals, so they are recorded in metadata and "
+                        "GLM baseline tables rather than offered as flat PSTHs."
+                        if workflow == "iflip3"
+                        else ""
+                    )
+                ),
             )
             event = st.selectbox(
                 "Alignment event",
@@ -2296,10 +2305,13 @@ def _lifetime_gui(workflow: str) -> None:
             "one shared Ensure response across all deliveries."
         )
         st.caption(
-            "Ridge strength is selected with leave-one-session-out validation. At least "
-            "three sessions are required. Outputs include mouse-level kernel tables, "
-            "individual-mouse traces with mean ± SEM, and held-out performance. Lifetime "
-            "kernels use picoseconds. Results describe predictive association, not causality."
+            "Each session is median-centered so mouse, placement, and condition baseline "
+            "differences do not shift the event kernels. Ridge strength is selected with "
+            "leave-one-session-out validation; at least three sessions are required. "
+            "Outputs include modulation performance, absolute prediction offsets, and a "
+            "separate session-baseline analysis by mouse, group/placement, and condition. "
+            "Lifetime kernels use picoseconds. Results describe predictive association, "
+            "not causality."
         )
         glm_group_filter, glm_condition_filter = _analysis_subset_controls(
             rows, f"{workflow}_glm"

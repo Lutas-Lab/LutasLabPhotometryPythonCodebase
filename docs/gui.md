@@ -330,9 +330,13 @@ The two lifetime modes share the sensor-independent session representation in
   disconnected at zero.
   Negative-time coefficients are associations preceding the event and must not
   be interpreted as effects caused by that future event. Ridge strength is
-  selected inside each outer leave-one-session-out fold; performance is reported
-  only on the untouched session and compared with a train-mean
-  baseline. At least three sessions are required. Each GUI run receives a
+  selected inside each outer leave-one-session-out fold. For both FluoPulse and
+  iFLIP3, each response is median-centered within session before fitting so
+  mouse-, placement-, and condition-level DC offsets cannot distort the event
+  kernels. Modulation performance is reported only on the untouched centered
+  session. The absolute held-out reconstruction is also saved both before and
+  after restoring the observed session median, making the DC offset explicit.
+  At least three sessions are required. Each GUI run receives a
   timestamped output folder. Outputs include held-out
   session and mouse performance, session/mouse/group kernel tables, an editable
   performance figure, and lick/Ensure kernel figures showing individual mice
@@ -340,7 +344,12 @@ The two lifetime modes share the sensor-independent session representation in
   selectable actual-versus-predicted trace, residual trace, held-out R², and
   residual RMSE. The numeric traces are saved in
   `glm_heldout_predictions.csv`, with per-session PNG/SVG diagnostics in
-  `heldout_prediction_diagnostics/`. Lifetime τ and MPET kernels are expressed in
+  `heldout_prediction_diagnostics/`. A separate `glm_session_baselines.csv`
+  records the median, mean, variability, drift, and fixed iFLIP3 calibration
+  lifetimes for every recording. Descriptive fixed-effect tables estimate how
+  much baseline variation is associated with mouse, group/placement, condition,
+  and group-by-condition; aliased placement/mouse designs are flagged rather
+  than silently interpreted. Lifetime τ and MPET kernels are expressed in
   picoseconds. The exported kernels and figures describe predictive
   associations, not causal effects.
 

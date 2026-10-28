@@ -2137,6 +2137,129 @@ def run_lifetime_psth(
     return outputs
 
 
+def _lifetime_baseline_fixed_effects(session_rows):
+    """Describe session baselines with mouse, group, and condition fixed effects."""
+
+    values = np.asarray([row["median"] for row in session_rows], dtype=float)
+    columns = [np.ones(values.size, dtype=float)]
+    names = ["intercept"]
+    factor_columns = {}
+    encoded = {}
+    for factor in ("mouse", "group", "condition"):
+        factor_values = np.asarray(
+            [str(row.get(factor, "") or "(unspecified)") for row in session_rows],
+            dtype=object,
+        )
+        levels = sorted(set(factor_values.tolist()))
+        indices = []
+        encoded[factor] = []
+        for level in levels[1:]:
+            column = (factor_values == level).astype(float)
+            indices.append(len(columns))
+            encoded[factor].append((level, column))
+            columns.append(column)
+            names.append(f"{factor}[{level}]")
+        factor_columns[factor] = {
+            "indices": indices,
+            "levels": levels,
+        }
+    interaction_indices = []
+    for group_level, group_column in encoded["group"]:
+        for condition_level, condition_column in encoded["condition"]:
+            interaction_indices.append(len(columns))
+            columns.append(group_column * condition_column)
+            names.append(f"group[{group_level}]:condition[{condition_level}]")
+    factor_columns["group_by_condition"] = {
+        "indices": interaction_indices,
+        "levels": [
+            name for name in names if name.startswith("group[") and ":" in name
+        ],
+    }
+    design = np.column_stack(columns)
+    coefficients, _, full_rank, _ = np.linalg.lstsq(design, values, rcond=None)
+    fitted = design @ coefficients
+    residuals = values - fitted
+    rss_full = float(np.sum(residuals**2))
+    tss = float(np.sum((values - values.mean()) ** 2))
+    full_r2 = 1.0 - rss_full / tss if tss > 0 else float("nan")
+    degrees_freedom = max(values.size - full_rank, 0)
+    if degrees_freedom > 0:
+        variance = rss_full / degrees_freedom
+        covariance = variance * np.linalg.pinv(design.T @ design)
+        standard_errors = np.sqrt(np.maximum(np.diag(covariance), 0.0))
+    else:
+        standard_errors = np.full(coefficients.shape, np.nan)
+    coefficient_rows = [
+        {
+            "term": name,
+            "coefficient": float(coefficient),
+            "standard_error_descriptive": float(standard_error),
+        }
+        for name, coefficient, standard_error in zip(
+            names, coefficients, standard_errors, strict=True
+        )
+    ]
+    factor_rows = []
+    all_indices = np.arange(design.shape[1])
+    for factor, details in factor_columns.items():
+        indices = np.asarray(details["indices"], dtype=int)
+        if indices.size == 0:
+            factor_rows.append(
+                {
+                    "factor": factor,
+                    "levels": "|".join(map(str, details["levels"])),
+                    "n_columns": 0,
+                    "identifiable_beyond_other_factors": False,
+                    "partial_r2": float("nan"),
+                    "full_model_r2": full_r2,
+                    "note": "Only one observed level; effect cannot be estimated.",
+                }
+            )
+            continue
+        keep = np.setdiff1d(all_indices, indices)
+        reduced = design[:, keep]
+        reduced_coefficients, _, reduced_rank, _ = np.linalg.lstsq(
+            reduced, values, rcond=None
+        )
+        reduced_rss = float(np.sum((values - reduced @ reduced_coefficients) ** 2))
+        identifiable = bool(reduced_rank < full_rank)
+        factor_rows.append(
+            {
+                "factor": factor,
+                "levels": "|".join(map(str, details["levels"])),
+                "n_columns": int(indices.size),
+                "identifiable_beyond_other_factors": identifiable,
+                "partial_r2": (
+                    max(0.0, (reduced_rss - rss_full) / reduced_rss)
+                    if identifiable and reduced_rss > 0
+                    else float("nan")
+                ),
+                "full_model_r2": full_r2,
+                "note": (
+                    "Descriptive fixed-effect contribution after accounting for other factors."
+                    if identifiable
+                    else (
+                        "Aliased with other factors; collect crossed mice/placements "
+                        "to separate effects."
+                    )
+                ),
+            }
+        )
+    model_summary = {
+        "n_sessions": int(values.size),
+        "design_columns": int(design.shape[1]),
+        "design_rank": int(full_rank),
+        "residual_degrees_freedom": int(degrees_freedom),
+        "r_squared": full_r2,
+        "rank_deficient": bool(full_rank < design.shape[1]),
+        "interpretation": (
+            "descriptive session-level fixed-effects model; coefficients are not a "
+            "substitute for a preregistered mixed-effects analysis"
+        ),
+    }
+    return factor_rows, coefficient_rows, model_summary
+
+
 def run_lifetime_glm(
     workflow,
     rows,
@@ -2158,11 +2281,14 @@ def run_lifetime_glm(
 
     designs = []
     outcomes = []
+    absolute_outcomes = []
+    session_baselines = []
+    baseline_rows = []
     uniform_times = []
     labels = []
     response_units = None
     session_count = len(rows)
-    total_steps = session_count**2 + 2 * session_count + 5
+    total_steps = session_count**2 + 2 * session_count + 7
     completed_steps = 0
 
     def report(label, *, advance=False):
@@ -2203,6 +2329,44 @@ def run_lifetime_glm(
                 uniform_time[finite],
                 outcome[finite],
             )
+        session_baseline = float(np.median(outcome))
+        centered_outcome = outcome - session_baseline
+        elapsed_hours = (uniform_time - uniform_time[0]) / 3600.0
+        drift_per_hour = (
+            float(np.polyfit(elapsed_hours, outcome, 1)[0])
+            if np.ptp(elapsed_hours) > 0
+            else 0.0
+        )
+        lifetime_fit = session.metadata.get("lifetime_fit", {})
+        lifetimes = np.asarray(lifetime_fit.get("lifetimes_ns", []), dtype=float)
+        baseline_rows.append(
+            {
+                "session_id": label,
+                "mouse": str(row["mouse"]),
+                "date": str(row.get("date", "")),
+                "run": row.get("run", ""),
+                "group": str(row.get("group", "")),
+                "condition": str(row.get("condition", "")),
+                "signal": signal,
+                "units": units,
+                "median": session_baseline,
+                "mean": float(np.mean(outcome)),
+                "standard_deviation": float(np.std(outcome, ddof=1)),
+                "interquartile_range": float(
+                    np.percentile(outcome, 75) - np.percentile(outcome, 25)
+                ),
+                "linear_drift_per_hour": drift_per_hour,
+                "short_tau_ns_fixed": (
+                    float(lifetimes[0]) if lifetimes.size >= 1 else float("nan")
+                ),
+                "long_tau_ns_fixed": (
+                    float(lifetimes[1]) if lifetimes.size >= 2 else float("nan")
+                ),
+                "irf_sigma_ns_fixed": float(
+                    lifetime_fit.get("irf_sigma_ns", float("nan"))
+                ),
+            }
+        )
         designs.append(
             build_adaptive_ensure_design(
                 uniform_time,
@@ -2213,7 +2377,9 @@ def run_lifetime_glm(
                 pre_event_seconds=pre_event_seconds,
             )
         )
-        outcomes.append(outcome)
+        absolute_outcomes.append(outcome)
+        outcomes.append(centered_outcome)
+        session_baselines.append(session_baseline)
         uniform_times.append(uniform_time)
         labels.append(label)
         report(f"Prepared session {session_index}/{session_count}: {label}", advance=True)
@@ -2224,6 +2390,7 @@ def run_lifetime_glm(
     alphas = np.logspace(-4, 4, 17)
     matrix = np.vstack([design.matrix for design in designs])
     response = np.concatenate(outcomes)
+    absolute_response = np.concatenate(absolute_outcomes)
     groups = np.concatenate(
         [
             np.full(outcome.size, label, dtype=object)
@@ -2279,19 +2446,40 @@ def run_lifetime_glm(
             penalize=penalty,
         )
         held_out = str(np.unique(groups[outer_test])[0])
-        held_out_prediction = matrix[outer_test] / outer_scale @ coefficients
-        baseline_prediction = np.full(
+        centered_prediction = matrix[outer_test] / outer_scale @ coefficients
+        centered_baseline_prediction = np.full(
             outer_test.size, np.mean(response[outer_train])
         )
-        heldout_r2 = r2_score(response[outer_test], held_out_prediction)
-        baseline_r2 = r2_score(response[outer_test], baseline_prediction)
+        heldout_r2 = r2_score(response[outer_test], centered_prediction)
+        baseline_r2 = r2_score(response[outer_test], centered_baseline_prediction)
         held_out_index = labels.index(held_out)
         held_out_row = rows[held_out_index]
-        for time_s, actual, predicted, baseline in zip(
+        observed_baseline = session_baselines[held_out_index]
+        restored_prediction = centered_prediction + observed_baseline
+        training_absolute_baseline = float(np.mean(absolute_response[outer_train]))
+        uncalibrated_prediction = centered_prediction + training_absolute_baseline
+        absolute_r2_uncalibrated = r2_score(
+            absolute_response[outer_test], uncalibrated_prediction
+        )
+        dc_offset = float(
+            np.mean(absolute_response[outer_test] - uncalibrated_prediction)
+        )
+        for (
+            time_s,
+            absolute_actual,
+            centered_actual,
+            centered_predicted,
+            restored_predicted,
+            uncalibrated_predicted,
+            centered_baseline,
+        ) in zip(
             uniform_times[held_out_index],
+            absolute_response[outer_test],
             response[outer_test],
-            held_out_prediction,
-            baseline_prediction,
+            centered_prediction,
+            restored_prediction,
+            uncalibrated_prediction,
+            centered_baseline_prediction,
             strict=True,
         ):
             prediction_rows.append(
@@ -2303,12 +2491,27 @@ def run_lifetime_glm(
                     "condition": str(held_out_row.get("condition", "")),
                     "session_id": held_out,
                     "time_s": float(time_s),
-                    "actual": float(actual),
-                    "predicted": float(predicted),
-                    "residual": float(actual - predicted),
-                    "baseline_predicted": float(baseline),
+                    "actual": float(absolute_actual),
+                    "predicted": float(restored_predicted),
+                    "residual": float(absolute_actual - restored_predicted),
+                    "actual_centered": float(centered_actual),
+                    "predicted_centered": float(centered_predicted),
+                    "centered_residual": float(
+                        centered_actual - centered_predicted
+                    ),
+                    "observed_session_baseline": observed_baseline,
+                    "uncalibrated_absolute_prediction": float(
+                        uncalibrated_predicted
+                    ),
+                    "uncalibrated_absolute_residual": float(
+                        absolute_actual - uncalibrated_predicted
+                    ),
+                    "baseline_predicted": float(centered_baseline),
                     "heldout_r2": heldout_r2,
+                    "modulation_r2": heldout_r2,
                     "baseline_r2": baseline_r2,
+                    "absolute_r2_uncalibrated": absolute_r2_uncalibrated,
+                    "dc_offset_uncalibrated": dc_offset,
                     "selected_alpha": best_alpha,
                 }
             )
@@ -2322,6 +2525,11 @@ def run_lifetime_glm(
                 "selected_alpha": best_alpha,
                 "baseline_r2": baseline_r2,
                 "r2": heldout_r2,
+                "modulation_r2": heldout_r2,
+                "absolute_r2_uncalibrated": absolute_r2_uncalibrated,
+                "observed_session_baseline": observed_baseline,
+                "training_absolute_baseline": training_absolute_baseline,
+                "dc_offset_uncalibrated": dc_offset,
             }
         )
         report(
@@ -2391,6 +2599,10 @@ def run_lifetime_glm(
     mouse_kernel_rows, group_kernel_rows = _summarize_lifetime_kernel_rows(
         session_kernel_rows
     )
+    baseline_factor_rows, baseline_coefficient_rows, baseline_model_summary = (
+        _lifetime_baseline_fixed_effects(baseline_rows)
+    )
+    report("Analyzed between-session lifetime baselines", advance=True)
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
     report("Writing GLM tables and metadata")
@@ -2405,6 +2617,14 @@ def run_lifetime_glm(
                 "mouse": mouse,
                 "baseline_r2": float(np.mean([row["baseline_r2"] for row in selected])),
                 "r2": float(np.mean([row["r2"] for row in selected])),
+                "absolute_r2_uncalibrated": float(
+                    np.mean(
+                        [row["absolute_r2_uncalibrated"] for row in selected]
+                    )
+                ),
+                "mean_dc_offset_uncalibrated": float(
+                    np.mean([row["dc_offset_uncalibrated"] for row in selected])
+                ),
                 "n_sessions": len(selected),
             }
         )
@@ -2413,10 +2633,16 @@ def run_lifetime_glm(
     mouse_kernel_path = destination / "glm_mouse_kernels.csv"
     group_kernel_path = destination / "glm_group_kernels.csv"
     prediction_path = destination / "glm_heldout_predictions.csv"
+    baseline_session_path = destination / "glm_session_baselines.csv"
+    baseline_factor_path = destination / "glm_baseline_factor_effects.csv"
+    baseline_coefficient_path = destination / "glm_baseline_coefficients.csv"
     _write_dict_rows(session_kernel_path, session_kernel_rows)
     _write_dict_rows(mouse_kernel_path, mouse_kernel_rows)
     _write_dict_rows(group_kernel_path, group_kernel_rows)
     _write_dict_rows(prediction_path, prediction_rows)
+    _write_dict_rows(baseline_session_path, baseline_rows)
+    _write_dict_rows(baseline_factor_path, baseline_factor_rows)
+    _write_dict_rows(baseline_coefficient_path, baseline_coefficient_rows)
     kernel_path = destination / "glm_kernels.npz"
     np.savez_compressed(
         kernel_path,
@@ -2430,6 +2656,79 @@ def run_lifetime_glm(
     import matplotlib.pyplot as plt
 
     figure_paths = []
+    report("Rendering lifetime baseline figure")
+    baseline_fig, baseline_ax = plt.subplots(figsize=(7.2, 4.8))
+    categories = sorted(
+        {
+            (row["group"] or "(unspecified)", row["condition"] or "(unspecified)")
+            for row in baseline_rows
+        }
+    )
+    category_positions = {category: index for index, category in enumerate(categories)}
+    for mouse in sorted({row["mouse"] for row in baseline_rows}):
+        selected = [row for row in baseline_rows if row["mouse"] == mouse]
+        selected.sort(
+            key=lambda row: category_positions[
+                (
+                    row["group"] or "(unspecified)",
+                    row["condition"] or "(unspecified)",
+                )
+            ]
+        )
+        x = [
+            category_positions[
+                (
+                    row["group"] or "(unspecified)",
+                    row["condition"] or "(unspecified)",
+                )
+            ]
+            for row in selected
+        ]
+        y = [row["median"] for row in selected]
+        baseline_ax.plot(x, y, marker="o", linewidth=0.8, alpha=0.55, label=mouse)
+    for category, position in category_positions.items():
+        values = np.asarray(
+            [
+                row["median"]
+                for row in baseline_rows
+                if (
+                    row["group"] or "(unspecified)",
+                    row["condition"] or "(unspecified)",
+                )
+                == category
+            ],
+            dtype=float,
+        )
+        sem = (
+            float(np.std(values, ddof=1) / np.sqrt(values.size))
+            if values.size > 1
+            else np.nan
+        )
+        baseline_ax.errorbar(
+            position,
+            float(np.mean(values)),
+            yerr=sem,
+            color="black",
+            marker="D",
+            markersize=6,
+            linewidth=2,
+            capsize=3,
+        )
+    baseline_ax.set(
+        xticks=range(len(categories)),
+        xticklabels=[f"{group}\n{condition}" for group, condition in categories],
+        ylabel=_lifetime_psth_ylabel(signal, "none", response_units or ""),
+        title=f"{workflow} session baseline by group and condition",
+    )
+    baseline_fig.tight_layout()
+    for suffix in ("png", "svg"):
+        baseline_figure_path = (
+            destination / f"{workflow}_{signal}_glm_session_baselines.{suffix}"
+        )
+        baseline_fig.savefig(baseline_figure_path, dpi=300)
+        figure_paths.append(baseline_figure_path)
+    plt.close(baseline_fig)
+    report("Rendered lifetime baseline figure", advance=True)
     report("Rendering lifetime GLM kernel figures")
     ylabel = _lifetime_psth_ylabel(signal, "subtract", response_units or "")
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
@@ -2498,9 +2797,9 @@ def run_lifetime_glm(
     performance_ax.axhline(0, color="black", linestyle=":", linewidth=0.8)
     performance_ax.set(
         xticks=(0, 1),
-        xticklabels=("Constant baseline", "Lick + Ensure GLM"),
-        ylabel="Held-out $R^2$",
-        title=f"{workflow} lifetime GLM performance",
+        xticklabels=("Centered constant", "Lick + Ensure GLM"),
+        ylabel="Held-out modulation $R^2$",
+        title=f"{workflow} centered lifetime GLM performance",
     )
     performance_fig.tight_layout()
     for suffix in ("png", "svg"):
@@ -2525,6 +2824,10 @@ def run_lifetime_glm(
                 "ylabel": ylabel,
                 "sessions": labels,
                 "final_alpha": final_alpha,
+                "response_centering": (
+                    "each session is median-centered before event-kernel fitting"
+                ),
+                "baseline_model": baseline_model_summary,
                 "pre_event_seconds": float(pre_event_seconds),
                 "ensure_model": "one shared kernel across all Ensure deliveries",
                 "temporal_basis": (
@@ -2555,7 +2858,10 @@ def run_lifetime_glm(
                 ),
                 "interpretation": "predictive association; not causal",
                 "predictions": (
-                    "leave-one-session-out held-out predictions; residual = actual - predicted"
+                    "event kernels are evaluated on median-centered held-out responses; "
+                    "the displayed absolute prediction adds the observed held-out session "
+                    "median for visualization; uncalibrated_absolute_prediction uses only "
+                    "the mean absolute baseline in the training sessions"
                 ),
                 "kernel_summary": (
                     "sessions averaged within mouse; individual mice and mean plus SEM are shown"
@@ -2574,6 +2880,9 @@ def run_lifetime_glm(
         mouse_kernel_path,
         group_kernel_path,
         prediction_path,
+        baseline_session_path,
+        baseline_factor_path,
+        baseline_coefficient_path,
         metadata_path,
         *figure_paths,
     ]
