@@ -9,21 +9,23 @@ def test_streamlit_app_loads_without_exceptions():
     project_root = Path(__file__).resolve().parents[3]
     app = streamlit_testing.AppTest.from_file(
         str(project_root / "streamlit_app.py")
-    ).run(timeout=30)
+    ).run(timeout=45)
 
     assert not app.exception
     assert [tab.label for tab in app.tabs] == [
         "1. Sessions",
         "2. Batch preprocessing",
-        "3. Event-aligned PSTH",
-        "4. Summary statistics",
-        "5. Behavioral GLM",
+        "3. Session trace",
+        "4. Event-aligned PSTH",
+        "5. Summary statistics",
+        "6. Behavioral GLM",
     ]
     assert {button.label for button in app.button} >= {
         "Validate sessions",
         "Save manifest",
         "Preview preprocessing command",
         "Run preprocessing",
+        "Load session trace",
         "Preview PSTH command",
         "Run PSTH and plots",
         "Preview saved PSTH",
@@ -47,7 +49,7 @@ def test_streamlit_app_loads_without_exceptions():
         app.selectbox(key="conventional_psth_summary_saved_run").label
         == "Saved PSTH run folder"
     )
-    assert "Signal" not in {selectbox.label for selectbox in app.selectbox}
+    assert app.selectbox(key="conventional_trace_signal").label == "Signal"
 
 
 def test_gui_source_summarizes_structured_running_qc():
@@ -90,17 +92,18 @@ def test_streamlit_lifetime_modes_load(workflow, expected_signal):
     project_root = Path(__file__).resolve().parents[3]
     app = streamlit_testing.AppTest.from_file(
         str(project_root / "streamlit_app.py")
-    ).run(timeout=30)
+    ).run(timeout=45)
     app.radio[0].set_value(workflow)
-    app.run(timeout=30)
+    app.run(timeout=45)
 
     assert not app.exception
     assert [tab.label for tab in app.tabs] == [
         "1. Sessions",
         "2. Preprocess and align",
-        "3. Event-aligned PSTH",
-        "4. Summary statistics",
-        "5. Lifetime GLM",
+        "3. Session trace",
+        "4. Event-aligned PSTH",
+        "5. Summary statistics",
+        "6. Lifetime GLM",
     ]
     assert app.selectbox(key=f"{workflow}_signal").value == expected_signal
     assert app.selectbox(key=f"{workflow}_normalization").value == "subtract"

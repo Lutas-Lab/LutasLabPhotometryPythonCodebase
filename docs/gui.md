@@ -128,6 +128,24 @@ per-session kernel fits. The lifetime ridge search reuses each training fold's
 normal equations across candidate regularization strengths; this preserves the
 same nested validation results while avoiding repeated matrix cross-products.
 
+## Single-session example traces
+
+The **Session trace** tab sits between preprocessing and PSTH in conventional,
+FluoPulse, and iFLIP3 modes. Select one processed session and continuous signal,
+then load an overview plus a nested zoom window. Cue and Ensure intervals are
+drawn as translucent patches using their recorded onset and offset timestamps;
+this preserves acquisition-specific durations such as 0.5-s and 2-s Ensure
+deliveries. If an older conventional file contains only an onset, the viewer
+uses a vertical line and does not invent an interval. Licks appear as raster
+ticks above the continuous signal.
+
+The display can retain native processed units, subtract the full-session mean,
+or use a full-session z-score. These transforms always use the complete session,
+so changing the overview or zoom cannot change the scale. Saving creates a new
+timestamped folder containing PNG and SVG figures, the displayed numeric trace,
+an event table with Cue/Ensure intervals and lick timestamps, and JSON metadata
+recording the source file, windows, transform, and code commit.
+
 ## Saved-PSTH summary statistics
 
 The **Summary statistics** tab sits between PSTH and GLM for conventional,

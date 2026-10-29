@@ -57,6 +57,12 @@ from lutaslab_photometry.psth_statistics import metrics_for_signal_type
 from lutaslab_photometry.qc_reporting import parse_qc_warning_line
 from lutaslab_photometry.save_sessiondata import conventional_preprocessing_parameters
 from lutaslab_photometry.session_manifest import processed_session_path
+from lutaslab_photometry.session_trace import (
+    load_conventional_session_trace,
+    load_lifetime_session_trace,
+    plot_session_trace,
+    save_session_trace,
+)
 from lutaslab_photometry.update_check import (
     GITHUB_REPOSITORY_URL,
     UpdateStatus,
@@ -1261,6 +1267,252 @@ def _psth_summary_controls(default_base_directory, key_prefix):
             _preview_command(command)
 
 
+def _session_trace_controls(workflow, rows, data_root):
+    """Render a shared continuous-session example-trace viewer and exporter."""
+
+    st.subheader("Single-session example trace")
+    st.write(
+        "Inspect one continuous processed signal with measured Cue and Ensure "
+        "durations shown as transparent patches and individual licks shown as ticks."
+    )
+    st.caption(
+        "Ensure patches use the recorded onset and offset, so 0.5-s and 2-s "
+        "deliveries retain their true durations. Older files without an offset use "
+        "an onset line rather than an assumed duration."
+    )
+    try:
+        valid_rows = (
+            normalize_manifest_rows(rows)
+            if workflow == "conventional"
+            else normalize_lifetime_manifest_rows(workflow, rows)
+        )
+    except ValueError as error:
+        st.warning(f"Complete the session table before loading a trace: {error}")
+        return
+    if not valid_rows:
+        st.info("Add at least one session to the session table.")
+        return
+
+    def row_label(index):
+        row = valid_rows[index]
+        details = f"{row['mouse']} · {row['date']} · run {int(row['run']):03d}"
+        if row.get("condition"):
+            details += f" · {row['condition']}"
+        return details
+
+    first, second, third = st.columns(3)
+    with first:
+        selected_index = st.selectbox(
+            "Session",
+            range(len(valid_rows)),
+            format_func=row_label,
+            key=f"{workflow}_trace_session",
+        )
+    selected_row = valid_rows[selected_index]
+    with second:
+        if workflow == "conventional":
+            signal = st.selectbox(
+                "Signal",
+                tuple(CONVENTIONAL_PHOTOMETRY_SIGNAL_LABELS),
+                format_func=CONVENTIONAL_PHOTOMETRY_SIGNAL_LABELS.get,
+                key="conventional_trace_signal",
+            )
+        else:
+            signal = st.selectbox(
+                "Signal",
+                LIFETIME_SIGNALS[workflow],
+                format_func=LIFETIME_SIGNAL_LABELS.get,
+                key=f"{workflow}_trace_signal",
+            )
+    with third:
+        channel = "manifest"
+        if workflow == "conventional":
+            channel = st.selectbox(
+                "Photoreceiver channel",
+                ("manifest", "1", "2"),
+                key="conventional_trace_channel",
+                help="Use the selected session's manifest channel or override it.",
+            )
+        load_trace = st.button(
+            "Load session trace",
+            type="primary",
+            width="stretch",
+            key=f"{workflow}_load_session_trace",
+        )
+
+    data_key = f"{workflow}_session_trace_data"
+    identity_key = f"{workflow}_session_trace_identity"
+    selection_identity = (
+        selected_row["mouse"],
+        selected_row["date"],
+        int(selected_row["run"]),
+        signal,
+        channel,
+        str(Path(data_root).expanduser()),
+    )
+    if load_trace:
+        try:
+            with st.spinner("Loading processed session trace..."):
+                data = (
+                    load_conventional_session_trace(
+                        selected_row, data_root, signal=signal, channel=channel
+                    )
+                    if workflow == "conventional"
+                    else load_lifetime_session_trace(
+                        workflow, selected_row, data_root, signal
+                    )
+                )
+        except (OSError, KeyError, ValueError) as error:
+            st.error(f"Could not load session trace: {error}")
+        else:
+            st.session_state[data_key] = data
+            st.session_state[identity_key] = selection_identity
+            start = float(data.time[0])
+            end = float(data.time[-1])
+            if data.ensure_starts.size:
+                center = float(data.ensure_starts[0])
+                zoom_start = max(start, center - 5.0)
+                zoom_end = min(end, center + 30.0)
+            else:
+                zoom_start = start
+                zoom_end = min(end, start + 60.0)
+            st.session_state[f"{workflow}_trace_overview_start"] = start
+            st.session_state[f"{workflow}_trace_overview_end"] = end
+            st.session_state[f"{workflow}_trace_zoom_start"] = zoom_start
+            st.session_state[f"{workflow}_trace_zoom_end"] = zoom_end
+
+    data = st.session_state.get(data_key)
+    loaded_identity = st.session_state.get(identity_key)
+    if data is None:
+        st.info("Choose a session and signal, then click Load session trace.")
+        return
+    if loaded_identity != selection_identity:
+        st.warning(
+            "The controls now select a different session or signal. Click Load "
+            "session trace to update the displayed data."
+        )
+    duration_caption = []
+    cue_durations = data.cue_ends - data.cue_starts
+    cue_durations = cue_durations[np.isfinite(cue_durations)]
+    ensure_durations = data.ensure_ends - data.ensure_starts
+    ensure_durations = ensure_durations[np.isfinite(ensure_durations)]
+    if cue_durations.size:
+        duration_caption.append(f"median Cue duration {np.median(cue_durations):g} s")
+    if ensure_durations.size:
+        duration_caption.append(
+            f"median Ensure duration {np.median(ensure_durations):g} s"
+        )
+    st.caption(
+        f"Loaded {data.session_id} · {data.signal} · {len(data.lick_times)} licks"
+        + (f" · {' · '.join(duration_caption)}" if duration_caption else "")
+    )
+
+    window_left, window_right = st.columns(2)
+    with window_left:
+        st.markdown("**Overview window**")
+        overview_start = st.number_input(
+            "Overview start (s)", key=f"{workflow}_trace_overview_start"
+        )
+        overview_end = st.number_input(
+            "Overview end (s)", key=f"{workflow}_trace_overview_end"
+        )
+    with window_right:
+        st.markdown("**Zoom window**")
+        zoom_start = st.number_input(
+            "Zoom start (s)", key=f"{workflow}_trace_zoom_start"
+        )
+        zoom_end = st.number_input(
+            "Zoom end (s)", key=f"{workflow}_trace_zoom_end"
+        )
+    transform_labels = {
+        "native": "Native processed units",
+        "subtract_mean": "Subtract full-session mean",
+        "zscore": "Full-session z-score",
+    }
+    option_columns = st.columns(4)
+    with option_columns[0]:
+        transform = st.selectbox(
+            "Display transform",
+            tuple(transform_labels),
+            format_func=transform_labels.get,
+            key=f"{workflow}_trace_transform",
+            help=(
+                "The transform is calculated from the full session, so changing the "
+                "overview or zoom window cannot change the trace scale."
+            ),
+        )
+    with option_columns[1]:
+        show_cues = st.checkbox("Show Cue", value=True, key=f"{workflow}_trace_cues")
+    with option_columns[2]:
+        show_ensures = st.checkbox(
+            "Show Ensure", value=True, key=f"{workflow}_trace_ensures"
+        )
+    with option_columns[3]:
+        show_licks = st.checkbox(
+            "Show licks", value=True, key=f"{workflow}_trace_licks"
+        )
+    windows_valid = (
+        overview_start < overview_end
+        and overview_start <= zoom_start < zoom_end <= overview_end
+        and overview_start >= data.time[0]
+        and overview_end <= data.time[-1]
+    )
+    if not windows_valid:
+        st.error(
+            f"Windows must increase and remain within {data.time[0]:g}–"
+            f"{data.time[-1]:g} s, and the zoom must lie within the overview."
+        )
+        return
+    try:
+        figure, _, _ = plot_session_trace(
+            data,
+            overview_window=(overview_start, overview_end),
+            zoom_window=(zoom_start, zoom_end),
+            transform=transform,
+            show_cues=show_cues,
+            show_ensures=show_ensures,
+            show_licks=show_licks,
+        )
+    except ValueError as error:
+        st.error(f"Could not draw session trace: {error}")
+        return
+    import matplotlib.pyplot as plt
+
+    st.pyplot(figure, width="stretch")
+    plt.close(figure)
+    output_base = st.text_input(
+        "Session-trace output base directory",
+        value=str(PROJECT_ROOT / "analysis" / "session_traces" / workflow),
+        key=f"{workflow}_trace_output_base",
+        help="Each saved example is written to a new timestamped folder.",
+    )
+    output_directory = next_analysis_run_directory(
+        output_base, f"{data.session_id}__{data.signal}"
+    )
+    st.caption(f"This example trace will be saved to: {output_directory}")
+    if st.button(
+        "Save example trace and data",
+        type="primary",
+        width="stretch",
+        key=f"{workflow}_save_session_trace",
+    ):
+        try:
+            outputs = save_session_trace(
+                data,
+                output_directory,
+                overview_window=(overview_start, overview_end),
+                zoom_window=(zoom_start, zoom_end),
+                transform=transform,
+                show_cues=show_cues,
+                show_ensures=show_ensures,
+                show_licks=show_licks,
+            )
+        except (OSError, ValueError) as error:
+            st.error(f"Could not save session trace: {error}")
+        else:
+            st.success(f"Saved {len(outputs)} files to {output_directory}")
+
+
 def _lifetime_gui(workflow: str) -> None:
     label = "FluoPulse" if workflow == "fluopulse" else "iFLIP3"
     state_key = f"{workflow}_manifest_rows"
@@ -1293,13 +1545,14 @@ def _lifetime_gui(workflow: str) -> None:
             "discovery."
         )
 
-    sessions_tab, align_tab, psth_tab, summary_tab, glm_tab = st.tabs(
+    sessions_tab, align_tab, trace_tab, psth_tab, summary_tab, glm_tab = st.tabs(
         [
             "1. Sessions",
             "2. Preprocess and align",
-            "3. Event-aligned PSTH",
-            "4. Summary statistics",
-            "5. Lifetime GLM",
+            "3. Session trace",
+            "4. Event-aligned PSTH",
+            "5. Summary statistics",
+            "6. Lifetime GLM",
         ]
     )
     with sessions_tab:
@@ -1918,6 +2171,9 @@ def _lifetime_gui(workflow: str) -> None:
                 "Preview preprocessing command", key=f"{workflow}_preview_align"
             ):
                 _preview_command(command)
+
+    with trace_tab:
+        _session_trace_controls(workflow, rows, data_root)
 
     with psth_tab:
         st.subheader("Event-aligned lifetime timecourses")
@@ -2545,13 +2801,14 @@ with st.sidebar:
 if "manifest_rows" not in st.session_state:
     st.session_state.manifest_rows = DEFAULT_ROWS
 
-sessions_tab, preprocess_tab, psth_tab, summary_tab, glm_tab = st.tabs(
+sessions_tab, preprocess_tab, trace_tab, psth_tab, summary_tab, glm_tab = st.tabs(
     [
         "1. Sessions",
         "2. Batch preprocessing",
-        "3. Event-aligned PSTH",
-        "4. Summary statistics",
-        "5. Behavioral GLM",
+        "3. Session trace",
+        "4. Event-aligned PSTH",
+        "5. Summary statistics",
+        "6. Behavioral GLM",
     ]
 )
 
@@ -2650,6 +2907,9 @@ with preprocess_tab:
     with st.expander("Advanced: inspect or copy command"):
         if st.button("Preview preprocessing command", width="stretch"):
             _preview_command(preprocess_command)
+
+with trace_tab:
+    _session_trace_controls("conventional", editor_rows, data_root)
 
 with psth_tab:
     st.subheader("Event-aligned timecourses")
