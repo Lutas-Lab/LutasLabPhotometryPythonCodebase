@@ -293,7 +293,14 @@ def plot_session_trace(
     if show_ensures:
         handles.append(Patch(facecolor="#54b948", alpha=0.3, label="Ensure"))
     if handles:
-        axes[0].legend(handles=handles, frameon=False, ncol=len(handles), loc="upper right")
+        axes[0].legend(
+            handles=handles,
+            frameon=False,
+            ncol=len(handles),
+            loc="lower right",
+            bbox_to_anchor=(1.0, 1.01),
+            borderaxespad=0.0,
+        )
     fig.suptitle(f"{data.session_id} · {data.signal}")
     return fig, transformed, parameters
 

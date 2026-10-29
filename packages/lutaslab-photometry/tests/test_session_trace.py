@@ -59,6 +59,19 @@ def test_plot_uses_measured_cue_and_ensure_durations():
     plt.close(figure)
 
 
+def test_event_legend_is_above_lick_raster_plotting_area():
+    figure, _, _ = plot_session_trace(
+        _trace_data(), overview_window=(0.0, 20.0), zoom_window=(4.0, 13.0)
+    )
+    figure.canvas.draw()
+    renderer = figure.canvas.get_renderer()
+    legend_box = figure.axes[0].get_legend().get_window_extent(renderer)
+    axes_box = figure.axes[0].get_window_extent(renderer)
+
+    assert legend_box.y0 >= axes_box.y1
+    plt.close(figure)
+
+
 def test_plot_falls_back_to_onset_line_when_offset_is_missing():
     data = _trace_data()
     data = SessionTraceData(
