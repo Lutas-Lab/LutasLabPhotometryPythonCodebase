@@ -46,6 +46,55 @@ def _write_session(root, info, amplitude):
 
 
 class PsthStatisticsTests(unittest.TestCase):
+    def test_licking_metrics_are_computed_per_trial(self):
+        time = np.array([-1.0, 0.0, 1.0, 2.0])
+        traces = np.array([[0.0, 0.0, 2.0, 0.0], [0.0, 0.0, 0.0, 0.0]])
+
+        result = compute_response_metrics(
+            time,
+            traces,
+            response_window=(0.0, 2.0),
+            peak_smoothing=0.0,
+            metrics=("lick_count", "any_lick", "first_lick_latency"),
+            signal_type="licking",
+        )
+
+        np.testing.assert_allclose(result["lick_count"], [2.0, 0.0])
+        np.testing.assert_allclose(result["any_lick"], [1.0, 0.0])
+        self.assertEqual(result["first_lick_latency"][0], 1.0)
+        self.assertTrue(np.isnan(result["first_lick_latency"][1]))
+
+    def test_running_metrics_use_configurable_movement_threshold(self):
+        time = np.array([-1.0, 0.0, 1.0, 2.0])
+        traces = np.array([[0.0, 0.5, 2.0, 3.0]])
+
+        result = compute_response_metrics(
+            time,
+            traces,
+            response_window=(0.0, 2.0),
+            peak_smoothing=0.0,
+            metrics=("distance", "moving_fraction", "movement_onset_latency"),
+            signal_type="running",
+            movement_threshold=1.0,
+        )
+
+        self.assertEqual(result["distance"][0], 5.5)
+        self.assertAlmostEqual(result["moving_fraction"][0], 2 / 3)
+        self.assertEqual(result["movement_onset_latency"][0], 1.0)
+
+    def test_missing_behavior_window_is_not_counted_as_zero(self):
+        time = np.array([-1.0, 0.0, 1.0, 2.0])
+        result = compute_response_metrics(
+            time,
+            np.full((1, 4), np.nan),
+            response_window=(0.0, 2.0),
+            metrics=("lick_count", "any_lick", "distance"),
+        )
+
+        self.assertTrue(np.isnan(result["lick_count"][0]))
+        self.assertTrue(np.isnan(result["any_lick"][0]))
+        self.assertTrue(np.isnan(result["distance"][0]))
+
     def test_response_metrics_include_amplitude_auc_and_latency(self):
         time = np.array([-1.0, 0.0, 1.0, 2.0])
         traces = np.array([[0.0, 0.0, 1.0, 2.0]])

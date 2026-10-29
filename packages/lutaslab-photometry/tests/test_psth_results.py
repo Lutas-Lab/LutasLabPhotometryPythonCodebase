@@ -48,12 +48,17 @@ def test_timecourse_exports_roundtrip_and_create_prism_table(tmp_path):
         "psth_group_timecourse.csv",
         "psth_prism_timecourses.csv",
         "psth_timecourses.npz",
+        "psth_trial_records.csv",
+        "psth_trial_timecourses.npz",
         "psth_timecourse_metadata.json",
     }
     loaded = load_saved_psth_timecourses(tmp_path)
     assert loaded["identity"]["signal"] == "mpet"
     assert len(loaded["session_records"]) == 2
     assert len(loaded["mouse_records"]) == 2
+    assert loaded["trial_data_available"] is True
+    assert loaded["trial_matrix"].shape == (4, 4)
+    assert len(loaded["trial_records"]) == 4
     np.testing.assert_allclose(loaded["time"], [-1.0, 0.0, 1.0, 2.0])
     with (tmp_path / "psth_prism_timecourses.csv").open(encoding="utf-8") as stream:
         header = next(csv.reader(stream))
@@ -124,6 +129,13 @@ def test_saved_statistics_combine_conditions_and_write_metric_prism_files(tmp_pa
         "prism_peak.csv",
         "prism_trough.csv",
         "psth_statistics_metadata.json",
+        "psth_trial_metrics.csv",
+        "psth_session_trial_metric_summary.csv",
+        "psth_mouse_trial_metric_summary.csv",
+        "psth_trial_metric_group_summary.csv",
+        "psth_trial_metric_statistical_tests.csv",
+        "psth_prism_trial_metrics_wide.csv",
+        "prism_trial_peak.csv",
     }.issubset(output_names)
     with (tmp_path / "summary" / "prism_mean.csv").open(encoding="utf-8") as stream:
         rows = list(csv.DictReader(stream))
@@ -143,6 +155,7 @@ def test_saved_statistics_combine_conditions_and_write_metric_prism_files(tmp_pa
         (tmp_path / "summary" / "psth_statistics_metadata.json").read_text()
     )
     assert metadata["hierarchy"].endswith("mice are the inferential N")
+    assert metadata["trial_metrics_available"] is True
     assert progress[-1] == (4, 4, "PSTH summary statistics complete")
 
 

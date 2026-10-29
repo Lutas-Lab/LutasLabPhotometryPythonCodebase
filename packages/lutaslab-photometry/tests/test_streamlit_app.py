@@ -64,9 +64,10 @@ def test_gui_source_renders_completed_psth_summary_results():
     source = (project_root / "streamlit_app.py").read_text(encoding="utf-8")
 
     assert 'st.subheader("Latest summary results")' in source
-    assert '"Metric plots", "Group summaries", "Statistical tests"' in source
+    assert '"Per-trial metrics"' in source
     assert "psth_group_summary.csv" in source
     assert "psth_statistical_tests.csv" in source
+    assert "psth_trial_metric_group_summary.csv" in source
     assert "summary_download_" not in source
 
 

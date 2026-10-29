@@ -328,6 +328,7 @@ def save_metric_figures(
     show_mice=True,
     show_pairs=True,
     show_statistics=True,
+    filename_prefix="psth",
 ):
     """Create and save one publication-style figure per response metric."""
     import matplotlib.pyplot as plt
@@ -348,7 +349,7 @@ def save_metric_figures(
         paths.extend(
             save_figure_formats(
                 fig,
-                output_dir / f"psth_{metric}",
+                output_dir / f"{filename_prefix}_{metric}",
                 formats=formats,
                 dpi=dpi,
             )

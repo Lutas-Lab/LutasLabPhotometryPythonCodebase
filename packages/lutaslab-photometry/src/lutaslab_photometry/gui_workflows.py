@@ -79,7 +79,16 @@ def discover_psth_result_directories(base_dir):
         relative_parent = export.parent.relative_to(base)
         if "summary_statistics" in relative_parent.parts:
             continue
-        candidate = base if not relative_parent.parts else base / relative_parent.parts[0]
+        if not relative_parent.parts:
+            candidate = base
+        elif len(relative_parent.parts) > 1 and relative_parent.parts[1] in {
+            "licking",
+            "running",
+            "running_speed",
+        }:
+            candidate = base / relative_parent.parts[0] / relative_parent.parts[1]
+        else:
+            candidate = base / relative_parent.parts[0]
         modified = export.stat().st_mtime
         candidates[candidate] = max(candidates.get(candidate, 0.0), modified)
     return sorted(candidates, key=candidates.get, reverse=True)
@@ -335,6 +344,7 @@ def build_saved_psth_statistics_command(
     test="auto",
     bootstrap_resamples=5000,
     bootstrap_seed=0,
+    movement_threshold=1.0,
 ):
     """Build a summary-statistics command for standardized saved PSTH values."""
 
@@ -350,6 +360,8 @@ def build_saved_psth_statistics_command(
             str(float(response_window[1])),
             "--peak-smoothing",
             str(float(peak_smoothing)),
+            "--movement-threshold",
+            str(float(movement_threshold)),
             "--metrics",
             *[str(metric) for metric in metrics],
             "--test",

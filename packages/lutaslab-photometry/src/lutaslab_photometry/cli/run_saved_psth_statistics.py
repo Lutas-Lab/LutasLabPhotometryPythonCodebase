@@ -20,6 +20,12 @@ def build_parser():
     parser.add_argument("--response-window", type=float, nargs=2, default=(0.0, 2.0))
     parser.add_argument("--peak-smoothing", type=float, default=0.1)
     parser.add_argument(
+        "--movement-threshold",
+        type=float,
+        default=1.0,
+        help="Speed threshold (cm/s) used for running-state metrics.",
+    )
+    parser.add_argument(
         "--metrics",
         nargs="+",
         choices=AVAILABLE_METRICS,
@@ -47,6 +53,7 @@ def main(argv=None):
         args.output_dir,
         response_window=tuple(args.response_window),
         peak_smoothing=args.peak_smoothing,
+        movement_threshold=args.movement_threshold,
         metrics=tuple(args.metrics),
         test=args.test,
         bootstrap_resamples=args.bootstrap_resamples,

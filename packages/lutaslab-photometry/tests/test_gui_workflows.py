@@ -92,6 +92,23 @@ def test_discover_psth_result_directories_supports_legacy_direct_output(tmp_path
     assert discover_psth_result_directories(tmp_path) == [tmp_path]
 
 
+def test_discover_psth_result_directories_lists_behavior_outputs(tmp_path):
+    run = tmp_path / "2026-10-29_120000__ensure"
+    for child in ("licking", "running"):
+        export = run / child / "condition_a" / "psth_session_timecourses.csv"
+        export.parent.mkdir(parents=True, exist_ok=True)
+        export.write_text("time,value\n", encoding="utf-8")
+    primary = run / "condition_a" / "psth_session_timecourses.csv"
+    primary.parent.mkdir(parents=True, exist_ok=True)
+    primary.write_text("time,value\n", encoding="utf-8")
+
+    assert set(discover_psth_result_directories(tmp_path)) == {
+        run,
+        run / "licking",
+        run / "running",
+    }
+
+
 def test_normalize_manifest_rows_preserves_analysis_fields():
     rows = normalize_manifest_rows(sample_rows())
     assert rows == [

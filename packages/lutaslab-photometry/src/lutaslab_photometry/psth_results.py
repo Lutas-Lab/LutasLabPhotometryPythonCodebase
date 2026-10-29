@@ -188,6 +188,51 @@ def _aggregate_mouse_traces(records, session_matrix):
     return mouse_records, np.vstack(traces)
 
 
+def _trial_traces(results, time):
+    """Return one auditable record and trace for every retained PSTH trial."""
+
+    identity = _result_identity(results)
+    records = []
+    traces = []
+    for session_index, session in enumerate(results["session_results"], start=1):
+        trials = np.asarray(session["trials"], dtype=float)
+        if trials.ndim != 2 or trials.shape[1] != len(time):
+            raise ValueError("Each PSTH trial must use the shared time grid")
+        alignment_times = np.asarray(
+            session.get("alignment_times", np.full(trials.shape[0], np.nan)),
+            dtype=float,
+        )
+        if alignment_times.shape != (trials.shape[0],):
+            raise ValueError("PSTH alignment times do not match the retained trials")
+        session_id = str(
+            session.get("session_id")
+            or (
+                f"{session.get('mouse', '')}_{session.get('date', '')}_"
+                f"run{int(session.get('run', session_index)):03d}"
+            )
+        )
+        for trial_index, (trace, alignment_time) in enumerate(
+            zip(trials, alignment_times, strict=True), start=1
+        ):
+            records.append(
+                {
+                    **identity,
+                    "mouse": str(session.get("mouse", "")),
+                    "date": str(session.get("date", "")),
+                    "run": int(session.get("run", session_index)),
+                    "group": str(session.get("group") or "all"),
+                    "condition": str(session.get("condition") or "all"),
+                    "session_id": session_id,
+                    "trial": trial_index,
+                    "alignment_time": float(alignment_time),
+                }
+            )
+            traces.append(trace)
+    if not traces:
+        raise ValueError("No PSTH trials were available to export")
+    return records, np.vstack(traces)
+
+
 def _aggregate_group_traces(mouse_records, mouse_matrix):
     grouped = defaultdict(list)
     for record, trace in zip(mouse_records, mouse_matrix, strict=True):
@@ -218,6 +263,7 @@ def save_psth_timecourse_tables(results, output_dir):
         mouse_records, mouse_matrix
     )
     identity = _result_identity(results)
+    trial_records, trial_matrix = _trial_traces(results, time)
     session_rows = []
     for record, trace in zip(session_records, session_matrix, strict=True):
         for time_s, value in zip(time, trace, strict=True):
@@ -244,6 +290,7 @@ def save_psth_timecourse_tables(results, output_dir):
         _write_rows(output_dir / "psth_session_timecourses.csv", session_rows),
         _write_rows(output_dir / "psth_mouse_timecourses.csv", mouse_rows),
         _write_rows(output_dir / "psth_group_timecourse.csv", group_rows),
+        _write_rows(output_dir / "psth_trial_records.csv", trial_records),
     ]
     prism_columns = [
         f"{record['group']}__{record['condition']}__{record['mouse']}"
@@ -291,6 +338,13 @@ def save_psth_timecourse_tables(results, output_dir):
         **{key: np.asarray(value) for key, value in identity.items()},
     )
     outputs.append(npz_path)
+    trial_npz_path = output_dir / "psth_trial_timecourses.npz"
+    np.savez_compressed(
+        trial_npz_path,
+        time=time,
+        trial_matrix=trial_matrix,
+    )
+    outputs.append(trial_npz_path)
     metadata_path = output_dir / "psth_timecourse_metadata.json"
     metadata_path.write_text(
         json.dumps(
@@ -300,6 +354,7 @@ def save_psth_timecourse_tables(results, output_dir):
                 "code_commit": _code_commit(),
                 "hierarchy": "trials averaged within sessions; sessions averaged within mice",
                 "session_count": len(session_records),
+                "trial_count": len(trial_records),
                 "mouse_count": len(mouse_records),
                 "group_condition_count": len(group_records),
                 "time_samples": int(time.size),
@@ -331,6 +386,9 @@ def load_saved_psth_timecourses(input_dir):
     sessions = {}
     identity = None
     reference_time = None
+    trial_records = []
+    trial_traces = []
+    missing_trial_exports = []
     for path in paths:
         with path.open(encoding="utf-8-sig", newline="") as stream:
             rows = list(csv.DictReader(stream))
@@ -399,6 +457,28 @@ def load_saved_psth_timecourses(input_dir):
                     raise ValueError(f"Conflicting duplicate session export: {key[-1]}")
                 continue
             sessions[key] = trace
+        trial_records_path = path.parent / "psth_trial_records.csv"
+        trial_values_path = path.parent / "psth_trial_timecourses.npz"
+        if not trial_records_path.is_file() or not trial_values_path.is_file():
+            missing_trial_exports.append(str(path.parent))
+            continue
+        with trial_records_path.open(encoding="utf-8-sig", newline="") as stream:
+            current_trial_records = list(csv.DictReader(stream))
+        with np.load(trial_values_path, allow_pickle=False) as trial_data:
+            trial_time = np.asarray(trial_data["time"], dtype=float)
+            current_trial_matrix = np.asarray(trial_data["trial_matrix"], dtype=float)
+        if current_trial_matrix.ndim != 2:
+            raise ValueError(f"{trial_values_path} contains an invalid trial matrix")
+        if len(current_trial_records) != current_trial_matrix.shape[0]:
+            raise ValueError(
+                f"{trial_values_path} and {trial_records_path} have different trial counts"
+            )
+        if trial_time.shape != time.shape or not np.allclose(
+            trial_time, time, rtol=1e-8, atol=1e-10
+        ):
+            raise ValueError("Saved trial and session PSTH exports use different time grids")
+        trial_records.extend(current_trial_records)
+        trial_traces.append(current_trial_matrix)
     if not sessions or identity is None or reference_time is None:
         raise ValueError("The saved PSTH exports contained no timecourses")
     session_records = [
@@ -416,6 +496,7 @@ def load_saved_psth_timecourses(input_dir):
     mouse_records, mouse_matrix = _aggregate_mouse_traces(
         session_records, session_matrix
     )
+    trial_data_available = not missing_trial_exports and bool(trial_traces)
     return {
         "time": reference_time,
         "identity": identity,
@@ -424,13 +505,36 @@ def load_saved_psth_timecourses(input_dir):
         "mouse_records": mouse_records,
         "mouse_matrix": mouse_matrix,
         "source_files": [str(path) for path in paths],
+        "trial_records": trial_records if trial_data_available else [],
+        "trial_matrix": (
+            np.vstack(trial_traces)
+            if trial_data_available
+            else np.empty((0, reference_time.size), dtype=float)
+        ),
+        "trial_data_available": trial_data_available,
+        "missing_trial_exports": missing_trial_exports,
     }
 
 
-def _metric_units(metric, signal_units):
-    if metric in {"peak_latency", "trough_latency"}:
+def _metric_units(metric, signal_units, signal_type="photometry"):
+    if metric in {
+        "peak_latency",
+        "trough_latency",
+        "first_lick_latency",
+        "movement_onset_latency",
+    }:
         return "s"
+    if metric == "lick_count":
+        return "licks"
+    if metric == "distance":
+        return "cm"
+    if metric in {"any_lick", "moving_fraction"}:
+        return "proportion"
     if metric in {"auc", "positive_auc", "negative_auc"}:
+        if signal_type == "licking":
+            return "licks"
+        if signal_type == "running":
+            return "cm"
         return f"{signal_units}·s" if signal_units else "value·s"
     return signal_units or "value"
 
@@ -445,11 +549,111 @@ def _metric_rows(records, metric_values, identity, level):
                     **record,
                     "level": level,
                     "metric": metric,
-                    "metric_units": _metric_units(metric, identity.get("units", "")),
+                    "metric_units": _metric_units(
+                        metric,
+                        identity.get("units", ""),
+                        identity.get("signal_type", "photometry"),
+                    ),
                     "value": float(value),
                 }
             )
     return rows
+
+
+def _summarize_trial_metric_rows(trial_rows):
+    """Average trials within sessions, then sessions equally within mice."""
+
+    session_groups = defaultdict(list)
+    for row in trial_rows:
+        key = (
+            row["workflow"],
+            row["signal"],
+            row["signal_type"],
+            row["event"],
+            row["normalization"],
+            row["units"],
+            row["trial_class"],
+            row["mouse"],
+            row["date"],
+            row["run"],
+            row["group"],
+            row["condition"],
+            row["session_id"],
+            row["metric"],
+            row["metric_units"],
+        )
+        session_groups[key].append(row["value"])
+    session_rows = []
+    for key, raw_values in sorted(session_groups.items()):
+        values = np.asarray(raw_values, dtype=float)
+        finite = values[np.isfinite(values)]
+        session_rows.append(
+            {
+                "workflow": key[0],
+                "signal": key[1],
+                "signal_type": key[2],
+                "event": key[3],
+                "normalization": key[4],
+                "units": key[5],
+                "trial_class": key[6],
+                "mouse": key[7],
+                "date": key[8],
+                "run": key[9],
+                "group": key[10],
+                "condition": key[11],
+                "session_id": key[12],
+                "level": "session_trial_summary",
+                "metric": key[13],
+                "metric_units": key[14],
+                "value": float(np.mean(finite)) if finite.size else np.nan,
+                "trial_standard_deviation": (
+                    float(np.std(finite, ddof=1)) if finite.size > 1 else np.nan
+                ),
+                "n_trials": int(finite.size),
+            }
+        )
+    mouse_groups = defaultdict(list)
+    for row in session_rows:
+        key = (
+            row["workflow"],
+            row["signal"],
+            row["signal_type"],
+            row["event"],
+            row["normalization"],
+            row["units"],
+            row["trial_class"],
+            row["mouse"],
+            row["group"],
+            row["condition"],
+            row["metric"],
+            row["metric_units"],
+        )
+        mouse_groups[key].append(row)
+    mouse_rows = []
+    for key, rows in sorted(mouse_groups.items()):
+        values = np.asarray([row["value"] for row in rows], dtype=float)
+        finite = values[np.isfinite(values)]
+        mouse_rows.append(
+            {
+                "workflow": key[0],
+                "signal": key[1],
+                "signal_type": key[2],
+                "event": key[3],
+                "normalization": key[4],
+                "units": key[5],
+                "trial_class": key[6],
+                "mouse": key[7],
+                "group": key[8],
+                "condition": key[9],
+                "level": "mouse_trial_summary",
+                "metric": key[10],
+                "metric_units": key[11],
+                "value": float(np.mean(finite)) if finite.size else np.nan,
+                "n_sessions": len(rows),
+                "n_trials": int(sum(row["n_trials"] for row in rows)),
+            }
+        )
+    return session_rows, mouse_rows
 
 
 def save_saved_psth_statistics(
@@ -465,6 +669,7 @@ def save_saved_psth_statistics(
     formats=("svg", "png"),
     dpi=300,
     font_family="Arial",
+    movement_threshold=1.0,
     progress_callback=None,
 ):
     """Derive hierarchical metrics and Prism tables from saved PSTH exports."""
@@ -475,12 +680,16 @@ def save_saved_psth_statistics(
     if progress_callback is not None:
         progress_callback(0, 4, "Loading saved PSTH timecourses")
     bundle = load_saved_psth_timecourses(input_dir)
+    identity = bundle["identity"]
+    signal_type = identity.get("signal_type", "photometry")
     session_metrics = compute_response_metrics(
         bundle["time"],
         bundle["session_matrix"],
         response_window=response_window,
         peak_smoothing=peak_smoothing,
         metrics=metrics,
+        signal_type=signal_type,
+        movement_threshold=movement_threshold,
     )
     mouse_metrics = compute_response_metrics(
         bundle["time"],
@@ -488,8 +697,9 @@ def save_saved_psth_statistics(
         response_window=response_window,
         peak_smoothing=peak_smoothing,
         metrics=metrics,
+        signal_type=signal_type,
+        movement_threshold=movement_threshold,
     )
-    identity = bundle["identity"]
     session_rows = _metric_rows(
         bundle["session_records"], session_metrics, identity, "session"
     )
@@ -527,6 +737,57 @@ def save_saved_psth_statistics(
         n_bootstrap=bootstrap_resamples,
         bootstrap_seed=bootstrap_seed,
     )
+    trial_rows = []
+    trial_session_rows = []
+    trial_mouse_rows = []
+    trial_group_rows = []
+    trial_test_rows = []
+    if bundle["trial_data_available"]:
+        trial_metrics = compute_response_metrics(
+            bundle["time"],
+            bundle["trial_matrix"],
+            response_window=response_window,
+            peak_smoothing=peak_smoothing,
+            metrics=metrics,
+            signal_type=signal_type,
+            movement_threshold=movement_threshold,
+        )
+        trial_rows = _metric_rows(
+            bundle["trial_records"], trial_metrics, identity, "trial"
+        )
+        trial_session_rows, trial_mouse_rows = _summarize_trial_metric_rows(trial_rows)
+        inference_trial_mouse_rows = [
+            row for row in trial_mouse_rows if np.isfinite(row["value"])
+        ]
+        trial_grouped = defaultdict(list)
+        for row in inference_trial_mouse_rows:
+            trial_grouped[
+                (row["group"], row["condition"], row["metric"], row["metric_units"])
+            ].append(row["value"])
+        for (group, condition, metric, units), values in sorted(trial_grouped.items()):
+            values = np.asarray(values, dtype=float)
+            trial_group_rows.append(
+                {
+                    **identity,
+                    "group": group,
+                    "condition": condition,
+                    "metric": metric,
+                    "metric_units": units,
+                    "mean": float(np.mean(values)),
+                    "sem": (
+                        float(np.std(values, ddof=1) / np.sqrt(len(values)))
+                        if len(values) > 1
+                        else np.nan
+                    ),
+                    "n_mice": len(values),
+                }
+            )
+        trial_test_rows = run_pairwise_tests(
+            inference_trial_mouse_rows,
+            test=test,
+            n_bootstrap=bootstrap_resamples,
+            bootstrap_seed=bootstrap_seed,
+        )
     if progress_callback is not None:
         progress_callback(2, 4, "Computed mouse-level comparisons")
     output_dir = Path(output_dir)
@@ -569,6 +830,32 @@ def save_saved_psth_statistics(
         _write_rows(output_dir / "psth_statistical_tests.csv", test_rows),
         _write_rows(output_dir / "psth_prism_wide.csv", prism_wide_rows(mouse_rows)),
     ]
+    if trial_rows:
+        outputs.extend(
+            [
+                _write_rows(output_dir / "psth_trial_metrics.csv", trial_rows),
+                _write_rows(
+                    output_dir / "psth_session_trial_metric_summary.csv",
+                    trial_session_rows,
+                ),
+                _write_rows(
+                    output_dir / "psth_mouse_trial_metric_summary.csv",
+                    trial_mouse_rows,
+                ),
+                _write_rows(
+                    output_dir / "psth_trial_metric_group_summary.csv",
+                    trial_group_rows,
+                ),
+                _write_rows(
+                    output_dir / "psth_trial_metric_statistical_tests.csv",
+                    trial_test_rows,
+                ),
+                _write_rows(
+                    output_dir / "psth_prism_trial_metrics_wide.csv",
+                    prism_wide_rows(trial_mouse_rows),
+                ),
+            ]
+        )
     for metric in metrics:
         selected = [row for row in mouse_rows if row["metric"] == metric]
         columns = sorted({f"{row['group']}__{row['condition']}" for row in selected})
@@ -583,6 +870,26 @@ def save_saved_psth_statistics(
                 ["mouse", *columns],
             )
         )
+        if trial_mouse_rows:
+            selected_trial = [
+                row for row in trial_mouse_rows if row["metric"] == metric
+            ]
+            trial_columns = sorted(
+                {f"{row['group']}__{row['condition']}" for row in selected_trial}
+            )
+            trial_by_mouse = defaultdict(dict)
+            for row in selected_trial:
+                trial_by_mouse[row["mouse"]]["mouse"] = row["mouse"]
+                trial_by_mouse[row["mouse"]][
+                    f"{row['group']}__{row['condition']}"
+                ] = row["value"]
+            outputs.append(
+                _write_rows(
+                    output_dir / f"prism_trial_{_safe_label(metric)}.csv",
+                    [trial_by_mouse[mouse] for mouse in sorted(trial_by_mouse)],
+                    ["mouse", *trial_columns],
+                )
+            )
     figure_paths = save_metric_figures(
         inference_mouse_rows,
         test_rows,
@@ -592,6 +899,18 @@ def save_saved_psth_statistics(
         font_family=font_family,
     )
     outputs.extend(figure_paths)
+    if trial_mouse_rows:
+        outputs.extend(
+            save_metric_figures(
+                [row for row in trial_mouse_rows if np.isfinite(row["value"])],
+                trial_test_rows,
+                output_dir,
+                formats=formats,
+                dpi=dpi,
+                font_family=font_family,
+                filename_prefix="psth_trial",
+            )
+        )
     if progress_callback is not None:
         progress_callback(3, 4, "Saved Prism tables and metric figures")
     metadata_path = output_dir / "psth_statistics_metadata.json"
@@ -608,6 +927,16 @@ def save_saved_psth_statistics(
                 "bootstrap_resamples": bootstrap_resamples,
                 "bootstrap_seed": bootstrap_seed,
                 "hierarchy": "sessions averaged within mice; mice are the inferential N",
+                "average_trace_metrics": (
+                    "Each metric is calculated from the session- or mouse-average PSTH."
+                ),
+                "trial_metric_hierarchy": (
+                    "Metrics are calculated for individual trials, averaged within "
+                    "sessions, then sessions are weighted equally within mice."
+                ),
+                "trial_metrics_available": bool(trial_rows),
+                "missing_trial_exports": bundle["missing_trial_exports"],
+                "movement_threshold": movement_threshold,
                 "generated_utc": datetime.now(UTC).isoformat(),
                 "code_commit": _code_commit(),
             },

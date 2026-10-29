@@ -99,6 +99,8 @@ Summary statistics tab:
   and one column per group/condition/mouse; and
 - `psth_timecourses.npz` and `psth_timecourse_metadata.json` preserve compact
   arrays and the analysis identity for programmatic reuse.
+- `psth_trial_records.csv` and `psth_trial_timecourses.npz` preserve every
+  retained trial and its session/alignment identity for trial-level metrics.
 
 For stratified conventional analyses, the run root contains a combined Prism
 timecourse table spanning all conditions, while each stratum keeps its own copy.
@@ -134,7 +136,8 @@ containing compatible group/condition subfolders—then choose the response
 window, peak-smoothing duration, metrics, and mouse-level comparison method.
 The saved-run selector scans the configured PSTH results folder, lists parent
 run folders newest first, and also supports a custom path for results saved
-elsewhere.
+elsewhere. Licking and running subfolders are listed as their own selectable
+results, so their signal-specific metrics can be calculated directly.
 The preview confirms the saved signal, event, mouse count, and group curves
 before analysis. Raw or processed recordings are not reopened.
 
@@ -145,6 +148,17 @@ all-metric Prism table, and a separate Prism-wide CSV for each metric. In the
 per-metric files, each row is a mouse and each group/condition is a column, so
 paired mice remain aligned for direct import into GraphPad Prism. A new
 timestamped output folder is created for each summary run.
+
+Two families of results are intentionally kept separate. The original
+`psth_*_metrics.csv` files calculate each metric from an averaged PSTH. The
+`psth_trial_metrics.csv` family calculates the metric on every trial, averages
+trials within sessions, then weights sessions equally within mice; statistical
+tests still use mice as N. Licking results offer lick count, response
+probability, and first-lick latency. Running results offer distance, fraction
+of the window above a configurable movement threshold, movement-onset latency,
+and speed peaks/troughs. Prism-wide files and plots are saved for both result
+families. Older saved PSTHs remain usable for average-trace metrics, but must be
+rerun once to obtain individual-trial metrics.
 
 After calculation, the tab keeps a persistent **Latest summary results** panel
 showing the metric figures, group summary table, pairwise statistical tests,

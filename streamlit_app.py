@@ -53,7 +53,7 @@ from lutaslab_photometry.lifetime_workflows import (
 )
 from lutaslab_photometry.processed_provenance import classify_processed_provenance
 from lutaslab_photometry.psth_results import load_saved_psth_timecourses
-from lutaslab_photometry.psth_statistics import AVAILABLE_METRICS
+from lutaslab_photometry.psth_statistics import metrics_for_signal_type
 from lutaslab_photometry.qc_reporting import parse_qc_warning_line
 from lutaslab_photometry.save_sessiondata import conventional_preprocessing_parameters
 from lutaslab_photometry.session_manifest import processed_session_path
@@ -858,7 +858,10 @@ def _show_psth_summary_results(output_directory, key_prefix):
         return
     st.divider()
     st.subheader("Latest summary results")
-    st.caption("Mouse-level values are shown; mice are the inferential sample size.")
+    st.caption(
+        "Mouse-level values are shown; mice are the inferential sample size. "
+        "Average-PSTH metrics and averages of per-trial metrics are kept separate."
+    )
     st.code(str(output_directory), language=None)
     metadata_path = output_directory / "psth_statistics_metadata.json"
     if metadata_path.is_file():
@@ -875,8 +878,13 @@ def _show_psth_summary_results(output_directory, key_prefix):
                 f"{', '.join(metadata.get('metrics', []))}"
             )
 
-    figures_tab, group_tab, tests_tab = st.tabs(
-        ["Metric plots", "Group summaries", "Statistical tests"]
+    figures_tab, group_tab, tests_tab, trial_tab = st.tabs(
+        [
+            "Metric plots",
+            "Group summaries",
+            "Statistical tests",
+            "Per-trial metrics",
+        ]
     )
     with figures_tab:
         figure_paths = sorted(output_directory.glob("psth_*.png"))
@@ -905,6 +913,39 @@ def _show_psth_summary_results(output_directory, key_prefix):
             st.info(
                 "No pairwise statistical tests were created. This is expected when "
                 "only one group/condition is available."
+            )
+    with trial_tab:
+        trial_group_path = output_directory / "psth_trial_metric_group_summary.csv"
+        trial_mouse_path = output_directory / "psth_mouse_trial_metric_summary.csv"
+        trial_tests_path = (
+            output_directory / "psth_trial_metric_statistical_tests.csv"
+        )
+        if trial_group_path.is_file():
+            st.caption(
+                "Each metric was calculated per trial, averaged within session, "
+                "then sessions were weighted equally within mouse."
+            )
+            st.dataframe(
+                pd.read_csv(trial_group_path), hide_index=True, width="stretch"
+            )
+            if trial_mouse_path.is_file():
+                with st.expander("Mouse values derived from individual trials"):
+                    st.dataframe(
+                        pd.read_csv(trial_mouse_path),
+                        hide_index=True,
+                        width="stretch",
+                    )
+            if trial_tests_path.is_file():
+                with st.expander("Statistical tests for trial-derived mouse values"):
+                    st.dataframe(
+                        pd.read_csv(trial_tests_path),
+                        hide_index=True,
+                        width="stretch",
+                    )
+        else:
+            st.info(
+                "This source PSTH did not contain individual-trial exports. Rerun "
+                "the PSTH with the current software to create trial-level metrics."
             )
 def _psth_summary_controls(default_base_directory, key_prefix):
     """Render saved-PSTH metric controls shared by every acquisition system."""
@@ -983,6 +1024,26 @@ def _psth_summary_controls(default_base_directory, key_prefix):
     else:
         input_directory = selected_run
         st.caption(f"Selected PSTH run: {input_directory}")
+    detected_bundle = None
+    detected_signal_type = "photometry"
+    try:
+        detected_bundle = load_saved_psth_timecourses(input_directory)
+    except (OSError, ValueError):
+        pass
+    else:
+        detected_signal_type = detected_bundle["identity"].get(
+            "signal_type", "photometry"
+        )
+        st.caption(
+            f"Detected response type: {detected_signal_type} · "
+            f"{detected_bundle['identity'].get('signal', 'signal')}"
+        )
+        if not detected_bundle["trial_data_available"]:
+            st.warning(
+                "This older PSTH run has average timecourses but no individual-trial "
+                "export. Average-PSTH metrics will work; rerun the PSTH for per-trial "
+                "metrics."
+            )
     first, second, third = st.columns(3)
     with first:
         response_start = st.number_input(
@@ -1045,18 +1106,55 @@ def _psth_summary_controls(default_base_directory, key_prefix):
         "peak_latency": "Peak latency",
         "trough": "Negative trough",
         "trough_latency": "Trough latency",
+        "lick_count": "Lick count",
+        "any_lick": "Any lick (trial fraction)",
+        "first_lick_latency": "First-lick latency",
+        "distance": "Distance traveled",
+        "moving_fraction": "Fraction of time moving",
+        "movement_onset_latency": "Movement-onset latency",
     }
+    available_metrics = metrics_for_signal_type(detected_signal_type)
+    default_metrics = {
+        "licking": ("mean", "lick_count", "any_lick", "first_lick_latency"),
+        "running": (
+            "mean",
+            "distance",
+            "moving_fraction",
+            "movement_onset_latency",
+            "peak",
+        ),
+    }.get(detected_signal_type, ("mean", "auc", "peak", "peak_latency"))
+    metric_key = f"{key_prefix}_summary_metrics"
+    signal_type_key = f"{key_prefix}_summary_metric_signal_type"
+    if st.session_state.get(signal_type_key) != detected_signal_type:
+        st.session_state[metric_key] = list(default_metrics)
+        st.session_state[signal_type_key] = detected_signal_type
     metrics = st.multiselect(
         "Metrics",
-        AVAILABLE_METRICS,
-        default=("mean", "auc", "peak", "peak_latency"),
+        available_metrics,
+        default=default_metrics,
         format_func=metric_labels.get,
-        key=f"{key_prefix}_summary_metrics",
+        key=metric_key,
         help=(
-            "Mean and AUC summarize the full response window. Peak/trough values "
-            "and latencies use the selected smoothing duration."
+            "Photometry metrics describe signal magnitude and timing. Licking metrics "
+            "include count, response probability, and first-lick latency. Running "
+            "metrics include distance, time moving, and movement onset. Each is saved "
+            "both from the averaged PSTH and from individual trials."
         ),
     )
+    movement_threshold = 1.0
+    if detected_signal_type == "running":
+        movement_threshold = st.number_input(
+            "Movement threshold (cm/s)",
+            min_value=0.0,
+            value=1.0,
+            step=0.25,
+            key=f"{key_prefix}_summary_movement_threshold",
+            help=(
+                "Running speed above this value counts as movement when calculating "
+                "moving fraction and movement-onset latency."
+            ),
+        )
     window_valid = response_start < response_end
     if not window_valid:
         st.error("Response-window start must be less than its end.")
@@ -1143,6 +1241,7 @@ def _psth_summary_controls(default_base_directory, key_prefix):
         test=test,
         bootstrap_resamples=bootstrap_resamples,
         bootstrap_seed=bootstrap_seed,
+        movement_threshold=movement_threshold,
     )
     if run_summary:
         if not Path(input_directory).expanduser().exists():

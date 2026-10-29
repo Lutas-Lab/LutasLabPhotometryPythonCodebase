@@ -13,7 +13,7 @@ from .save_sessiondata import load_session
 from .session_manifest import processed_session_path, resolve_session_channel
 from .trial_classification import TRIAL_CLASS_KEYS, cue_trial_mask
 
-AVAILABLE_METRICS = (
+TRACE_METRICS = (
     "mean",
     "auc",
     "positive_auc",
@@ -23,6 +23,37 @@ AVAILABLE_METRICS = (
     "trough",
     "trough_latency",
 )
+LICKING_METRICS = (
+    "mean",
+    "lick_count",
+    "any_lick",
+    "first_lick_latency",
+    "peak",
+    "peak_latency",
+)
+RUNNING_METRICS = (
+    "mean",
+    "distance",
+    "moving_fraction",
+    "movement_onset_latency",
+    "peak",
+    "peak_latency",
+    "trough",
+    "trough_latency",
+)
+AVAILABLE_METRICS = tuple(
+    dict.fromkeys((*TRACE_METRICS, *LICKING_METRICS, *RUNNING_METRICS))
+)
+
+
+def metrics_for_signal_type(signal_type):
+    """Return meaningful summary metrics for one saved PSTH response type."""
+
+    if signal_type == "licking":
+        return LICKING_METRICS
+    if signal_type == "running":
+        return RUNNING_METRICS
+    return TRACE_METRICS
 
 
 def _trapezoid(values, x, axis):
@@ -63,7 +94,9 @@ def compute_response_metrics(
     *,
     response_window=(0.0, 2.0),
     peak_smoothing=0.1,
-    metrics=AVAILABLE_METRICS,
+    metrics=TRACE_METRICS,
+    signal_type="photometry",
+    movement_threshold=1.0,
 ):
     """Calculate response metrics for each row of a peri-event trace matrix."""
     peri_time = np.asarray(peri_time, dtype=float)
@@ -77,10 +110,13 @@ def compute_response_metrics(
         raise ValueError(f"Unknown response metrics: {sorted(unknown)}")
     if not np.isfinite(peak_smoothing) or peak_smoothing < 0:
         raise ValueError("peak_smoothing must be finite and nonnegative.")
+    if not np.isfinite(movement_threshold) or movement_threshold < 0:
+        raise ValueError("movement_threshold must be finite and nonnegative.")
 
     mask = _validate_response_window(peri_time, response_window)
     response_time = peri_time[mask]
     response = traces[:, mask]
+    has_response_data = np.any(np.isfinite(response), axis=1)
     dt = float(np.median(np.diff(peri_time)))
     smooth_samples = max(1, int(np.rint(peak_smoothing / dt)))
     smoothed = _smooth_rows(traces, smooth_samples)[:, mask]
@@ -98,6 +134,41 @@ def compute_response_metrics(
         output["negative_auc"] = _trapezoid(
             np.clip(response, None, 0), x=response_time, axis=1
         )
+    if "lick_count" in metrics:
+        values = np.nansum(np.clip(response, 0, None), axis=1) * dt
+        values[~has_response_data] = np.nan
+        output["lick_count"] = values
+    if "any_lick" in metrics:
+        values = np.any(response > 0, axis=1).astype(float)
+        values[~has_response_data] = np.nan
+        output["any_lick"] = values
+    if "first_lick_latency" in metrics:
+        latencies = np.full(len(traces), np.nan)
+        for index, row in enumerate(response):
+            locations = np.flatnonzero(row > 0)
+            if locations.size:
+                latencies[index] = response_time[locations[0]]
+        output["first_lick_latency"] = latencies
+    if "distance" in metrics:
+        values = np.nansum(np.clip(response, 0, None), axis=1) * dt
+        values[~has_response_data] = np.nan
+        output["distance"] = values
+    if "moving_fraction" in metrics:
+        finite = np.isfinite(response)
+        moving = (response > movement_threshold) & finite
+        output["moving_fraction"] = np.divide(
+            moving.sum(axis=1),
+            finite.sum(axis=1),
+            out=np.full(len(traces), np.nan),
+            where=finite.sum(axis=1) > 0,
+        )
+    if "movement_onset_latency" in metrics:
+        latencies = np.full(len(traces), np.nan)
+        for index, row in enumerate(response):
+            locations = np.flatnonzero(row > movement_threshold)
+            if locations.size:
+                latencies[index] = response_time[locations[0]]
+        output["movement_onset_latency"] = latencies
 
     need_peak = "peak" in metrics or "peak_latency" in metrics
     need_trough = "trough" in metrics or "trough_latency" in metrics

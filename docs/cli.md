@@ -144,7 +144,8 @@ and `-20–0 s` for the most recent cue. Override them with
 `heatmaps/heatmap_trial_order.csv` records every match and ordering decision.
 
 Every PSTH run also saves long-format session, mouse, and group timecourse CSVs,
-a Prism-ready wide XY CSV, compact NPZ arrays, and metadata. Saved results from
+a Prism-ready wide XY CSV, compact NPZ arrays, individual-trial traces with an
+auditable trial-record CSV, and metadata. Saved results from
 any acquisition type can be summarized without reopening processed data:
 
 ```bash
@@ -157,6 +158,13 @@ lutaslab-run-saved-psth-statistics \
 
 The saved-result command averages sessions within mice, uses mice as N, writes
 Holm-adjusted mouse-level comparisons, and creates one Prism-wide CSV per metric.
+It also calculates each selected metric on every trial and writes a separate
+`psth_trial_*` family in which trials are averaged within sessions and sessions
+are weighted equally within mice. Licking PSTHs support lick count, any-lick
+probability, and first-lick latency. Running PSTHs support distance, moving
+fraction, and movement-onset latency; `--movement-threshold` sets the speed
+threshold in cm/s. These trial-derived mouse values—not individual trials—are
+used in the accompanying statistical tests.
 
 Random-onset and circular-shift runs automatically save `null_diagnostics/`
 with a session summary, settings record, baseline-SD distribution, extreme-z
