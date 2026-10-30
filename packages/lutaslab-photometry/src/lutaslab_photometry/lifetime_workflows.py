@@ -137,7 +137,7 @@ class IFLIP3BinningSensitivity:
 def estimate_iflip3_binning_sensitivity(
     preview: IFLIP3FitPreview,
     *,
-    bin_durations_seconds: tuple[float, ...] = (1.0, 2.0, 5.0, 10.0),
+    bin_durations_seconds: tuple[float, ...] | None = None,
     n_bootstrap: int = 200,
     random_seed: int = 0,
 ) -> IFLIP3BinningSensitivity:
@@ -155,11 +155,45 @@ def estimate_iflip3_binning_sensitivity(
         raise ValueError("sampling_frequency must be positive and finite")
     if n_bootstrap < 20:
         raise ValueError("n_bootstrap must be at least 20")
+    native_duration = 1.0 / preview.sampling_frequency
+    if bin_durations_seconds is None:
+        candidates = (native_duration, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0)
+        default_group_sizes = []
+        for duration in candidates:
+            group_size = int(round(duration * preview.sampling_frequency))
+            if (
+                duration >= native_duration
+                and group_size not in default_group_sizes
+                and np.isclose(
+                    duration * preview.sampling_frequency,
+                    group_size,
+                    rtol=1e-3,
+                    atol=1e-6,
+                )
+            ):
+                default_group_sizes.append(group_size)
+        bin_durations_seconds = tuple(
+            group_size / preview.sampling_frequency
+            for group_size in default_group_sizes
+        )
     durations = np.asarray(bin_durations_seconds, dtype=float)
     if durations.ndim != 1 or durations.size == 0 or np.any(~np.isfinite(durations)):
         raise ValueError("bin durations must be a non-empty finite sequence")
     if np.any(durations <= 0) or np.any(np.diff(durations) <= 0):
         raise ValueError("bin durations must be positive and strictly increasing")
+    if np.any(durations < native_duration - 1e-12):
+        raise ValueError(
+            "bin durations cannot be shorter than the native "
+            f"{native_duration:.6g}-second interval"
+        )
+    group_sizes = np.rint(durations * preview.sampling_frequency).astype(int)
+    if not np.allclose(
+        durations * preview.sampling_frequency,
+        group_sizes,
+        rtol=1e-3,
+        atol=1e-6,
+    ):
+        raise ValueError("bin durations must be integer multiples of the native interval")
 
     short_counts = np.asarray(preview.short_component_counts, dtype=float)
     long_counts = np.asarray(preview.long_component_counts, dtype=float)
@@ -183,8 +217,7 @@ def estimate_iflip3_binning_sensitivity(
     mpet_widths = []
     fraction_widths = []
     rng = np.random.default_rng(random_seed)
-    for duration in durations:
-        group_size = max(1, int(round(duration * preview.sampling_frequency)))
+    for duration, group_size in zip(durations, group_sizes, strict=True):
         usable = (short_counts.size // group_size) * group_size
         if usable == 0:
             continue

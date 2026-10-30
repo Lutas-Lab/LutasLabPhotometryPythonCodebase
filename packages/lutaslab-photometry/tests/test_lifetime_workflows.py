@@ -379,15 +379,25 @@ def test_iflip3_binning_sensitivity_reports_improving_poisson_precision():
         preview, n_bootstrap=100, random_seed=7
     )
 
-    np.testing.assert_allclose(sensitivity.bin_durations_seconds, [1, 2, 5, 10])
     np.testing.assert_allclose(
-        sensitivity.median_sensor_photons, [90_000, 180_000, 450_000, 900_000]
+        sensitivity.bin_durations_seconds, [0.1, 0.2, 0.5, 1, 2, 5, 10]
+    )
+    np.testing.assert_allclose(
+        sensitivity.median_sensor_photons,
+        [9_000, 18_000, 45_000, 90_000, 180_000, 450_000, 900_000],
     )
     assert sensitivity.mpet_95_half_width_ps[-1] < sensitivity.mpet_95_half_width_ps[0]
     assert (
         sensitivity.long_fraction_95_half_width[-1]
         < sensitivity.long_fraction_95_half_width[0]
     )
+
+    with pytest.raises(ValueError, match="cannot be shorter than the native"):
+        workflows.estimate_iflip3_binning_sensitivity(
+            preview,
+            bin_durations_seconds=(0.05, 0.1),
+            n_bootstrap=20,
+        )
 
 
 def test_temporal_binning_sums_corrected_iflip3_curves():
