@@ -31,7 +31,12 @@ from .nidaq import (
     read_nidaq,
     read_running,
 )
-from .preprocessing import average_background, calculate_mpet
+from .preprocessing import (
+    average_background,
+    bin_curves,
+    calculate_mpet,
+    mpet_from_corrected,
+)
 from .synchronization import ClockAlignment, external_marker_mask, fit_clock_alignment
 
 
@@ -54,6 +59,8 @@ class AlignedSession:
     running_time_nidaq: np.ndarray | None = None
     running_speed: np.ndarray | None = None
     running_quality: RunningQuality | None = None
+    native_sampling_frequency: float | None = None
+    temporal_bin_seconds: float | None = None
 
     def to_core_session(self, session_id: str = "iflip3-session") -> CoreAlignedSession:
         """Return the sensor-independent representation used by shared analyses."""
@@ -93,6 +100,8 @@ class AlignedSession:
             "timebase": "nidaq_aligned" if self.alignment is not None else "iflip_native",
             "nidaq_aligned": self.alignment is not None,
             "measured_background_applied": self.measured_background_applied,
+            "native_sampling_frequency_hz": self.native_sampling_frequency,
+            "temporal_bin_seconds": self.temporal_bin_seconds,
             "clock_drift_ppm": (
                 self.alignment.drift_ppm if self.alignment is not None else None
             ),
@@ -243,6 +252,7 @@ def process_aligned_session(
     behavior_threshold: float = 1.5,
     iflip_sync_start_index: int = 0,
     nidaq_sync_start_index: int = 0,
+    temporal_bin_seconds: float | None = None,
 ) -> AlignedSession:
     """Process MPET and optionally align it with NI-DAQ behavior events."""
 
@@ -251,47 +261,91 @@ def process_aligned_session(
     if background_path is not None:
         background = read_iflip3(background_path)
         measured_background = average_background([background])
-    mpet, _ = calculate_mpet(
+    sampling_frequency = float(iflip.header.sampling_frequency)
+    requested_group_size = (
+        1
+        if temporal_bin_seconds is None
+        else int(round(float(temporal_bin_seconds) * sampling_frequency))
+    )
+    if requested_group_size < 1:
+        raise ValueError("temporal_bin_seconds cannot be shorter than one native sample")
+    if temporal_bin_seconds is not None and not np.isclose(
+        float(temporal_bin_seconds) * sampling_frequency,
+        requested_group_size,
+        rtol=1e-3,
+        atol=1e-6,
+    ):
+        raise ValueError(
+            "temporal_bin_seconds must be an integer multiple of the native "
+            f"{1.0 / sampling_frequency:.6g}-second sample interval"
+        )
+    group_size = requested_group_size
+    usable_samples = (iflip.n_samples // group_size) * group_size
+    if usable_samples == 0:
+        raise ValueError("temporal_bin_seconds exceeds the recording duration")
+    lifetime_sample_time = (
+        iflip.sample_time.copy()
+        if group_size == 1
+        else iflip.sample_time[:usable_samples]
+        .reshape(-1, group_size)
+        .mean(axis=1)
+    )
+    effective_bin_seconds = group_size / sampling_frequency
+
+    def binned_mpet(values, correction):
+        if group_size == 1:
+            return np.asarray(values[:, 0] if values.ndim == 2 else values, dtype=float)
+        corrected = bin_curves(correction.corrected, group_size, reducer="sum")
+        result = mpet_from_corrected(
+            corrected,
+            iflip.lifetime_time,
+            spc_range,
+            float(iflip.header.get_path("state.t0.Value")),
+        )
+        return np.asarray(result[:, 0] if result.ndim == 2 else result, dtype=float)
+
+    mpet, correction = calculate_mpet(
         iflip,
         spc_range,
         t0=float(iflip.header.get_path("state.t0.Value")),
         measured_background=measured_background,
         afterpulse_ratio=afterpulse_ratio,
     )
-    mpet_values = np.asarray(mpet[:, 0] if mpet.ndim == 2 else mpet, dtype=float)
+    mpet_values = binned_mpet(mpet, correction)
     if measured_background is None:
         mpet_afterpulse_only_values = mpet_values.copy()
     else:
-        mpet_afterpulse_only, _ = calculate_mpet(
+        mpet_afterpulse_only, afterpulse_only_correction = calculate_mpet(
             iflip,
             spc_range,
             t0=float(iflip.header.get_path("state.t0.Value")),
             measured_background=None,
             afterpulse_ratio=afterpulse_ratio,
         )
-        mpet_afterpulse_only_values = np.asarray(
-            mpet_afterpulse_only[:, 0]
-            if mpet_afterpulse_only.ndim == 2
-            else mpet_afterpulse_only,
-            dtype=float,
+        mpet_afterpulse_only_values = binned_mpet(
+            mpet_afterpulse_only, afterpulse_only_correction
         )
     if afterpulse_ratio == 0.0:
         mpet_uncorrected_values = mpet_afterpulse_only_values.copy()
     else:
-        mpet_uncorrected, _ = calculate_mpet(
+        mpet_uncorrected, uncorrected_correction = calculate_mpet(
             iflip,
             spc_range,
             t0=float(iflip.header.get_path("state.t0.Value")),
             measured_background=None,
             afterpulse_ratio=0.0,
         )
-        mpet_uncorrected_values = np.asarray(
-            mpet_uncorrected[:, 0]
-            if mpet_uncorrected.ndim == 2
-            else mpet_uncorrected,
-            dtype=float,
+        mpet_uncorrected_values = binned_mpet(
+            mpet_uncorrected, uncorrected_correction
         )
-    raw_intensity = np.asarray(iflip.data[:, :, 0].sum(axis=0), dtype=float)
+    raw_intensity_native = np.asarray(iflip.data[:, :, 0].sum(axis=0), dtype=float)
+    raw_intensity = (
+        raw_intensity_native
+        if group_size == 1
+        else raw_intensity_native[:usable_samples]
+        .reshape(-1, group_size)
+        .sum(axis=1)
+    )
 
     marker_mask = external_marker_mask(iflip.marks, marker=1)
     iflip_marker_times = iflip.sample_time[marker_mask]
@@ -308,8 +362,8 @@ def process_aligned_session(
         )
         empty = TTLPulses.empty()
         return AlignedSession(
-            lifetime_time_nidaq=iflip.sample_time.copy(),
-            lifetime_time_iflip=iflip.sample_time.copy(),
+            lifetime_time_nidaq=lifetime_sample_time.copy(),
+            lifetime_time_iflip=lifetime_sample_time.copy(),
             mpet_ns=mpet_values,
             raw_intensity_counts=raw_intensity,
             lick_times_nidaq=np.array([], dtype=float),
@@ -320,6 +374,8 @@ def process_aligned_session(
             measured_background_applied=measured_background is not None,
             mpet_afterpulse_only_ns=mpet_afterpulse_only_values,
             mpet_uncorrected_ns=mpet_uncorrected_values,
+            native_sampling_frequency=sampling_frequency,
+            temporal_bin_seconds=effective_bin_seconds,
         )
 
     nidaq: NIDAQRecording = read_nidaq(nidaq_path)
@@ -369,8 +425,8 @@ def process_aligned_session(
             )
 
     return AlignedSession(
-        lifetime_time_nidaq=alignment.iflip_to_nidaq(iflip.sample_time),
-        lifetime_time_iflip=iflip.sample_time.copy(),
+        lifetime_time_nidaq=alignment.iflip_to_nidaq(lifetime_sample_time),
+        lifetime_time_iflip=lifetime_sample_time.copy(),
         mpet_ns=mpet_values,
         raw_intensity_counts=raw_intensity,
         lick_times_nidaq=lick_pulses.onset_times,
@@ -384,4 +440,6 @@ def process_aligned_session(
         running_time_nidaq=running_time,
         running_speed=running_speed,
         running_quality=running_quality,
+        native_sampling_frequency=sampling_frequency,
+        temporal_bin_seconds=effective_bin_seconds,
     )

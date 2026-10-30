@@ -49,6 +49,7 @@ from lutaslab_photometry.lifetime_workflows import (
     apply_iflip3_calibration,
     calibrate_iflip3_sessions,
     discover_lifetime_paths,
+    estimate_iflip3_binning_sensitivity,
     iflip3_residual_summary,
     lifetime_manifest_columns,
     lifetime_preprocessing_parameters,
@@ -555,6 +556,53 @@ def _show_iflip3_fit_preview(preview) -> None:
     for column, (name, value) in zip(residual_metrics, residual_values, strict=True):
         column.metric(name, value)
     st.caption(f"Residual background: {preview.background:.5g} aggregate counts/bin")
+
+
+def _show_iflip3_binning_sensitivity(sensitivity) -> None:
+    """Display the photon shot-noise tradeoff for a calibrated session."""
+
+    import matplotlib.pyplot as plt
+
+    durations = sensitivity.bin_durations_seconds
+    figure, axes = plt.subplots(1, 2, figsize=(8.5, 3.5), constrained_layout=True)
+    axes[0].plot(
+        durations,
+        sensitivity.mpet_95_half_width_ps,
+        color="#4c78a8",
+        marker="o",
+    )
+    axes[0].set(
+        xlabel="Temporal bin (s)",
+        ylabel="MPET 95% half-width (ps)",
+        title="MPET shot-noise precision",
+    )
+    axes[1].plot(
+        durations,
+        sensitivity.long_fraction_95_half_width,
+        color="#f58518",
+        marker="o",
+    )
+    axes[1].set(
+        xlabel="Temporal bin (s)",
+        ylabel="Long-fraction 95% half-width",
+        title="Component-fraction precision",
+    )
+    for axis in axes:
+        axis.set_xticks(durations)
+        axis.grid(alpha=0.2)
+    st.pyplot(figure, clear_figure=True)
+    plt.close(figure)
+    photon_summary = ", ".join(
+        f"{duration:g} s: {photons:,.0f}"
+        for duration, photons in zip(durations, sensitivity.median_sensor_photons, strict=True)
+    )
+    st.caption(f"Median fitted sensor photons per bin — {photon_summary}.")
+    st.caption(
+        f"Estimated from {sensitivity.n_bootstrap} Poisson resamples of this "
+        "session's calibrated decay. This isolates photon shot noise; it does not "
+        "include biological variability, calibration mismatch, or uncertainty in "
+        "the background correction."
+    )
 
 
 def _show_iflip3_calibration(calibration) -> None:
@@ -2015,7 +2063,22 @@ def _lifetime_gui(workflow: str) -> None:
         iflip3_fit_settings = None
         iflip3_calibration_path = None
         active_iflip3_calibration = None
+        iflip3_temporal_bin_seconds = None
         if workflow == "iflip3":
+            st.markdown("#### Lifetime temporal resolution")
+            iflip3_temporal_bin_seconds = st.selectbox(
+                "Pool photon histograms before lifetime calculation",
+                (None, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0),
+                format_func=lambda value: (
+                    "Native acquisition interval" if value is None else f"{value:g} seconds"
+                ),
+                key="iflip3_temporal_bin_seconds",
+                help=(
+                    "Background, dead-time, and afterpulse corrections are applied at the "
+                    "native rate. Corrected photon histograms are then summed before MPET "
+                    "and component-fraction calculation."
+                ),
+            )
             st.markdown("#### Multi-session calibration")
             st.write(
                 "Estimate shared τ1, τ2, and IRF σ plus one t0 per recording from "
@@ -2191,6 +2254,14 @@ def _lifetime_gui(workflow: str) -> None:
                                 data_root,
                                 diagnostic_calibration,
                             )
+                            try:
+                                binning_sensitivity = estimate_iflip3_binning_sensitivity(
+                                    calibrated_preview
+                                )
+                                binning_sensitivity_error = None
+                            except ValueError as sensitivity_error:
+                                binning_sensitivity = None
+                                binning_sensitivity_error = str(sensitivity_error)
                     except (OSError, ValueError, RuntimeError) as error:
                         st.error(f"The calibrated session preview failed: {error}")
                     else:
@@ -2200,6 +2271,10 @@ def _lifetime_gui(workflow: str) -> None:
                         ]
                         st.session_state["iflip3_calibrated_preview_created_utc"] = (
                             diagnostic_calibration.created_utc
+                        )
+                        st.session_state["iflip3_binning_sensitivity"] = binning_sensitivity
+                        st.session_state["iflip3_binning_sensitivity_error"] = (
+                            binning_sensitivity_error
                         )
                 calibrated_preview = st.session_state.get("iflip3_calibrated_preview_result")
                 calibrated_identity = st.session_state.get("iflip3_calibrated_preview_identity")
@@ -2219,6 +2294,15 @@ def _lifetime_gui(workflow: str) -> None:
                         "This view uses fixed τ1, τ2, t0, and IRF σ with residual "
                         "background fixed at zero."
                     )
+                    binning_sensitivity = st.session_state.get("iflip3_binning_sensitivity")
+                    if binning_sensitivity is not None:
+                        st.markdown("##### Photon-count sensitivity by temporal bin")
+                        _show_iflip3_binning_sensitivity(binning_sensitivity)
+                    elif st.session_state.get("iflip3_binning_sensitivity_error"):
+                        st.info(
+                            "Photon-count sensitivity could not be estimated: "
+                            + st.session_state["iflip3_binning_sensitivity_error"]
+                        )
             elif not preview_rows:
                 st.info("Add a complete session row before inspecting an iFLIP3 fit.")
             else:
@@ -2293,6 +2377,7 @@ def _lifetime_gui(workflow: str) -> None:
                 workflow,
                 None if active_iflip3_calibration is not None else iflip3_fit_settings,
                 active_iflip3_calibration,
+                iflip3_temporal_bin_seconds,
             ),
         )
         overwrite_processed = st.checkbox(
@@ -2316,6 +2401,7 @@ def _lifetime_gui(workflow: str) -> None:
                 None if active_iflip3_calibration is not None else iflip3_fit_settings
             ),
             iflip3_calibration=iflip3_calibration_path,
+            iflip3_temporal_bin_seconds=iflip3_temporal_bin_seconds,
         )
         if st.button(
             "Run preprocessing",

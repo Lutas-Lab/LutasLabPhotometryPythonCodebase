@@ -79,10 +79,14 @@ def test_aligned_session_builds_pynapple_objects(monkeypatch):
 
 def test_process_session_without_nidaq_uses_iflip_clock(monkeypatch):
     recording = types.SimpleNamespace(
+        n_samples=3,
         sample_time=np.array([0.1, 0.2, 0.3]),
         marks=np.array([0, 4, 0], dtype=np.uint32),
         data=np.ones((2, 3, 1), dtype=float),
-        header=types.SimpleNamespace(get_path=lambda path: 1.0),
+        header=types.SimpleNamespace(
+            sampling_frequency=10.0,
+            get_path=lambda path: 1.0,
+        ),
     )
     monkeypatch.setattr("iflip3.session.read_iflip3", lambda *a, **k: recording)
     monkeypatch.setattr(
@@ -129,13 +133,59 @@ def test_process_session_without_nidaq_uses_iflip_clock(monkeypatch):
     )
 
 
+def test_process_session_pools_corrected_histograms_before_mpet(monkeypatch):
+    corrected = np.array(
+        [
+            [9.0, 8.0, 7.0, 6.0],
+            [1.0, 2.0, 3.0, 4.0],
+        ]
+    )
+    recording = types.SimpleNamespace(
+        n_samples=4,
+        sample_time=np.array([0.05, 0.15, 0.25, 0.35]),
+        lifetime_time=np.array([0.4, 1.4]),
+        marks=np.zeros(4, dtype=np.uint32),
+        data=corrected[:, :, None],
+        header=types.SimpleNamespace(
+            sampling_frequency=10.0,
+            get_path=lambda path: 0.0,
+        ),
+    )
+    monkeypatch.setattr("iflip3.session.read_iflip3", lambda *a, **k: recording)
+    monkeypatch.setattr(
+        "iflip3.session.calculate_mpet",
+        lambda *a, **k: (
+            np.zeros(4),
+            types.SimpleNamespace(corrected=corrected),
+        ),
+    )
+
+    session = process_aligned_session(
+        "recording.iFLiP3",
+        None,
+        None,
+        temporal_bin_seconds=0.2,
+    )
+    common = session.to_core_session()
+
+    np.testing.assert_allclose(common.continuous["mpet"].timestamps, [0.1, 0.3])
+    np.testing.assert_allclose(common.continuous["mpet"].values, [0.55, 0.75])
+    np.testing.assert_allclose(common.continuous["raw_intensity"].values, [20, 20])
+    assert common.metadata["native_sampling_frequency_hz"] == 10.0
+    assert common.metadata["temporal_bin_seconds"] == 0.2
+
+
 def test_flat_zero_running_is_flagged_and_omitted(monkeypatch):
     sample_time = np.array([0.0, 0.2, 0.4])
     recording = types.SimpleNamespace(
+        n_samples=3,
         sample_time=sample_time,
         marks=np.array([4, 4, 4], dtype=np.uint32),
         data=np.ones((2, 3, 1), dtype=float),
-        header=types.SimpleNamespace(get_path=lambda path: 1.0),
+        header=types.SimpleNamespace(
+            sampling_frequency=10.0,
+            get_path=lambda path: 1.0,
+        ),
     )
     nidaq = types.SimpleNamespace(
         timestamps=np.linspace(0.0, 1.0, 1001),

@@ -69,6 +69,8 @@ def test_lifetime_cli_dispatches_preprocess(workflow_stubs, capsys):
         "--data-root",
         "data",
         "--overwrite",
+        "--iflip3-temporal-bin-seconds",
+        "2",
     ]
     assert cli.main(arguments) == 0
 
@@ -79,6 +81,7 @@ def test_lifetime_cli_dispatches_preprocess(workflow_stubs, capsys):
         "overwrite": True,
         "iflip3_fit_settings": None,
         "iflip3_calibration": None,
+        "iflip3_temporal_bin_seconds": 2.0,
     }
     assert str(output) in capsys.readouterr().out
 

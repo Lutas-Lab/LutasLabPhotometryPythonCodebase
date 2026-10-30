@@ -34,6 +34,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--iflip3-calibration",
         help="Saved multi-session iFLIP3 calibration JSON to apply during preprocessing.",
     )
+    parser.add_argument(
+        "--iflip3-temporal-bin-seconds",
+        type=float,
+        help="Pool corrected iFLIP3 photon histograms to this duration before analysis.",
+    )
     parser.add_argument("--signal")
     parser.add_argument(
         "--event",
@@ -104,6 +109,7 @@ def main(argv=None) -> int:
                     else None
                 ),
                 iflip3_calibration=args.iflip3_calibration,
+                iflip3_temporal_bin_seconds=args.iflip3_temporal_bin_seconds,
             )
     elif args.action == "psth":
         if not args.signal or not args.event or not args.output_dir:

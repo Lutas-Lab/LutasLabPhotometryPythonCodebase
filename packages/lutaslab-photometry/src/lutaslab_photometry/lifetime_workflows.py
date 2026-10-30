@@ -120,6 +120,126 @@ class IFLIP3FitPreview:
     long_component_counts: np.ndarray
     long_lifetime_fraction: np.ndarray
     fit_rmse_by_sample: np.ndarray
+    sampling_frequency: float
+
+
+@dataclass(frozen=True)
+class IFLIP3BinningSensitivity:
+    """Typical photon counts and Poisson precision across temporal bin sizes."""
+
+    bin_durations_seconds: np.ndarray
+    median_sensor_photons: np.ndarray
+    mpet_95_half_width_ps: np.ndarray
+    long_fraction_95_half_width: np.ndarray
+    n_bootstrap: int
+
+
+def estimate_iflip3_binning_sensitivity(
+    preview: IFLIP3FitPreview,
+    *,
+    bin_durations_seconds: tuple[float, ...] = (1.0, 2.0, 5.0, 10.0),
+    n_bootstrap: int = 200,
+    random_seed: int = 0,
+) -> IFLIP3BinningSensitivity:
+    """Estimate typical shot-noise precision after temporal photon binning.
+
+    The fixed calibrated short/long decay shapes are sampled with Poisson noise
+    at the median fitted component counts observed for each requested duration.
+    This intentionally estimates photon shot-noise only; biological variation,
+    calibration mismatch, and uncertainty in background correction are excluded.
+    """
+
+    from scipy.optimize import nnls
+
+    if not np.isfinite(preview.sampling_frequency) or preview.sampling_frequency <= 0:
+        raise ValueError("sampling_frequency must be positive and finite")
+    if n_bootstrap < 20:
+        raise ValueError("n_bootstrap must be at least 20")
+    durations = np.asarray(bin_durations_seconds, dtype=float)
+    if durations.ndim != 1 or durations.size == 0 or np.any(~np.isfinite(durations)):
+        raise ValueError("bin durations must be a non-empty finite sequence")
+    if np.any(durations <= 0) or np.any(np.diff(durations) <= 0):
+        raise ValueError("bin durations must be positive and strictly increasing")
+
+    short_counts = np.asarray(preview.short_component_counts, dtype=float)
+    long_counts = np.asarray(preview.long_component_counts, dtype=float)
+    if short_counts.shape != long_counts.shape or short_counts.ndim != 1:
+        raise ValueError("component-count traces must be equal-length vectors")
+    short_shape = np.clip(np.asarray(preview.short_component, dtype=float), 0.0, None)
+    long_shape = np.clip(np.asarray(preview.long_component, dtype=float), 0.0, None)
+    if (
+        short_shape.shape != preview.lifetime_time.shape
+        or long_shape.shape != short_shape.shape
+    ):
+        raise ValueError("component decay shapes must match the lifetime-time axis")
+    if short_shape.sum() <= 0 or long_shape.sum() <= 0:
+        raise ValueError("component decay shapes must have positive area")
+    short_shape /= short_shape.sum()
+    long_shape /= long_shape.sum()
+    basis = np.column_stack((short_shape, long_shape))
+
+    kept_durations = []
+    median_photons = []
+    mpet_widths = []
+    fraction_widths = []
+    rng = np.random.default_rng(random_seed)
+    for duration in durations:
+        group_size = max(1, int(round(duration * preview.sampling_frequency)))
+        usable = (short_counts.size // group_size) * group_size
+        if usable == 0:
+            continue
+        grouped_short = short_counts[:usable].reshape(-1, group_size).sum(axis=1)
+        grouped_long = long_counts[:usable].reshape(-1, group_size).sum(axis=1)
+        grouped_total = grouped_short + grouped_long
+        finite = (
+            np.isfinite(grouped_short)
+            & np.isfinite(grouped_long)
+            & np.isfinite(grouped_total)
+            & (grouped_total > 0)
+        )
+        if not np.any(finite):
+            continue
+        typical_short = max(float(np.median(grouped_short[finite])), 0.0)
+        typical_long = max(float(np.median(grouped_long[finite])), 0.0)
+        expected = typical_short * short_shape + typical_long * long_shape
+        draws = rng.poisson(
+            np.clip(expected, 0.0, None), size=(n_bootstrap, expected.size)
+        )
+        component_estimates = np.asarray([nnls(basis, draw)[0] for draw in draws])
+        component_totals = component_estimates.sum(axis=1)
+        long_fractions = np.divide(
+            component_estimates[:, 1],
+            component_totals,
+            out=np.full(n_bootstrap, np.nan),
+            where=component_totals > 0,
+        )
+        photon_totals = draws.sum(axis=1)
+        mpet = (
+            np.divide(
+                draws @ np.asarray(preview.lifetime_time, dtype=float),
+                photon_totals,
+                out=np.full(n_bootstrap, np.nan, dtype=float),
+                where=photon_totals > 0,
+            )
+            - preview.t0
+        )
+
+        kept_durations.append(float(duration))
+        median_photons.append(float(np.median(grouped_total[finite])))
+        mpet_interval = np.nanpercentile(mpet, (2.5, 97.5))
+        fraction_interval = np.nanpercentile(long_fractions, (2.5, 97.5))
+        mpet_widths.append(float(500.0 * np.diff(mpet_interval)[0]))
+        fraction_widths.append(float(0.5 * np.diff(fraction_interval)[0]))
+
+    if not kept_durations:
+        raise ValueError("recording is too short for the requested bin durations")
+    return IFLIP3BinningSensitivity(
+        bin_durations_seconds=np.asarray(kept_durations),
+        median_sensor_photons=np.asarray(median_photons),
+        mpet_95_half_width_ps=np.asarray(mpet_widths),
+        long_fraction_95_half_width=np.asarray(fraction_widths),
+        n_bootstrap=int(n_bootstrap),
+    )
 
 
 def iflip3_residual_summary(data, residuals) -> dict[str, float]:
@@ -409,6 +529,7 @@ def lifetime_preprocessing_parameters(
     workflow: str,
     iflip3_fit_settings: dict | None = None,
     iflip3_calibration: IFLIP3Calibration | None = None,
+    iflip3_temporal_bin_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Return the effective defaults recorded with a lifetime processed file."""
 
@@ -422,6 +543,7 @@ def lifetime_preprocessing_parameters(
         return {
             "spc_range_ns": [0.4, 12.3],
             "afterpulse_ratio": 0.03,
+            "temporal_bin_seconds": iflip3_temporal_bin_seconds,
             "sync_threshold": 1.5,
             "behavior_threshold": 1.5,
             "iflip_sync_start_index": 0,
@@ -774,7 +896,7 @@ def _load_corrected_iflip3_curves(
     spc_range: tuple[float, float],
     afterpulse_ratio: float,
     apply_measured_background: bool = True,
-) -> tuple[np.ndarray, np.ndarray, float, bool, dict[str, Path | None]]:
+) -> tuple[np.ndarray, np.ndarray, float, float, bool, dict[str, Path | None]]:
     """Load one recording and return its corrected curves inside the fit window."""
 
     from iflip3 import average_background, calculate_mpet, lifetime_window, read_iflip3
@@ -801,9 +923,37 @@ def _load_corrected_iflip3_curves(
         np.asarray(recording.lifetime_time[use], dtype=float),
         corrected[use],
         float(recording.header.pulse_interval_ns),
+        float(recording.header.sampling_frequency),
         measured_background is not None,
         resolved,
     )
+
+
+def _temporally_bin_iflip3_curves(
+    curves: np.ndarray,
+    sampling_frequency: float,
+    temporal_bin_seconds: float | None,
+) -> np.ndarray:
+    """Sum corrected native curves into uniform coarser temporal bins."""
+
+    if temporal_bin_seconds is None:
+        return curves
+    from iflip3 import bin_curves
+
+    group_size = int(round(float(temporal_bin_seconds) * sampling_frequency))
+    if group_size < 1:
+        raise ValueError("temporal bin cannot be shorter than one native sample")
+    if not np.isclose(
+        float(temporal_bin_seconds) * sampling_frequency,
+        group_size,
+        rtol=1e-3,
+        atol=1e-6,
+    ):
+        raise ValueError(
+            "temporal bin must be an integer multiple of the native "
+            f"{1.0 / sampling_frequency:.6g}-second sample interval"
+        )
+    return bin_curves(curves, group_size, reducer="sum")
 
 
 def _iflip3_preview_with_fixed_shape(
@@ -876,6 +1026,7 @@ def _iflip3_preview_with_fixed_shape(
         long_component_counts=target.component_counts[:, 1],
         long_lifetime_fraction=target.component_fractions[:, 1],
         fit_rmse_by_sample=np.sqrt(np.mean(target.residuals**2, axis=0)),
+        sampling_frequency=reference.sampling_frequency,
     )
 
 
@@ -927,7 +1078,7 @@ def calibrate_iflip3_sessions(
     reference_pulse_interval = None
     reference_session_id = None
     for row in rows:
-        time_axis, curves, pulse_interval, has_background, resolved = (
+        time_axis, curves, pulse_interval, _, has_background, resolved = (
             _load_corrected_iflip3_curves(
                 row,
                 root,
@@ -1065,17 +1216,23 @@ def preview_iflip3_fit(
     *,
     spc_range: tuple[float, float] = (0.4, 12.3),
     afterpulse_ratio: float = 0.03,
+    temporal_bin_seconds: float | None = None,
 ) -> IFLIP3FitPreview:
     """Fit one session aggregate decay and decompose every photometry sample."""
 
     from iflip3 import fit_decay, fit_target, periodic_exgaussian_basis
 
     root = Path(data_root).expanduser()
-    time, curves, pulse_interval, _, _ = _load_corrected_iflip3_curves(
-        row,
-        root,
-        spc_range=spc_range,
-        afterpulse_ratio=afterpulse_ratio,
+    time, curves, pulse_interval, sampling_frequency, _, _ = (
+        _load_corrected_iflip3_curves(
+            row,
+            root,
+            spc_range=spc_range,
+            afterpulse_ratio=afterpulse_ratio,
+        )
+    )
+    curves = _temporally_bin_iflip3_curves(
+        curves, sampling_frequency, temporal_bin_seconds
     )
     aggregate = curves.sum(axis=1)
     controls = normalize_iflip3_fit_settings(settings)
@@ -1155,6 +1312,7 @@ def preview_iflip3_fit(
         long_component_counts=counts[:, 1],
         long_lifetime_fraction=target.component_fractions[:, 1],
         fit_rmse_by_sample=np.sqrt(np.mean(target.residuals**2, axis=0)),
+        sampling_frequency=sampling_frequency,
     )
 
 
@@ -1217,17 +1375,23 @@ def apply_iflip3_calibration(
     row: dict,
     data_root: str | Path,
     calibration: IFLIP3Calibration,
+    temporal_bin_seconds: float | None = None,
 ) -> IFLIP3FitPreview:
     """Decompose one recording with all nonlinear shape parameters fixed."""
 
     from iflip3 import fit_target, periodic_exgaussian_basis
 
     root = Path(data_root).expanduser()
-    time, curves, pulse_interval, _, _ = _load_corrected_iflip3_curves(
-        row,
-        root,
-        spc_range=calibration.spc_range,
-        afterpulse_ratio=calibration.afterpulse_ratio,
+    time, curves, pulse_interval, sampling_frequency, _, _ = (
+        _load_corrected_iflip3_curves(
+            row,
+            root,
+            spc_range=calibration.spc_range,
+            afterpulse_ratio=calibration.afterpulse_ratio,
+        )
+    )
+    curves = _temporally_bin_iflip3_curves(
+        curves, sampling_frequency, temporal_bin_seconds
     )
     if time.shape != calibration.lifetime_time.shape or not np.allclose(
         time, calibration.lifetime_time, rtol=0.0, atol=1e-9
@@ -1300,6 +1464,7 @@ def apply_iflip3_calibration(
         long_component_counts=target.component_counts[:, 1],
         long_lifetime_fraction=target.component_fractions[:, 1],
         fit_rmse_by_sample=np.sqrt(np.mean(target.residuals**2, axis=0)),
+        sampling_frequency=sampling_frequency,
     )
 
 
@@ -1308,6 +1473,7 @@ def _load_iflip3(
     data_root: Path,
     fit_settings: dict | None = None,
     calibration: IFLIP3Calibration | None = None,
+    temporal_bin_seconds: float | None = None,
 ):
     from iflip3 import process_aligned_session
 
@@ -1323,15 +1489,23 @@ def _load_iflip3(
         background,
         running_path=running,
         afterpulse_ratio=afterpulse_ratio,
+        temporal_bin_seconds=temporal_bin_seconds,
     )
     core = session.to_core_session(_session_id(row))
     if fit_settings is not None or calibration is not None:
         preview = (
-            apply_iflip3_calibration(row, data_root, calibration)
+            apply_iflip3_calibration(
+                row, data_root, calibration, temporal_bin_seconds
+            )
             if calibration is not None
-            else preview_iflip3_fit(row, data_root, fit_settings)
+            else preview_iflip3_fit(
+                row,
+                data_root,
+                fit_settings,
+                temporal_bin_seconds=temporal_bin_seconds,
+            )
         )
-        alternate_time, alternate_curves, alternate_pulse_interval, _, _ = (
+        alternate_time, alternate_curves, alternate_pulse_interval, _, _, _ = (
             _load_corrected_iflip3_curves(
                 row,
                 data_root,
@@ -1345,7 +1519,11 @@ def _load_iflip3(
         alternate_preview = _iflip3_preview_with_fixed_shape(
             preview,
             alternate_time,
-            alternate_curves,
+            _temporally_bin_iflip3_curves(
+                alternate_curves,
+                preview.sampling_frequency,
+                temporal_bin_seconds,
+            ),
             alternate_pulse_interval,
         )
         timestamps = core.continuous["mpet"].timestamps
@@ -1450,6 +1628,7 @@ def load_lifetime_session(
     *,
     iflip3_fit_settings: dict | None = None,
     iflip3_calibration: IFLIP3Calibration | None = None,
+    iflip3_temporal_bin_seconds: float | None = None,
 ):
     """Load and align one lifetime session into the shared core representation."""
 
@@ -1457,7 +1636,13 @@ def load_lifetime_session(
     if workflow == "fluopulse":
         return _load_fluopulse(row, root)
     if workflow == "iflip3":
-        return _load_iflip3(row, root, iflip3_fit_settings, iflip3_calibration)
+        return _load_iflip3(
+            row,
+            root,
+            iflip3_fit_settings,
+            iflip3_calibration,
+            iflip3_temporal_bin_seconds,
+        )
     raise ValueError("workflow must be 'fluopulse' or 'iflip3'")
 
 
@@ -1564,6 +1749,7 @@ def preprocess_lifetime_sessions(
     overwrite=False,
     iflip3_fit_settings: dict | None = None,
     iflip3_calibration: IFLIP3Calibration | str | Path | None = None,
+    iflip3_temporal_bin_seconds: float | None = None,
 ) -> list[Path]:
     """Process raw lifetime sessions and save each result beside its recording."""
 
@@ -1581,6 +1767,7 @@ def preprocess_lifetime_sessions(
         workflow,
         iflip3_fit_settings,
         calibration,
+        iflip3_temporal_bin_seconds,
     )
     for row in rows:
         output = lifetime_processed_path(workflow, row, data_root)
@@ -1602,6 +1789,7 @@ def preprocess_lifetime_sessions(
                     data_root,
                     iflip3_fit_settings=iflip3_fit_settings,
                     iflip3_calibration=calibration,
+                    iflip3_temporal_bin_seconds=iflip3_temporal_bin_seconds,
                 )
             else:
                 session, paths = load_lifetime_session(workflow, row, data_root)

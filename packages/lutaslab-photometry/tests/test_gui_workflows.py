@@ -435,10 +435,12 @@ def test_build_iflip3_preprocess_command_accepts_saved_calibration():
         "sessions.csv",
         "Z:/",
         iflip3_calibration="analysis/iflip3/calibrations/shared.json",
+        iflip3_temporal_bin_seconds=2.0,
     )
     assert command[command.index("--iflip3-calibration") + 1] == str(
         Path("analysis/iflip3/calibrations/shared.json")
     )
+    assert command[command.index("--iflip3-temporal-bin-seconds") + 1] == "2.0"
 
 
 def test_run_command_streams_and_captures_output(tmp_path):

@@ -102,6 +102,7 @@ def test_multi_session_iflip3_calibration_roundtrips_and_fixes_background(
             time,
             curves,
             12.5,
+            10.0,
             True,
             {
                 "source_path": Path(f"recording-{row['run']}.iFLiP3"),
@@ -201,6 +202,7 @@ def test_iflip3_calibration_reports_material_pulse_rate_difference(monkeypatch):
             time,
             np.ones((time.size, 2)),
             interval,
+            10.0,
             True,
             {"source_path": Path("recording.iFLiP3"), "background_path": None},
         )
@@ -307,6 +309,7 @@ def test_iflip3_fit_preview_returns_quality_and_time_resolved_components(monkeyp
     )
     header = types.SimpleNamespace(
         pulse_interval_ns=12.5,
+        sampling_frequency=10.0,
         get_path=lambda path: 1.0,
     )
     recording = types.SimpleNamespace(
@@ -337,6 +340,65 @@ def test_iflip3_fit_preview_returns_quality_and_time_resolved_components(monkeyp
     assert preview.r_squared > 0.999
     assert preview.long_lifetime_fraction.shape == (12,)
     assert preview.fit_rmse_by_sample.shape == (12,)
+
+
+def test_iflip3_binning_sensitivity_reports_improving_poisson_precision():
+    from iflip3.models import periodic_exgaussian_basis
+
+    time = np.arange(0.4, 12.31, 0.1)
+    short_shape = periodic_exgaussian_basis(
+        time, 0.7, 1.0, 0.14, 12.5, normalize="area"
+    )
+    long_shape = periodic_exgaussian_basis(time, 2.6, 1.0, 0.14, 12.5, normalize="area")
+    n_samples = 200
+    short_counts = np.full(n_samples, 3000.0)
+    long_counts = np.full(n_samples, 6000.0)
+    preview = workflows.IFLIP3FitPreview(
+        lifetime_time=time,
+        aggregate_decay=n_samples * (3000.0 * short_shape + 6000.0 * long_shape),
+        fitted_decay=n_samples * (3000.0 * short_shape + 6000.0 * long_shape),
+        short_component=n_samples * 3000.0 * short_shape,
+        long_component=n_samples * 6000.0 * long_shape,
+        residuals=np.zeros(time.size),
+        lifetimes=np.array([0.7, 2.6]),
+        t0=1.0,
+        irf_sigma=0.14,
+        background=0.0,
+        rmse=0.0,
+        r_squared=1.0,
+        success=True,
+        message="synthetic preview",
+        short_component_counts=short_counts,
+        long_component_counts=long_counts,
+        long_lifetime_fraction=np.full(n_samples, 2 / 3),
+        fit_rmse_by_sample=np.zeros(n_samples),
+        sampling_frequency=10.0,
+    )
+
+    sensitivity = workflows.estimate_iflip3_binning_sensitivity(
+        preview, n_bootstrap=100, random_seed=7
+    )
+
+    np.testing.assert_allclose(sensitivity.bin_durations_seconds, [1, 2, 5, 10])
+    np.testing.assert_allclose(
+        sensitivity.median_sensor_photons, [90_000, 180_000, 450_000, 900_000]
+    )
+    assert sensitivity.mpet_95_half_width_ps[-1] < sensitivity.mpet_95_half_width_ps[0]
+    assert (
+        sensitivity.long_fraction_95_half_width[-1]
+        < sensitivity.long_fraction_95_half_width[0]
+    )
+
+
+def test_temporal_binning_sums_corrected_iflip3_curves():
+    curves = np.arange(24, dtype=float).reshape(3, 8)
+
+    binned = workflows._temporally_bin_iflip3_curves(curves, 10.0, 0.2)
+
+    np.testing.assert_allclose(
+        binned,
+        curves.reshape(3, 4, 2).sum(axis=2),
+    )
 
 
 def test_iflip3_afterpulse_only_fit_reuses_corrected_decay_shape():
@@ -371,6 +433,7 @@ def test_iflip3_afterpulse_only_fit_reuses_corrected_decay_shape():
         long_component_counts=np.array([4000.0, 3800.0]),
         long_lifetime_fraction=np.array([2 / 3, 0.6333333333]),
         fit_rmse_by_sample=np.zeros(2),
+        sampling_frequency=10.0,
     )
 
     alternate = workflows._iflip3_preview_with_fixed_shape(
@@ -631,25 +694,32 @@ def test_iflip3_preprocessing_applies_saved_calibration(monkeypatch, tmp_path):
         *,
         iflip3_fit_settings=None,
         iflip3_calibration=None,
+        iflip3_temporal_bin_seconds=None,
     ):
         del manifest_row, data_root
         received.update(
             workflow=workflow,
             fit_settings=iflip3_fit_settings,
             calibration=iflip3_calibration,
+            temporal_bin_seconds=iflip3_temporal_bin_seconds,
         )
         return session, {"source_path": str(raw)}
 
     monkeypatch.setattr(workflows, "load_lifetime_session", fake_load)
 
     outputs = preprocess_lifetime_sessions(
-        "iflip3", [row], tmp_path, iflip3_calibration=calibration
+        "iflip3",
+        [row],
+        tmp_path,
+        iflip3_calibration=calibration,
+        iflip3_temporal_bin_seconds=1.0,
     )
 
     assert received == {
         "workflow": "iflip3",
         "fit_settings": None,
         "calibration": calibration,
+        "temporal_bin_seconds": 1.0,
     }
     loaded, _ = load_processed_lifetime_session("iflip3", row, tmp_path)
     np.testing.assert_allclose(
@@ -660,6 +730,7 @@ def test_iflip3_preprocessing_applies_saved_calibration(monkeypatch, tmp_path):
         loaded.metadata["provenance"]["parameters"]["lifetime_fit"]["mode"]
         == "shared_multi_session_calibration"
     )
+    assert loaded.metadata["provenance"]["parameters"]["temporal_bin_seconds"] == 1.0
 
 
 def test_processed_lifetime_file_is_required_for_downstream_analysis(tmp_path):

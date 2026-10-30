@@ -117,6 +117,7 @@ def test_streamlit_lifetime_modes_load(workflow, expected_signal):
             "Run multi-session calibration",
             "Load saved calibration",
         }
+        assert app.selectbox(key="iflip3_temporal_bin_seconds").value is None
     assert app.checkbox(key=f"{workflow}_include_licking_psth").value is False
     assert app.checkbox(key=f"{workflow}_include_running_psth").value is False
     assert app.checkbox(key=f"{workflow}_reuse_psth_output").value is False
