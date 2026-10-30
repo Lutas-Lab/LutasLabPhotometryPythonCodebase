@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import shutil
 from collections import deque
 from pathlib import Path
 
@@ -19,15 +20,23 @@ from lutaslab_photometry.gui_workflows import (
     build_preprocess_command,
     build_psth_command,
     build_saved_psth_statistics_command,
+    command_output_directories,
+    discover_manifest_files,
     discover_psth_result_directories,
     display_command,
     manifest_csv_text,
+    manifest_display_label,
     next_analysis_run_directory,
+    next_manifest_path,
     normalize_manifest_rows,
+    replace_command_manifest,
     run_command,
     safe_analysis_run_label,
+    snapshot_manifest,
     suggest_psth_run_label,
+    workflow_analysis_directory,
     write_manifest,
+    write_manifest_metadata,
 )
 from lutaslab_photometry.heatmap_ordering import (
     HEATMAP_SORT_LABELS,
@@ -99,9 +108,7 @@ LIFETIME_SIGNAL_LABELS = {
     "short_component_counts_afterpulse_only": (
         "Short-component counts — afterpulse corrected only"
     ),
-    "long_component_counts_afterpulse_only": (
-        "Long-component counts — afterpulse corrected only"
-    ),
+    "long_component_counts_afterpulse_only": ("Long-component counts — afterpulse corrected only"),
     "raw_intensity": "Raw photon intensity",
 }
 LIFETIME_GLM_RESPONSE_HELP = {
@@ -171,6 +178,168 @@ def _show_update_status() -> None:
 def _uploaded_rows(uploaded_file):
     text = uploaded_file.getvalue().decode("utf-8-sig")
     return list(csv.DictReader(io.StringIO(text)))
+
+
+def _manifest_text(workflow, rows):
+    """Serialize one workflow's current editor rows for dirty-state checks."""
+
+    if workflow == "conventional":
+        return manifest_csv_text(rows)
+    validated = normalize_lifetime_manifest_rows(workflow, rows)
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(
+        output,
+        fieldnames=lifetime_manifest_columns(workflow),
+        lineterminator="\n",
+    )
+    writer.writeheader()
+    writer.writerows(validated)
+    return output.getvalue()
+
+
+def _write_workflow_manifest(workflow, path, rows):
+    if workflow == "conventional":
+        return write_manifest(path, rows)
+    return write_lifetime_manifest(workflow, path, rows)
+
+
+def _normalized_manifest_row_count(workflow, rows):
+    if workflow == "conventional":
+        return len(normalize_manifest_rows(rows))
+    return len(normalize_lifetime_manifest_rows(workflow, rows))
+
+
+def _save_manifest_version(
+    workflow,
+    rows,
+    manifest_dir,
+    display_name,
+    *,
+    parent_manifest=None,
+):
+    """Create a timestamped, descriptive manifest and provenance sidecar."""
+
+    path = next_manifest_path(manifest_dir, display_name)
+    saved = _write_workflow_manifest(workflow, path, rows)
+    write_manifest_metadata(
+        saved,
+        workflow=workflow,
+        display_name=display_name,
+        row_count=_normalized_manifest_row_count(workflow, rows),
+        code_commit=local_git_commit(PROJECT_ROOT),
+        parent_manifest=parent_manifest,
+    )
+    return saved
+
+
+def _manifest_matches_rows(workflow, manifest_path, rows):
+    path = Path(manifest_path).expanduser() if manifest_path else None
+    if path is None or not path.is_file():
+        return False
+    try:
+        return path.read_text(encoding="utf-8-sig") == _manifest_text(workflow, rows)
+    except (OSError, ValueError):
+        return False
+
+
+def _save_manifest_for_run(
+    workflow,
+    rows,
+    manifest_dir,
+    display_name,
+    active_manifest,
+):
+    """Reuse an unchanged active manifest or save edited rows as a new version."""
+
+    if _manifest_matches_rows(workflow, active_manifest, rows):
+        return Path(active_manifest).expanduser().resolve(), False
+    saved = _save_manifest_version(
+        workflow,
+        rows,
+        manifest_dir,
+        display_name,
+        parent_manifest=active_manifest or None,
+    )
+    return saved, True
+
+
+def _read_manifest_file(path):
+    with Path(path).open(encoding="utf-8-sig", newline="") as stream:
+        return list(csv.DictReader(stream))
+
+
+def _manifest_workspace_sidebar(workflow, label, *, legacy_paths=()):
+    """Render common workspace settings and return manifest-library state."""
+
+    workspace = st.text_input(
+        "Analysis workspace",
+        value=str(workflow_analysis_directory(PROJECT_ROOT, workflow)),
+        key=f"{workflow}_analysis_workspace",
+        help="Contains manifests and downstream analysis folders for this workflow.",
+    )
+    manifest_dir = Path(workspace).expanduser() / "manifests"
+    active_key = f"{workflow}_active_manifest"
+    if active_key not in st.session_state:
+        first_legacy = next((str(Path(path)) for path in legacy_paths if Path(path).is_file()), "")
+        st.session_state[active_key] = first_legacy
+    manifest_name = st.text_input(
+        "Manifest name",
+        value="sessions",
+        key=f"{workflow}_manifest_name",
+        help=(
+            "Use a descriptive cohort or experiment name. New versions receive a "
+            "timestamp and never silently replace an existing manifest."
+        ),
+    )
+    active = st.session_state.get(active_key, "")
+    st.caption(
+        f"Active manifest: {active}" if active else f"No saved {label} manifest is active yet."
+    )
+    return Path(workspace).expanduser(), manifest_dir, manifest_name, active_key
+
+
+def _manifest_library_panel(
+    workflow,
+    rows_state_key,
+    manifest_dir,
+    active_key,
+    *,
+    legacy_paths=(),
+):
+    """Render saved-manifest discovery and load the selected CSV on request."""
+
+    candidates = discover_manifest_files(manifest_dir, legacy_paths=legacy_paths)
+    if not candidates:
+        st.caption("No saved manifests were found in this workspace yet.")
+        return
+    selected = st.selectbox(
+        "Saved manifests",
+        candidates,
+        format_func=manifest_display_label,
+        key=f"{workflow}_saved_manifest_selection",
+        help="Legacy sessions.csv files remain available and are never moved or deleted.",
+    )
+    if st.button(
+        "Load selected manifest",
+        key=f"{workflow}_load_saved_manifest",
+        width="stretch",
+    ):
+        try:
+            rows = _read_manifest_file(selected)
+            if workflow == "conventional":
+                rows = normalize_manifest_rows(rows)
+            else:
+                rows = normalize_lifetime_manifest_rows(workflow, rows)
+        except (OSError, ValueError) as error:
+            st.error(f"Could not load manifest: {error}")
+        else:
+            st.session_state[rows_state_key] = rows
+            st.session_state[active_key] = str(Path(selected).resolve())
+            editor_key = (
+                "manifest_editor" if workflow == "conventional" else f"{workflow}_manifest_editor"
+            )
+            st.session_state.pop(editor_key, None)
+            st.rerun()
 
 
 def _records(editor_value):
@@ -335,12 +504,8 @@ def _show_iflip3_fit_preview(preview) -> None:
         gridspec_kw={"height_ratios": (3, 1)},
         constrained_layout=True,
     )
-    fit_axis.plot(
-        preview.lifetime_time, preview.aggregate_decay, color="black", label="Data"
-    )
-    fit_axis.plot(
-        preview.lifetime_time, preview.fitted_decay, color="#d62728", label="Total fit"
-    )
+    fit_axis.plot(preview.lifetime_time, preview.aggregate_decay, color="black", label="Data")
+    fit_axis.plot(preview.lifetime_time, preview.fitted_decay, color="#d62728", label="Total fit")
     fit_axis.plot(
         preview.lifetime_time,
         preview.short_component + preview.background,
@@ -371,9 +536,7 @@ def _show_iflip3_fit_preview(preview) -> None:
     )
     for column, (name, value) in zip(metrics, metric_values, strict=True):
         column.metric(name, value)
-    residual_summary = iflip3_residual_summary(
-        preview.aggregate_decay, preview.residuals
-    )
+    residual_summary = iflip3_residual_summary(preview.aggregate_decay, preview.residuals)
     residual_metrics = st.columns(3)
     residual_values = (
         (
@@ -425,9 +588,7 @@ def _show_iflip3_calibration(calibration) -> None:
             "background is fixed at zero."
         )
     flagged_sessions = [
-        item["session_id"]
-        for item in calibration.session_qc
-        if item.get("t0_offset_flag")
+        item["session_id"] for item in calibration.session_qc if item.get("t0_offset_flag")
     ]
     if flagged_sessions:
         st.warning("Large t0 offsets require review: " + ", ".join(flagged_sessions))
@@ -445,9 +606,7 @@ def _show_iflip3_calibration(calibration) -> None:
         observed = np.asarray(item["normalized_decay"], dtype=float)
         fitted = np.asarray(item["fitted_decay"], dtype=float)
         observed_color = "#ff7f0e" if item.get("t0_offset_flag") else "0.7"
-        fit_axis.plot(
-            calibration.lifetime_time, observed, color=observed_color, alpha=0.7
-        )
+        fit_axis.plot(calibration.lifetime_time, observed, color=observed_color, alpha=0.7)
         fit_axis.plot(calibration.lifetime_time, fitted, color="#d62728", alpha=0.25)
         residual_rows.append(np.asarray(item["residuals"], dtype=float))
     fit_axis.set_ylabel("Normalized aggregate decay")
@@ -476,22 +635,16 @@ def _show_iflip3_calibration(calibration) -> None:
 
     table_rows = []
     for item in calibration.session_qc:
-        residual_summary = iflip3_residual_summary(
-            item["normalized_decay"], item["residuals"]
-        )
+        residual_summary = iflip3_residual_summary(item["normalized_decay"], item["residuals"])
         table_rows.append(
             {
                 "session": item["session_id"],
                 "measured background": item["measured_background_applied"],
                 "R²": item["r_squared"],
                 "RMSE": item["rmse_normalized"],
-                "max |residual| / peak (%)": residual_summary[
-                    "max_absolute_residual_percent_peak"
-                ],
+                "max |residual| / peak (%)": residual_summary["max_absolute_residual_percent_peak"],
                 "RMSE / peak (%)": residual_summary["rmse_percent_peak"],
-                "absolute residual area (%)": residual_summary[
-                    "absolute_residual_area_percent"
-                ],
+                "absolute residual area (%)": residual_summary["absolute_residual_area_percent"],
                 "peak time (ns)": item.get("peak_time_ns"),
                 "t0 (ns)": item.get("t0_ns", calibration.t0),
                 "t0 offset (ns)": item.get("t0_offset_from_median_ns", 0.0),
@@ -534,9 +687,7 @@ def _processed_provenance_panel(
             format_func=lambda index: labels[index],
             key=f"{workflow}_provenance_session",
         )
-        if not st.button(
-            "Check processed-file version", key=f"{workflow}_check_provenance"
-        ):
+        if not st.button("Check processed-file version", key=f"{workflow}_check_provenance"):
             return
         row = valid_rows[selected]
         try:
@@ -569,20 +720,14 @@ def _processed_provenance_panel(
             commit = code.get("commit")
             if commit:
                 st.code(str(commit)[:12], language=None)
-            st.caption(
-                f"Processed: {status.provenance.get('processing_utc', 'unknown time')}"
-            )
+            st.caption(f"Processed: {status.provenance.get('processing_utc', 'unknown time')}")
             st.json(status.provenance, expanded=False)
 
 
 def _run_command_batch(command, workflow_name, command_labels=None):
     """Run one or more commands with streamed logs and session progress."""
 
-    commands = (
-        list(command)
-        if command and isinstance(command[0], (list, tuple))
-        else [command]
-    )
+    commands = list(command) if command and isinstance(command[0], (list, tuple)) else [command]
     labels = command_labels or [workflow_name] * len(commands)
     output_lines = deque(maxlen=500)
     output_panel = st.empty()
@@ -590,9 +735,7 @@ def _run_command_batch(command, workflow_name, command_labels=None):
     qc_records = []
 
     def show_qc_summary():
-        unique = {
-            (record["path"], record["reason"]): record for record in qc_records
-        }
+        unique = {(record["path"], record["reason"]): record for record in qc_records}
         if not unique:
             return
         records = list(unique.values())
@@ -609,9 +752,7 @@ def _run_command_batch(command, workflow_name, command_labels=None):
                 location = record["path"] or "Path unavailable"
                 st.markdown(f"- `{location}` — {record['reason']}")
 
-    for command_index, (current_command, label) in enumerate(
-        zip(commands, labels, strict=True)
-    ):
+    for command_index, (current_command, label) in enumerate(zip(commands, labels, strict=True)):
         if len(commands) > 1:
             output_lines.append(f"--- {label} ---")
 
@@ -643,21 +784,15 @@ def _run_command_batch(command, workflow_name, command_labels=None):
             )
 
         try:
-            return_code, output = run_command(
-                current_command, PROJECT_ROOT, show_output
-            )
+            return_code, output = run_command(current_command, PROJECT_ROOT, show_output)
         except OSError as error:
             st.error(f"{label} could not start: {error}")
             return False
         if not output_lines:
             visible_output = "\n".join(
-                line
-                for line in output.splitlines()
-                if parse_qc_warning_line(line) is None
+                line for line in output.splitlines() if parse_qc_warning_line(line) is None
             )
-            output_panel.code(
-                visible_output or "(No console output)", language="text"
-            )
+            output_panel.code(visible_output or "(No console output)", language="text")
         if return_code != 0:
             show_qc_summary()
             st.error(f"{label} exited with code {return_code}.")
@@ -674,34 +809,49 @@ def _run_command_batch(command, workflow_name, command_labels=None):
 def _run_workflow(
     command,
     editor_rows,
-    manifest_path,
+    manifest_dir,
+    manifest_name,
+    active_manifest_key,
     data_root,
     workflow_name,
     command_labels=None,
 ):
     data_root_path = Path(data_root).expanduser()
     if not data_root_path.is_dir():
-        st.error(
-            f"Raw-data root does not exist or is not a directory: {data_root_path}"
-        )
+        st.error(f"Raw-data root does not exist or is not a directory: {data_root_path}")
         return False
 
+    active_manifest = st.session_state.get(active_manifest_key, "")
     try:
-        saved_path = write_manifest(manifest_path, editor_rows)
+        saved_path, created = _save_manifest_for_run(
+            "conventional",
+            editor_rows,
+            manifest_dir,
+            manifest_name,
+            active_manifest,
+        )
     except (OSError, ValueError) as error:
         st.error(f"The session manifest was not saved: {error}")
         return False
-
-    st.success(f"Validated and saved the current session table to {saved_path}")
+    st.session_state[active_manifest_key] = str(saved_path)
+    command = replace_command_manifest(command, saved_path)
+    action = "Saved a new manifest version" if created else "Using active manifest"
+    st.success(f"{action}: {saved_path}")
     with st.spinner("Running workflow. Keep this browser tab open..."):
-        return _run_command_batch(command, workflow_name, command_labels)
+        completed = _run_command_batch(command, workflow_name, command_labels)
+    if completed:
+        for output_dir in command_output_directories(command):
+            snapshot_manifest(saved_path, output_dir)
+    return completed
 
 
 def _run_lifetime_workflow(
     command,
     workflow,
     editor_rows,
-    manifest_path,
+    manifest_dir,
+    manifest_name,
+    active_manifest_key,
     data_root,
     workflow_name,
     command_labels=None,
@@ -710,14 +860,28 @@ def _run_lifetime_workflow(
     if not data_root_path.is_dir():
         st.error(f"Data root does not exist or is not a directory: {data_root_path}")
         return False
+    active_manifest = st.session_state.get(active_manifest_key, "")
     try:
-        saved_path = write_lifetime_manifest(workflow, manifest_path, editor_rows)
+        saved_path, created = _save_manifest_for_run(
+            workflow,
+            editor_rows,
+            manifest_dir,
+            manifest_name,
+            active_manifest,
+        )
     except (OSError, ValueError) as error:
         st.error(f"The session manifest was not saved: {error}")
         return False
-    st.success(f"Validated and saved the current session table to {saved_path}")
+    st.session_state[active_manifest_key] = str(saved_path)
+    command = replace_command_manifest(command, saved_path)
+    action = "Saved a new manifest version" if created else "Using active manifest"
+    st.success(f"{action}: {saved_path}")
     with st.spinner("Running workflow. Keep this browser tab open..."):
-        return _run_command_batch(command, workflow_name, command_labels)
+        completed = _run_command_batch(command, workflow_name, command_labels)
+    if completed:
+        for output_dir in command_output_directories(command):
+            snapshot_manifest(saved_path, output_dir)
+    return completed
 
 
 def _show_glm_results(output_directory, key_prefix):
@@ -753,9 +917,7 @@ def _show_glm_results(output_directory, key_prefix):
         for image_path in performance_images:
             st.image(image_path.read_bytes(), width="stretch")
         score_path = output_directory / (
-            "forecast_mouse_metrics.csv"
-            if conventional
-            else "glm_mouse_cross_validation.csv"
+            "forecast_mouse_metrics.csv" if conventional else "glm_mouse_cross_validation.csv"
         )
         if score_path.is_file():
             st.dataframe(pd.read_csv(score_path), hide_index=True, width="stretch")
@@ -770,9 +932,7 @@ def _show_glm_results(output_directory, key_prefix):
             st.info("No kernel figure was found.")
     with predictions_tab:
         prediction_path = output_directory / (
-            "forecast_heldout_predictions.csv"
-            if conventional
-            else "glm_heldout_predictions.csv"
+            "forecast_heldout_predictions.csv" if conventional else "glm_heldout_predictions.csv"
         )
         if not prediction_path.is_file():
             st.info(
@@ -840,13 +1000,17 @@ def _show_glm_results(output_directory, key_prefix):
                 plt.close(fig)
     with tables_tab:
         table_names = (
-            ("Session metrics", "forecast_session_metrics.csv"),
-            ("Group metrics", "forecast_group_metrics.csv"),
-            ("Session kernels", "forecast_session_kernels.csv"),
-        ) if conventional else (
-            ("Session cross-validation", "glm_cross_validation.csv"),
-            ("Session kernels", "glm_session_kernels.csv"),
-            ("Group kernels", "glm_group_kernels.csv"),
+            (
+                ("Session metrics", "forecast_session_metrics.csv"),
+                ("Group metrics", "forecast_group_metrics.csv"),
+                ("Session kernels", "forecast_session_kernels.csv"),
+            )
+            if conventional
+            else (
+                ("Session cross-validation", "glm_cross_validation.csv"),
+                ("Session kernels", "glm_session_kernels.csv"),
+                ("Group kernels", "glm_group_kernels.csv"),
+            )
         )
         for label, filename in table_names:
             path = output_directory / filename
@@ -923,17 +1087,13 @@ def _show_psth_summary_results(output_directory, key_prefix):
     with trial_tab:
         trial_group_path = output_directory / "psth_trial_metric_group_summary.csv"
         trial_mouse_path = output_directory / "psth_mouse_trial_metric_summary.csv"
-        trial_tests_path = (
-            output_directory / "psth_trial_metric_statistical_tests.csv"
-        )
+        trial_tests_path = output_directory / "psth_trial_metric_statistical_tests.csv"
         if trial_group_path.is_file():
             st.caption(
                 "Each metric was calculated per trial, averaged within session, "
                 "then sessions were weighted equally within mouse."
             )
-            st.dataframe(
-                pd.read_csv(trial_group_path), hide_index=True, width="stretch"
-            )
+            st.dataframe(pd.read_csv(trial_group_path), hide_index=True, width="stretch")
             if trial_mouse_path.is_file():
                 with st.expander("Mouse values derived from individual trials"):
                     st.dataframe(
@@ -953,7 +1113,9 @@ def _show_psth_summary_results(output_directory, key_prefix):
                 "This source PSTH did not contain individual-trial exports. Rerun "
                 "the PSTH with the current software to create trial-level metrics."
             )
-def _psth_summary_controls(default_base_directory, key_prefix):
+
+
+def _psth_summary_controls(default_base_directory, key_prefix, *, summary_output_base=None):
     """Render saved-PSTH metric controls shared by every acquisition system."""
 
     st.subheader("PSTH summary statistics")
@@ -995,11 +1157,7 @@ def _psth_summary_controls(default_base_directory, key_prefix):
             relative = path.relative_to(Path(results_base).expanduser())
         except ValueError:
             relative = path
-        return (
-            "Base folder (legacy direct output)"
-            if relative == Path(".")
-            else str(relative)
-        )
+        return "Base folder (legacy direct output)" if relative == Path(".") else str(relative)
 
     selected_run = st.selectbox(
         "Saved PSTH run folder",
@@ -1037,9 +1195,7 @@ def _psth_summary_controls(default_base_directory, key_prefix):
     except (OSError, ValueError):
         pass
     else:
-        detected_signal_type = detected_bundle["identity"].get(
-            "signal_type", "photometry"
-        )
+        detected_signal_type = detected_bundle["identity"].get("signal_type", "photometry")
         st.caption(
             f"Detected response type: {detected_signal_type} · "
             f"{detected_bundle['identity'].get('signal', 'signal')}"
@@ -1169,7 +1325,11 @@ def _psth_summary_controls(default_base_directory, key_prefix):
     output_key = f"{key_prefix}_summary_output"
     last_input_key = f"{key_prefix}_summary_last_input"
     result_key = f"{key_prefix}_summary_result_directory"
-    default_output = str(Path(input_directory).expanduser() / "summary_statistics")
+    default_output = str(
+        Path(summary_output_base).expanduser()
+        if summary_output_base is not None
+        else Path(input_directory).expanduser() / "summary_statistics"
+    )
     if st.session_state.get(last_input_key) != str(input_directory):
         st.session_state[output_key] = default_output
         st.session_state[last_input_key] = str(input_directory)
@@ -1179,9 +1339,7 @@ def _psth_summary_controls(default_base_directory, key_prefix):
         key=output_key,
         help="Each run is saved in a new timestamped folder below this directory.",
     )
-    window_label = safe_analysis_run_label(
-        f"{response_start:g}to{response_end:g}s"
-    )
+    window_label = safe_analysis_run_label(f"{response_start:g}to{response_end:g}s")
     output_directory = next_analysis_run_directory(output_base, window_label)
     st.caption(f"This summary run will be saved to: {output_directory}")
     left, right = st.columns(2)
@@ -1208,9 +1366,7 @@ def _psth_summary_controls(default_base_directory, key_prefix):
             import matplotlib.pyplot as plt
 
             grouped = {}
-            for record, trace in zip(
-                bundle["mouse_records"], bundle["mouse_matrix"], strict=True
-            ):
+            for record, trace in zip(bundle["mouse_records"], bundle["mouse_matrix"], strict=True):
                 label = f"{record['group']} / {record['condition']}"
                 grouped.setdefault(label, []).append(trace)
             fig, ax = plt.subplots(figsize=(8, 4.5))
@@ -1256,18 +1412,36 @@ def _psth_summary_controls(default_base_directory, key_prefix):
             with st.spinner("Calculating PSTH summary statistics..."):
                 completed = _run_command_batch(command, "PSTH summary statistics")
             if completed:
+                source_manifest = Path(input_directory) / "input_manifest.csv"
+                if source_manifest.is_file():
+                    Path(output_directory).mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(
+                        source_manifest,
+                        Path(output_directory) / "input_manifest.csv",
+                    )
+                    source_metadata = Path(input_directory) / "input_manifest_metadata.json"
+                    if source_metadata.is_file():
+                        shutil.copy2(
+                            source_metadata,
+                            Path(output_directory) / "input_manifest_metadata.json",
+                        )
                 st.session_state[result_key] = str(output_directory)
     result_directory = st.session_state.get(result_key)
     if result_directory:
         _show_psth_summary_results(result_directory, key_prefix)
     with st.expander("Advanced: inspect or copy summary command"):
-        if st.button(
-            "Preview summary command", key=f"{key_prefix}_summary_command"
-        ):
+        if st.button("Preview summary command", key=f"{key_prefix}_summary_command"):
             _preview_command(command)
 
 
-def _session_trace_controls(workflow, rows, data_root):
+def _session_trace_controls(
+    workflow,
+    rows,
+    data_root,
+    manifest_dir,
+    manifest_name,
+    active_manifest_key,
+):
     """Render a shared continuous-session example-trace viewer and exporter."""
 
     st.subheader("Single-session example trace")
@@ -1358,9 +1532,7 @@ def _session_trace_controls(workflow, rows, data_root):
                         selected_row, data_root, signal=signal, channel=channel
                     )
                     if workflow == "conventional"
-                    else load_lifetime_session_trace(
-                        workflow, selected_row, data_root, signal
-                    )
+                    else load_lifetime_session_trace(workflow, selected_row, data_root, signal)
                 )
         except (OSError, KeyError, ValueError) as error:
             st.error(f"Could not load session trace: {error}")
@@ -1399,9 +1571,7 @@ def _session_trace_controls(workflow, rows, data_root):
     if cue_durations.size:
         duration_caption.append(f"median Cue duration {np.median(cue_durations):g} s")
     if ensure_durations.size:
-        duration_caption.append(
-            f"median Ensure duration {np.median(ensure_durations):g} s"
-        )
+        duration_caption.append(f"median Ensure duration {np.median(ensure_durations):g} s")
     st.caption(
         f"Loaded {data.session_id} · {data.signal} · {len(data.lick_times)} licks"
         + (f" · {' · '.join(duration_caption)}" if duration_caption else "")
@@ -1413,17 +1583,11 @@ def _session_trace_controls(workflow, rows, data_root):
         overview_start = st.number_input(
             "Overview start (s)", key=f"{workflow}_trace_overview_start"
         )
-        overview_end = st.number_input(
-            "Overview end (s)", key=f"{workflow}_trace_overview_end"
-        )
+        overview_end = st.number_input("Overview end (s)", key=f"{workflow}_trace_overview_end")
     with window_right:
         st.markdown("**Zoom window**")
-        zoom_start = st.number_input(
-            "Zoom start (s)", key=f"{workflow}_trace_zoom_start"
-        )
-        zoom_end = st.number_input(
-            "Zoom end (s)", key=f"{workflow}_trace_zoom_end"
-        )
+        zoom_start = st.number_input("Zoom start (s)", key=f"{workflow}_trace_zoom_start")
+        zoom_end = st.number_input("Zoom end (s)", key=f"{workflow}_trace_zoom_end")
     transform_labels = {
         "native": "Native processed units",
         "subtract_mean": "Subtract full-session mean",
@@ -1444,13 +1608,9 @@ def _session_trace_controls(workflow, rows, data_root):
     with option_columns[1]:
         show_cues = st.checkbox("Show Cue", value=True, key=f"{workflow}_trace_cues")
     with option_columns[2]:
-        show_ensures = st.checkbox(
-            "Show Ensure", value=True, key=f"{workflow}_trace_ensures"
-        )
+        show_ensures = st.checkbox("Show Ensure", value=True, key=f"{workflow}_trace_ensures")
     with option_columns[3]:
-        show_licks = st.checkbox(
-            "Show licks", value=True, key=f"{workflow}_trace_licks"
-        )
+        show_licks = st.checkbox("Show licks", value=True, key=f"{workflow}_trace_licks")
     windows_valid = (
         overview_start < overview_end
         and overview_start <= zoom_start < zoom_end <= overview_end
@@ -1482,13 +1642,11 @@ def _session_trace_controls(workflow, rows, data_root):
     plt.close(figure)
     output_base = st.text_input(
         "Session-trace output base directory",
-        value=str(PROJECT_ROOT / "analysis" / "session_traces" / workflow),
+        value=str(workflow_analysis_directory(PROJECT_ROOT, workflow) / "session_traces"),
         key=f"{workflow}_trace_output_base",
         help="Each saved example is written to a new timestamped folder.",
     )
-    output_directory = next_analysis_run_directory(
-        output_base, f"{data.session_id}__{data.signal}"
-    )
+    output_directory = next_analysis_run_directory(output_base, f"{data.session_id}__{data.signal}")
     st.caption(f"This example trace will be saved to: {output_directory}")
     if st.button(
         "Save example trace and data",
@@ -1497,6 +1655,14 @@ def _session_trace_controls(workflow, rows, data_root):
         key=f"{workflow}_save_session_trace",
     ):
         try:
+            saved_manifest, created = _save_manifest_for_run(
+                workflow,
+                rows,
+                manifest_dir,
+                manifest_name,
+                st.session_state.get(active_manifest_key, ""),
+            )
+            st.session_state[active_manifest_key] = str(saved_manifest)
             outputs = save_session_trace(
                 data,
                 output_directory,
@@ -1507,10 +1673,12 @@ def _session_trace_controls(workflow, rows, data_root):
                 show_ensures=show_ensures,
                 show_licks=show_licks,
             )
+            snapshot_manifest(saved_manifest, output_directory)
         except (OSError, ValueError) as error:
             st.error(f"Could not save session trace: {error}")
         else:
-            st.success(f"Saved {len(outputs)} files to {output_directory}")
+            action = " and a new manifest version" if created else ""
+            st.success(f"Saved {len(outputs)} trace files{action} to {output_directory}")
 
 
 def _lifetime_gui(workflow: str) -> None:
@@ -1532,10 +1700,16 @@ def _lifetime_gui(workflow: str) -> None:
         st.subheader(f"{label} workspace")
         st.text_input("Repository", value=str(PROJECT_ROOT), disabled=True)
         data_root = st.text_input("Data root", value="Z:\\", key=f"{workflow}_root")
-        manifest_path = st.text_input(
-            "Session manifest",
-            value=str(PROJECT_ROOT / "analysis" / workflow / "sessions.csv"),
-            key=f"{workflow}_manifest_path",
+        legacy_manifest = PROJECT_ROOT / "analysis" / workflow / "sessions.csv"
+        analysis_workspace, manifest_dir, manifest_name, active_manifest_key = (
+            _manifest_workspace_sidebar(
+                workflow,
+                label,
+                legacy_paths=(legacy_manifest,),
+            )
+        )
+        manifest_path = st.session_state.get(active_manifest_key, "") or (
+            manifest_dir / "unsaved_sessions.csv"
         )
         st.caption(
             "Blank recording paths use the laboratory mouse/date/run conventions "
@@ -1557,6 +1731,13 @@ def _lifetime_gui(workflow: str) -> None:
     )
     with sessions_tab:
         st.subheader(f"{label} session manifest")
+        _manifest_library_panel(
+            workflow,
+            state_key,
+            manifest_dir,
+            active_manifest_key,
+            legacy_paths=(legacy_manifest,),
+        )
         if workflow == "iflip3":
             st.info(
                 "The path assistant finds session and background candidates from mouse, "
@@ -1573,13 +1754,9 @@ def _lifetime_gui(workflow: str) -> None:
         with st.expander("Add a session and find its files", expanded=True):
             identity_columns = st.columns((1.2, 1.2, 0.8, 1, 1))
             with identity_columns[0]:
-                discovery_mouse = st.text_input(
-                    "Mouse", key=f"{workflow}_discovery_mouse"
-                )
+                discovery_mouse = st.text_input("Mouse", key=f"{workflow}_discovery_mouse")
             with identity_columns[1]:
-                discovery_date = st.text_input(
-                    "Date (YYMMDD)", key=f"{workflow}_discovery_date"
-                )
+                discovery_date = st.text_input("Date (YYMMDD)", key=f"{workflow}_discovery_date")
             with identity_columns[2]:
                 discovery_run = st.number_input(
                     "Run",
@@ -1589,9 +1766,7 @@ def _lifetime_gui(workflow: str) -> None:
                     key=f"{workflow}_discovery_run",
                 )
             with identity_columns[3]:
-                discovery_group = st.text_input(
-                    "Group", key=f"{workflow}_discovery_group"
-                )
+                discovery_group = st.text_input("Group", key=f"{workflow}_discovery_group")
             with identity_columns[4]:
                 discovery_condition = st.text_input(
                     "Condition", key=f"{workflow}_discovery_condition"
@@ -1630,9 +1805,7 @@ def _lifetime_gui(workflow: str) -> None:
                 str(Path(data_root).expanduser()),
             )
             if choices is not None and identity == current_identity:
-                recording_field = (
-                    "doric_path" if workflow == "fluopulse" else "iflip_path"
-                )
+                recording_field = "doric_path" if workflow == "fluopulse" else "iflip_path"
                 recording_label = (
                     "Doric recording" if workflow == "fluopulse" else "iFLIP3 recording"
                 )
@@ -1739,12 +1912,8 @@ def _lifetime_gui(workflow: str) -> None:
                         st.session_state.pop(f"{workflow}_manifest_editor", None)
                         st.rerun()
 
-        uploaded = st.file_uploader(
-            "Load an existing CSV", type="csv", key=f"{workflow}_upload"
-        )
-        if uploaded is not None and st.button(
-            "Use uploaded CSV", key=f"{workflow}_use_upload"
-        ):
+        uploaded = st.file_uploader("Load an existing CSV", type="csv", key=f"{workflow}_upload")
+        if uploaded is not None and st.button("Use uploaded CSV", key=f"{workflow}_use_upload"):
             st.session_state[state_key] = _uploaded_rows(uploaded)
             st.rerun()
         edited = st.data_editor(
@@ -1766,11 +1935,9 @@ def _lifetime_gui(workflow: str) -> None:
         )
         rows = _records(edited)
         st.session_state[state_key] = rows
-        left, middle, right = st.columns(3)
+        left, middle, update, right = st.columns(4)
         with left:
-            if st.button(
-                "Validate sessions", width="stretch", key=f"{workflow}_validate"
-            ):
+            if st.button("Validate sessions", width="stretch", key=f"{workflow}_validate"):
                 try:
                     sessions = normalize_lifetime_manifest_rows(workflow, rows)
                     st.success(f"Validated {len(sessions)} unique sessions.")
@@ -1778,14 +1945,42 @@ def _lifetime_gui(workflow: str) -> None:
                     st.error(str(error))
         with middle:
             if st.button(
-                "Save manifest",
+                "Save new version",
                 type="primary",
                 width="stretch",
                 key=f"{workflow}_save",
             ):
                 try:
-                    saved = write_lifetime_manifest(workflow, manifest_path, rows)
-                    st.success(f"Saved {saved}")
+                    saved = _save_manifest_version(
+                        workflow,
+                        rows,
+                        manifest_dir,
+                        manifest_name,
+                        parent_manifest=st.session_state.get(active_manifest_key) or None,
+                    )
+                    st.session_state[active_manifest_key] = str(saved)
+                    st.success(f"Saved new manifest version: {saved}")
+                except (OSError, ValueError) as error:
+                    st.error(str(error))
+        with update:
+            active_manifest = st.session_state.get(active_manifest_key, "")
+            if st.button(
+                "Update active",
+                width="stretch",
+                key=f"{workflow}_update_manifest",
+                disabled=not active_manifest,
+                help="Explicitly replace the active manifest instead of creating a version.",
+            ):
+                try:
+                    saved = _write_workflow_manifest(workflow, active_manifest, rows)
+                    write_manifest_metadata(
+                        saved,
+                        workflow=workflow,
+                        display_name=manifest_name,
+                        row_count=_normalized_manifest_row_count(workflow, rows),
+                        code_commit=local_git_commit(PROJECT_ROOT),
+                    )
+                    st.success(f"Updated active manifest: {saved}")
                 except (OSError, ValueError) as error:
                     st.error(str(error))
         with right:
@@ -1801,7 +1996,7 @@ def _lifetime_gui(workflow: str) -> None:
             st.download_button(
                 "Download CSV",
                 csv_text,
-                file_name=f"{workflow}_sessions.csv",
+                file_name=f"{safe_analysis_run_label(manifest_name)}.csv",
                 mime="text/csv",
                 disabled=not csv_text,
                 width="stretch",
@@ -1846,20 +2041,12 @@ def _lifetime_gui(workflow: str) -> None:
                     "subset when acquisition hardware/settings changed or QC identifies an outlier."
                 ),
             )
-            pending_calibration_path = st.session_state.pop(
-                "iflip3_pending_calibration_path", None
-            )
+            pending_calibration_path = st.session_state.pop("iflip3_pending_calibration_path", None)
             if pending_calibration_path is not None:
                 st.session_state["iflip3_calibration_path"] = pending_calibration_path
             calibration_path_text = st.text_input(
                 "Calibration JSON",
-                value=str(
-                    PROJECT_ROOT
-                    / "analysis"
-                    / "iflip3"
-                    / "calibrations"
-                    / "shared.json"
-                ),
+                value=str(analysis_workspace / "calibrations" / "shared.json"),
                 key="iflip3_calibration_path",
             ).strip()
             calibration_path = Path(calibration_path_text).expanduser()
@@ -1878,10 +2065,7 @@ def _lifetime_gui(workflow: str) -> None:
                             "Loading selected sessions and fitting shared parameters..."
                         ):
                             calibration = calibrate_iflip3_sessions(
-                                [
-                                    preview_rows[index]
-                                    for index in selected_calibration_indices
-                                ],
+                                [preview_rows[index] for index in selected_calibration_indices],
                                 data_root,
                             )
                     except (OSError, ValueError, RuntimeError) as error:
@@ -1919,9 +2103,7 @@ def _lifetime_gui(workflow: str) -> None:
                 if save_new_version:
                     st.caption(f"New calibration file: {save_target}")
                 elif calibration_path.exists():
-                    st.warning(
-                        f"The existing calibration will be replaced: {calibration_path}"
-                    )
+                    st.warning(f"The existing calibration will be replaced: {calibration_path}")
                     confirm_calibration_replace = st.checkbox(
                         "I understand that saving will replace this calibration JSON",
                         value=False,
@@ -1939,9 +2121,7 @@ def _lifetime_gui(workflow: str) -> None:
                         )
                     else:
                         try:
-                            saved_calibration = save_iflip3_calibration(
-                                calibration, save_target
-                            )
+                            saved_calibration = save_iflip3_calibration(calibration, save_target)
                         except OSError as error:
                             st.error(f"Calibration could not be saved: {error}")
                         else:
@@ -1966,9 +2146,7 @@ def _lifetime_gui(workflow: str) -> None:
             )
             if use_calibration:
                 try:
-                    active_iflip3_calibration = load_iflip3_calibration(
-                        calibration_path
-                    )
+                    active_iflip3_calibration = load_iflip3_calibration(calibration_path)
                 except (OSError, ValueError) as error:
                     st.error(f"Calibration cannot be used: {error}")
                 else:
@@ -2007,9 +2185,7 @@ def _lifetime_gui(workflow: str) -> None:
                     key="iflip3_preview_calibrated_session",
                 ):
                     try:
-                        with st.spinner(
-                            "Applying the shared calibration to this recording..."
-                        ):
+                        with st.spinner("Applying the shared calibration to this recording..."):
                             calibrated_preview = apply_iflip3_calibration(
                                 preview_rows[calibrated_preview_index],
                                 data_root,
@@ -2018,21 +2194,15 @@ def _lifetime_gui(workflow: str) -> None:
                     except (OSError, ValueError, RuntimeError) as error:
                         st.error(f"The calibrated session preview failed: {error}")
                     else:
-                        st.session_state["iflip3_calibrated_preview_result"] = (
-                            calibrated_preview
-                        )
-                        st.session_state["iflip3_calibrated_preview_identity"] = (
-                            preview_labels[calibrated_preview_index]
-                        )
+                        st.session_state["iflip3_calibrated_preview_result"] = calibrated_preview
+                        st.session_state["iflip3_calibrated_preview_identity"] = preview_labels[
+                            calibrated_preview_index
+                        ]
                         st.session_state["iflip3_calibrated_preview_created_utc"] = (
                             diagnostic_calibration.created_utc
                         )
-                calibrated_preview = st.session_state.get(
-                    "iflip3_calibrated_preview_result"
-                )
-                calibrated_identity = st.session_state.get(
-                    "iflip3_calibrated_preview_identity"
-                )
+                calibrated_preview = st.session_state.get("iflip3_calibrated_preview_result")
+                calibrated_identity = st.session_state.get("iflip3_calibrated_preview_identity")
                 if calibrated_preview is not None:
                     st.caption(f"Calibrated session: {calibrated_identity}")
                     if (
@@ -2073,30 +2243,22 @@ def _lifetime_gui(workflow: str) -> None:
                         key="iflip3_preview_fit",
                     ):
                         try:
-                            with st.spinner(
-                                "Loading the recording and fitting its decay..."
-                            ):
+                            with st.spinner("Loading the recording and fitting its decay..."):
                                 preview = preview_iflip3_fit(
                                     preview_rows[preview_index],
                                     data_root,
                                     iflip3_fit_settings,
                                 )
                         except (OSError, ValueError, RuntimeError) as error:
-                            st.error(
-                                f"The unconstrained fit could not be generated: {error}"
-                            )
+                            st.error(f"The unconstrained fit could not be generated: {error}")
                         else:
                             st.session_state["iflip3_fit_preview_result"] = preview
-                            st.session_state["iflip3_fit_preview_identity"] = (
-                                preview_labels[preview_index]
-                            )
-                            st.session_state["iflip3_fit_preview_settings"] = (
-                                iflip3_fit_settings
-                            )
+                            st.session_state["iflip3_fit_preview_identity"] = preview_labels[
+                                preview_index
+                            ]
+                            st.session_state["iflip3_fit_preview_settings"] = iflip3_fit_settings
                     preview = st.session_state.get("iflip3_fit_preview_result")
-                    preview_identity = st.session_state.get(
-                        "iflip3_fit_preview_identity"
-                    )
+                    preview_identity = st.session_state.get("iflip3_fit_preview_identity")
                     if preview is not None:
                         st.caption(f"Unconstrained session: {preview_identity}")
                         if (
@@ -2117,9 +2279,7 @@ def _lifetime_gui(workflow: str) -> None:
                         else:
                             st.warning(f"The optimizer reported: {preview.message}")
                 else:
-                    st.info(
-                        "Add a complete session row before previewing an iFLIP3 fit."
-                    )
+                    st.info("Add a complete session row before previewing an iFLIP3 fit.")
             st.divider()
             st.caption(
                 "When a saved calibration is enabled, preprocessing ignores the advanced "
@@ -2164,16 +2324,28 @@ def _lifetime_gui(workflow: str) -> None:
             key=f"{workflow}_run_align",
         ):
             _run_lifetime_workflow(
-                command, workflow, rows, manifest_path, data_root, "Preprocessing"
+                command,
+                workflow,
+                rows,
+                manifest_dir,
+                manifest_name,
+                active_manifest_key,
+                data_root,
+                "Preprocessing",
             )
         with st.expander("Advanced: inspect or copy command"):
-            if st.button(
-                "Preview preprocessing command", key=f"{workflow}_preview_align"
-            ):
+            if st.button("Preview preprocessing command", key=f"{workflow}_preview_align"):
                 _preview_command(command)
 
     with trace_tab:
-        _session_trace_controls(workflow, rows, data_root)
+        _session_trace_controls(
+            workflow,
+            rows,
+            data_root,
+            manifest_dir,
+            manifest_name,
+            active_manifest_key,
+        )
 
     with psth_tab:
         st.subheader("Event-aligned lifetime timecourses")
@@ -2385,7 +2557,7 @@ def _lifetime_gui(workflow: str) -> None:
             post_cue_window = 2.0
         output = st.text_input(
             "Figure/output base directory",
-            value=str(PROJECT_ROOT / "analysis" / workflow / "psth"),
+            value=str(analysis_workspace / "psth"),
             key=f"{workflow}_psth_output",
         )
         suggested_run_label = suggest_psth_run_label(
@@ -2446,9 +2618,7 @@ def _lifetime_gui(workflow: str) -> None:
                 key=f"{workflow}_n_shuffles",
             )
         with null_middle:
-            seed = st.number_input(
-                "Random seed", min_value=0, value=0, key=f"{workflow}_null_seed"
-            )
+            seed = st.number_input("Random seed", min_value=0, value=0, key=f"{workflow}_null_seed")
         with null_right:
             null_exclusion = st.number_input(
                 "Exclude near real events (s)",
@@ -2536,8 +2706,7 @@ def _lifetime_gui(workflow: str) -> None:
                     ("bottom", "exclude"),
                     key=f"{workflow}_heatmap_unmatched",
                     disabled=(
-                        not save_heatmaps
-                        or heatmap_sort in {"event_order", "response_mean"}
+                        not save_heatmaps or heatmap_sort in {"event_order", "response_mean"}
                     ),
                 )
             with ordering_right:
@@ -2607,9 +2776,7 @@ def _lifetime_gui(workflow: str) -> None:
                     heatmap_sort_direction=heatmap_sort_direction,
                     heatmap_unmatched=heatmap_unmatched,
                     heatmap_cmap=heatmap_cmap,
-                    null_method=(
-                        "none" if behavior_signal == "licking" else null_method
-                    ),
+                    null_method=("none" if behavior_signal == "licking" else null_method),
                     n_shuffles=n_shuffles,
                     seed=seed,
                     null_exclusion=null_exclusion,
@@ -2634,23 +2801,24 @@ def _lifetime_gui(workflow: str) -> None:
                 commands,
                 workflow,
                 rows,
-                manifest_path,
+                manifest_dir,
+                manifest_name,
+                active_manifest_key,
                 data_root,
                 "PSTH analysis",
                 command_labels,
             )
         with st.expander("Advanced: inspect or copy command"):
             if st.button("Preview PSTH command", key=f"{workflow}_preview_psth"):
-                for label, preview_command in zip(
-                    command_labels, commands, strict=True
-                ):
+                for label, preview_command in zip(command_labels, commands, strict=True):
                     st.caption(label)
                     _preview_command(preview_command)
 
     with summary_tab:
         _psth_summary_controls(
-            PROJECT_ROOT / "analysis" / workflow / "psth",
+            analysis_workspace / "psth",
             f"{workflow}_psth",
+            summary_output_base=analysis_workspace / "summary_statistics",
         )
 
     with glm_tab:
@@ -2668,9 +2836,7 @@ def _lifetime_gui(workflow: str) -> None:
             "Lifetime kernels use picoseconds. Results describe predictive association, "
             "not causality."
         )
-        glm_group_filter, glm_condition_filter = _analysis_subset_controls(
-            rows, f"{workflow}_glm"
-        )
+        glm_group_filter, glm_condition_filter = _analysis_subset_controls(rows, f"{workflow}_glm")
         glm_signal = st.selectbox(
             "GLM response",
             LIFETIME_SIGNALS[workflow],
@@ -2716,15 +2882,11 @@ def _lifetime_gui(workflow: str) -> None:
             )
         glm_output = st.text_input(
             "GLM results base directory",
-            value=str(PROJECT_ROOT / "analysis" / workflow / "glm"),
+            value=str(analysis_workspace / "glm"),
             key=f"{workflow}_glm_output",
-            help=(
-                "Each run is saved in a new timestamped folder below this directory."
-            ),
+            help=("Each run is saved in a new timestamped folder below this directory."),
         )
-        glm_run_output = next_analysis_run_directory(
-            glm_output, f"{glm_signal}__lifetime_glm"
-        )
+        glm_run_output = next_analysis_run_directory(glm_output, f"{glm_signal}__lifetime_glm")
         st.caption(f"This run will be saved to: {glm_run_output}")
         command = build_lifetime_command(
             PROJECT_ROOT,
@@ -2747,18 +2909,21 @@ def _lifetime_gui(workflow: str) -> None:
             key=f"{workflow}_run_glm",
         ):
             succeeded = _run_lifetime_workflow(
-                command, workflow, rows, manifest_path, data_root, "Lifetime GLM"
+                command,
+                workflow,
+                rows,
+                manifest_dir,
+                manifest_name,
+                active_manifest_key,
+                data_root,
+                "Lifetime GLM",
             )
             if succeeded:
-                st.session_state[f"{workflow}_glm_result_directory"] = str(
-                    glm_run_output
-                )
+                st.session_state[f"{workflow}_glm_result_directory"] = str(glm_run_output)
         with st.expander("Advanced: inspect or copy command"):
             if st.button("Preview GLM command", key=f"{workflow}_preview_glm"):
                 _preview_command(command)
-        glm_result_directory = st.session_state.get(
-            f"{workflow}_glm_result_directory"
-        )
+        glm_result_directory = st.session_state.get(f"{workflow}_glm_result_directory")
         if glm_result_directory:
             _show_glm_results(glm_result_directory, f"{workflow}_glm")
 
@@ -2788,9 +2953,19 @@ with st.sidebar:
     st.subheader("Workspace")
     st.text_input("Repository", value=str(PROJECT_ROOT), disabled=True)
     data_root = st.text_input("Raw-data root", value=r"Z:\Photometry")
-    manifest_path_text = st.text_input(
-        "Session manifest",
-        value=str(PROJECT_ROOT / "analysis" / "sessions.csv"),
+    conventional_legacy_manifest = PROJECT_ROOT / "analysis" / "sessions.csv"
+    (
+        conventional_analysis_workspace,
+        conventional_manifest_dir,
+        conventional_manifest_name,
+        conventional_active_manifest_key,
+    ) = _manifest_workspace_sidebar(
+        "conventional",
+        "conventional",
+        legacy_paths=(conventional_legacy_manifest,),
+    )
+    manifest_path_text = st.session_state.get(conventional_active_manifest_key, "") or (
+        conventional_manifest_dir / "unsaved_sessions.csv"
     )
     st.caption(
         "Preview and Run are separate actions. Run validates and saves the current "
@@ -2814,6 +2989,13 @@ sessions_tab, preprocess_tab, trace_tab, psth_tab, summary_tab, glm_tab = st.tab
 
 with sessions_tab:
     st.subheader("Session manifest")
+    _manifest_library_panel(
+        "conventional",
+        "manifest_rows",
+        conventional_manifest_dir,
+        conventional_active_manifest_key,
+        legacy_paths=(conventional_legacy_manifest,),
+    )
     st.write(
         "Enter one row per session. Group and condition are used for stratified "
         "figures; channel selects photoreceiver 1 or 2."
@@ -2849,7 +3031,7 @@ with sessions_tab:
     editor_rows = _records(edited)
     st.session_state.manifest_rows = editor_rows
 
-    left, middle, right = st.columns(3)
+    left, middle, update, right = st.columns(4)
     with left:
         if st.button("Validate sessions", width="stretch"):
             try:
@@ -2858,10 +3040,39 @@ with sessions_tab:
             except ValueError as error:
                 st.error(str(error))
     with middle:
-        if st.button("Save manifest", type="primary", width="stretch"):
+        if st.button("Save new version", type="primary", width="stretch"):
             try:
-                saved_path = write_manifest(manifest_path_text, editor_rows)
-                st.success(f"Saved {saved_path}")
+                saved_path = _save_manifest_version(
+                    "conventional",
+                    editor_rows,
+                    conventional_manifest_dir,
+                    conventional_manifest_name,
+                    parent_manifest=(
+                        st.session_state.get(conventional_active_manifest_key) or None
+                    ),
+                )
+                st.session_state[conventional_active_manifest_key] = str(saved_path)
+                st.success(f"Saved new manifest version: {saved_path}")
+            except (OSError, ValueError) as error:
+                st.error(str(error))
+    with update:
+        active_manifest = st.session_state.get(conventional_active_manifest_key, "")
+        if st.button(
+            "Update active",
+            width="stretch",
+            disabled=not active_manifest,
+            help="Explicitly replace the active manifest instead of creating a version.",
+        ):
+            try:
+                saved_path = write_manifest(active_manifest, editor_rows)
+                write_manifest_metadata(
+                    saved_path,
+                    workflow="conventional",
+                    display_name=conventional_manifest_name,
+                    row_count=len(normalize_manifest_rows(editor_rows)),
+                    code_commit=local_git_commit(PROJECT_ROOT),
+                )
+                st.success(f"Updated active manifest: {saved_path}")
             except (OSError, ValueError) as error:
                 st.error(str(error))
     with right:
@@ -2872,7 +3083,7 @@ with sessions_tab:
         st.download_button(
             "Download CSV",
             data=csv_text,
-            file_name="sessions.csv",
+            file_name=f"{safe_analysis_run_label(conventional_manifest_name)}.csv",
             mime="text/csv",
             disabled=not csv_text,
             width="stretch",
@@ -2900,7 +3111,9 @@ with preprocess_tab:
         _run_workflow(
             preprocess_command,
             editor_rows,
-            manifest_path_text,
+            conventional_manifest_dir,
+            conventional_manifest_name,
+            conventional_active_manifest_key,
             data_root,
             "Preprocessing",
         )
@@ -2909,7 +3122,14 @@ with preprocess_tab:
             _preview_command(preprocess_command)
 
 with trace_tab:
-    _session_trace_controls("conventional", editor_rows, data_root)
+    _session_trace_controls(
+        "conventional",
+        editor_rows,
+        data_root,
+        conventional_manifest_dir,
+        conventional_manifest_name,
+        conventional_active_manifest_key,
+    )
 
 with psth_tab:
     st.subheader("Event-aligned timecourses")
@@ -3065,9 +3285,7 @@ with psth_tab:
 
     selection_left, selection_right = st.columns(2)
     with selection_left:
-        first_event_only = st.checkbox(
-            "Align only to the first event in each session", value=False
-        )
+        first_event_only = st.checkbox("Align only to the first event in each session", value=False)
     with selection_right:
         allow_partial_windows = st.checkbox(
             "Keep partial windows at recording boundaries",
@@ -3106,7 +3324,7 @@ with psth_tab:
 
     output_dir = st.text_input(
         "Figure/output base directory",
-        value=str(PROJECT_ROOT / "analysis" / "gui_psth"),
+        value=str(conventional_analysis_workspace / "psth"),
     )
     suggested_run_label = suggest_psth_run_label(
         photometry_signal,
@@ -3268,10 +3486,7 @@ with psth_tab:
                     "bottom": "Keep at bottom",
                     "exclude": "Exclude from heatmap",
                 }[value],
-                disabled=(
-                    not save_heatmaps
-                    or heatmap_sort in {"event_order", "response_mean"}
-                ),
+                disabled=(not save_heatmaps or heatmap_sort in {"event_order", "response_mean"}),
             )
 
     psth_command = build_psth_command(
@@ -3308,9 +3523,7 @@ with psth_tab:
         condition_filter=psth_condition_filter,
     )
     psth_commands = [psth_command]
-    psth_command_labels = [
-        f"{CONVENTIONAL_PHOTOMETRY_SIGNAL_LABELS[photometry_signal]} PSTH"
-    ]
+    psth_command_labels = [f"{CONVENTIONAL_PHOTOMETRY_SIGNAL_LABELS[photometry_signal]} PSTH"]
     for behavior_signal, include, behavior_label in (
         ("licking", include_licking, "Licking PSTH"),
         ("running", include_running, "Running PSTH"),
@@ -3360,23 +3573,24 @@ with psth_tab:
         _run_workflow(
             psth_commands,
             editor_rows,
-            manifest_path_text,
+            conventional_manifest_dir,
+            conventional_manifest_name,
+            conventional_active_manifest_key,
             data_root,
             "PSTH analysis",
             psth_command_labels,
         )
     with st.expander("Advanced: inspect or copy command"):
         if st.button("Preview PSTH command", width="stretch"):
-            for label, preview_command in zip(
-                psth_command_labels, psth_commands, strict=True
-            ):
+            for label, preview_command in zip(psth_command_labels, psth_commands, strict=True):
                 st.caption(label)
                 _preview_command(preview_command)
 
 with summary_tab:
     _psth_summary_controls(
-        PROJECT_ROOT / "analysis" / "gui_psth",
+        conventional_analysis_workspace / "psth",
         "conventional_psth",
+        summary_output_base=conventional_analysis_workspace / "summary_statistics",
     )
 
 with glm_tab:
@@ -3454,10 +3668,8 @@ with glm_tab:
 
     glm_output_dir = st.text_input(
         "GLM results base directory",
-        value=str(PROJECT_ROOT / "analysis" / "gui_glm"),
-        help=(
-            "Each run is saved in a new timestamped folder below this directory."
-        ),
+        value=str(conventional_analysis_workspace / "glm"),
+        help=("Each run is saved in a new timestamped folder below this directory."),
     )
     glm_run_output_dir = next_analysis_run_directory(
         glm_output_dir, f"{photometry_source}__behavior_glm"
@@ -3481,19 +3693,17 @@ with glm_tab:
         succeeded = _run_workflow(
             glm_command,
             editor_rows,
-            manifest_path_text,
+            conventional_manifest_dir,
+            conventional_manifest_name,
+            conventional_active_manifest_key,
             data_root,
             "Behavioral GLM",
         )
         if succeeded:
-            st.session_state["conventional_glm_result_directory"] = str(
-                glm_run_output_dir
-            )
+            st.session_state["conventional_glm_result_directory"] = str(glm_run_output_dir)
     with st.expander("Advanced: inspect or copy command"):
         if st.button("Preview GLM command", width="stretch"):
             _preview_command(glm_command)
-    conventional_glm_result = st.session_state.get(
-        "conventional_glm_result_directory"
-    )
+    conventional_glm_result = st.session_state.get("conventional_glm_result_directory")
     if conventional_glm_result:
         _show_glm_results(conventional_glm_result, "conventional_glm")

@@ -131,6 +131,10 @@ statistics, and notebook workflow.
   manifests, preprocessing/alignment, PSTHs, heatmaps, and GLMs. The
   lifetime preprocessors save analysis-ready `-processed.npz` files beside the
   backed-up raw recordings, and later analyses reuse those files. The
+  GUI organizes manifests and downstream outputs under
+  `analysis/<workflow>/`. Descriptive manifests are timestamped instead of
+  silently replacing `sessions.csv`, while existing manifests at legacy paths
+  remain supported. The
   double-click installer uses a separate locked `.venv-gui`; see the
   [GUI guide](docs/gui.md).
 - Individual commands: see the [command-line reference](docs/cli.md) and run

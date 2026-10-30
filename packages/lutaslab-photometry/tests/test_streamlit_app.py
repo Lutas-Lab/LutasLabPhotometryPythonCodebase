@@ -7,9 +7,9 @@ streamlit_testing = pytest.importorskip("streamlit.testing.v1")
 
 def test_streamlit_app_loads_without_exceptions():
     project_root = Path(__file__).resolve().parents[3]
-    app = streamlit_testing.AppTest.from_file(
-        str(project_root / "streamlit_app.py")
-    ).run(timeout=45)
+    app = streamlit_testing.AppTest.from_file(str(project_root / "streamlit_app.py")).run(
+        timeout=45
+    )
 
     assert not app.exception
     assert [tab.label for tab in app.tabs] == [
@@ -22,7 +22,7 @@ def test_streamlit_app_loads_without_exceptions():
     ]
     assert {button.label for button in app.button} >= {
         "Validate sessions",
-        "Save manifest",
+        "Save new version",
         "Preview preprocessing command",
         "Run preprocessing",
         "Load session trace",
@@ -45,10 +45,7 @@ def test_streamlit_app_loads_without_exceptions():
         "peak",
         "peak_latency",
     ]
-    assert (
-        app.selectbox(key="conventional_psth_summary_saved_run").label
-        == "Saved PSTH run folder"
-    )
+    assert app.selectbox(key="conventional_psth_summary_saved_run").label == "Saved PSTH run folder"
     assert app.selectbox(key="conventional_trace_signal").label == "Signal"
 
 
@@ -90,9 +87,9 @@ def test_gui_source_renders_persistent_glm_results_and_timestamped_runs():
 )
 def test_streamlit_lifetime_modes_load(workflow, expected_signal):
     project_root = Path(__file__).resolve().parents[3]
-    app = streamlit_testing.AppTest.from_file(
-        str(project_root / "streamlit_app.py")
-    ).run(timeout=45)
+    app = streamlit_testing.AppTest.from_file(str(project_root / "streamlit_app.py")).run(
+        timeout=45
+    )
     app.radio[0].set_value(workflow)
     app.run(timeout=45)
 
@@ -109,7 +106,7 @@ def test_streamlit_lifetime_modes_load(workflow, expected_signal):
     assert app.selectbox(key=f"{workflow}_normalization").value == "subtract"
     assert {button.label for button in app.button} >= {
         "Validate sessions",
-        "Save manifest",
+        "Save new version",
         "Run preprocessing",
         "Run PSTH analysis",
         "Calculate metrics and Prism exports",
@@ -130,7 +127,4 @@ def test_streamlit_lifetime_modes_load(workflow, expected_signal):
         "peak",
         "peak_latency",
     ]
-    assert (
-        app.selectbox(key=f"{workflow}_psth_summary_saved_run").label
-        == "Saved PSTH run folder"
-    )
+    assert app.selectbox(key=f"{workflow}_psth_summary_saved_run").label == "Saved PSTH run folder"

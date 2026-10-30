@@ -14,14 +14,23 @@ from lutaslab_photometry.gui_workflows import (
     build_preprocess_command,
     build_psth_command,
     build_saved_psth_statistics_command,
+    command_output_directories,
+    discover_manifest_files,
     discover_psth_result_directories,
     manifest_csv_text,
+    manifest_display_label,
+    manifest_metadata_path,
     next_analysis_run_directory,
+    next_manifest_path,
     normalize_manifest_rows,
+    replace_command_manifest,
     run_command,
     safe_analysis_run_label,
+    snapshot_manifest,
     suggest_psth_run_label,
+    workflow_analysis_directory,
     write_manifest,
+    write_manifest_metadata,
 )
 
 
@@ -62,6 +71,59 @@ def test_next_analysis_run_directory_avoids_existing_run(tmp_path):
     assert second.name == "2026-10-26_143210__BLA__r02"
 
 
+def test_workflow_workspace_and_timestamped_manifest_paths(tmp_path):
+    assert workflow_analysis_directory(tmp_path, "conventional") == (
+        tmp_path / "analysis" / "conventional"
+    )
+    now = datetime(2026, 10, 30, 14, 32, 10)
+    first = next_manifest_path(tmp_path, "AL163 fasted/fed", now=now)
+    first.parent.mkdir(parents=True, exist_ok=True)
+    first.write_text("mouse,date,run\n", encoding="utf-8")
+    second = next_manifest_path(tmp_path, "AL163 fasted/fed", now=now)
+
+    assert first.name == "2026-10-30_143210__AL163_fasted_fed.csv"
+    assert second.name == "2026-10-30_143210__AL163_fasted_fed__r02.csv"
+
+
+def test_manifest_sidecar_discovery_and_snapshot(tmp_path):
+    manifest_dir = tmp_path / "manifests"
+    manifest = next_manifest_path(
+        manifest_dir, "AL163 cohort", now=datetime(2026, 10, 30, 10, 0, 0)
+    )
+    write_manifest(manifest, sample_rows())
+    sidecar = write_manifest_metadata(
+        manifest,
+        workflow="conventional",
+        display_name="AL163 cohort",
+        row_count=1,
+        code_commit="abc123",
+    )
+
+    assert sidecar == manifest_metadata_path(manifest)
+    assert discover_manifest_files(manifest_dir) == [manifest.resolve()]
+    assert manifest_display_label(manifest).startswith("AL163 cohort · ")
+
+    copied = snapshot_manifest(manifest, tmp_path / "run")
+    assert copied.name == "input_manifest.csv"
+    assert (tmp_path / "run" / "input_manifest_metadata.json").is_file()
+
+
+def test_command_manifest_replacement_and_output_discovery():
+    command = [
+        "python",
+        "module",
+        "--manifest",
+        "old.csv",
+        "--output-dir",
+        "analysis/run",
+    ]
+    updated = replace_command_manifest(command, "new.csv")
+
+    assert updated[updated.index("--manifest") + 1] == str(Path("new.csv"))
+    assert command[command.index("--manifest") + 1] == "old.csv"
+    assert command_output_directories(updated) == [Path("analysis/run")]
+
+
 def test_discover_psth_result_directories_returns_parent_runs_newest_first(
     tmp_path,
 ):
@@ -69,12 +131,7 @@ def test_discover_psth_result_directories_returns_parent_runs_newest_first(
     newer = tmp_path / "2026-10-26_120000__newer"
     older_export = older / "condition_a" / "psth_session_timecourses.csv"
     newer_export = newer / "psth_session_timecourses.csv"
-    ignored_summary = (
-        newer
-        / "summary_statistics"
-        / "old_summary"
-        / "psth_session_timecourses.csv"
-    )
+    ignored_summary = newer / "summary_statistics" / "old_summary" / "psth_session_timecourses.csv"
     for path in (older_export, newer_export, ignored_summary):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("time,value\n", encoding="utf-8")
@@ -85,9 +142,7 @@ def test_discover_psth_result_directories_returns_parent_runs_newest_first(
 
 
 def test_discover_psth_result_directories_supports_legacy_direct_output(tmp_path):
-    (tmp_path / "psth_session_timecourses.csv").write_text(
-        "time,value\n", encoding="utf-8"
-    )
+    (tmp_path / "psth_session_timecourses.csv").write_text("time,value\n", encoding="utf-8")
 
     assert discover_psth_result_directories(tmp_path) == [tmp_path]
 

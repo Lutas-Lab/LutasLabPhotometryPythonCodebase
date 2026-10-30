@@ -53,7 +53,35 @@ is explicitly enabled.
 
 ## Workflow selector and manifests
 
-Each acquisition system retains a separate manifest and output directory:
+Each acquisition system has a separate analysis workspace:
+
+```text
+analysis/
+  conventional/
+    manifests/
+    psth/
+    summary_statistics/
+    session_traces/
+    glm/
+  fluopulse/
+    manifests/
+    psth/
+    summary_statistics/
+    session_traces/
+    glm/
+  iflip3/
+    manifests/
+    calibrations/
+    psth/
+    summary_statistics/
+    session_traces/
+    glm/
+```
+
+Preprocessed session files remain beside the raw recordings. The workspace holds
+the session manifests and downstream analysis products.
+
+Each acquisition system retains its own manifest schema:
 
 - **Conventional photometry** uses mouse, date, run, group, condition, and
   photoreceiver channel. Its data root defaults to `Z:\Photometry`.
@@ -77,6 +105,31 @@ menus populated from the active manifest. They default to all rows. Selecting a
 label filters only that analysis run; it does not alter the master manifest or
 reprocess the recordings. These selectors are available for conventional
 photometry, FluoPulse, and iFLIP3.
+
+### Versioned manifests
+
+Enter a descriptive **Manifest name** such as `AL163 fasted-fed BLA`. **Save new
+version** writes a timestamped CSV below the workflow's `manifests` directory,
+for example:
+
+```text
+analysis/conventional/manifests/
+  2026-10-30_143522__AL163_fasted-fed_BLA.csv
+```
+
+Saving again creates another timestamped version rather than replacing the
+previous CSV. If two saves occur within the same second, an `r02`, `r03`, and so
+on suffix keeps every file unique. A JSON sidecar records the display name,
+workflow, creation time, row count, code commit, and parent manifest. Use
+**Update active** only when an intentional in-place replacement is desired.
+
+The saved-manifest selector can load versions from the manifest library. Legacy
+`analysis/sessions.csv` and `analysis/<workflow>/sessions.csv` files remain
+discoverable and are never moved or deleted. Starting an analysis with unsaved
+table edits automatically creates a new manifest version; an unchanged active
+manifest is reused. Each PSTH, GLM, summary-statistics, and session-trace run
+receives `input_manifest.csv` and, when available,
+`input_manifest_metadata.json` so its exact session cohort remains auditable.
 
 Every GUI PSTH run is saved in a new timestamped folder below the selected
 **Figure/output base directory**. The suggested folder label records the selected

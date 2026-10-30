@@ -6,6 +6,7 @@ import csv
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -56,9 +57,7 @@ def next_analysis_run_directory(base_dir, label, *, now=None):
 
     timestamp = (now or datetime.now()).strftime("%Y-%m-%d_%H%M%S")
     base = Path(base_dir).expanduser()
-    safe_label = "__".join(
-        safe_analysis_run_label(part) for part in str(label).split("__")
-    )
+    safe_label = "__".join(safe_analysis_run_label(part) for part in str(label).split("__"))
     stem = f"{timestamp}__{safe_label}"
     candidate = base / stem
     revision = 2
@@ -66,6 +65,151 @@ def next_analysis_run_directory(base_dir, label, *, now=None):
         candidate = base / f"{stem}__r{revision:02d}"
         revision += 1
     return candidate
+
+
+def workflow_analysis_directory(project_root, workflow):
+    """Return the common analysis workspace for one acquisition workflow."""
+
+    if workflow not in {"conventional", "fluopulse", "iflip3"}:
+        raise ValueError(f"Unknown workflow: {workflow}")
+    return Path(project_root).expanduser() / "analysis" / workflow
+
+
+def manifest_library_directory(project_root, workflow):
+    """Return the versioned-manifest library for one workflow."""
+
+    return workflow_analysis_directory(project_root, workflow) / "manifests"
+
+
+def next_manifest_path(manifest_dir, name, *, now=None):
+    """Return a readable timestamped manifest path without overwriting a file."""
+
+    timestamp = (now or datetime.now()).strftime("%Y-%m-%d_%H%M%S")
+    safe_name = safe_analysis_run_label(name or "sessions")
+    directory = Path(manifest_dir).expanduser()
+    stem = f"{timestamp}__{safe_name}"
+    candidate = directory / f"{stem}.csv"
+    revision = 2
+    while candidate.exists():
+        candidate = directory / f"{stem}__r{revision:02d}.csv"
+        revision += 1
+    return candidate
+
+
+def manifest_metadata_path(manifest_path):
+    """Return the metadata sidecar path for a versioned manifest."""
+
+    return Path(manifest_path).with_suffix(".json")
+
+
+def write_manifest_metadata(
+    manifest_path,
+    *,
+    workflow,
+    display_name,
+    row_count,
+    code_commit=None,
+    parent_manifest=None,
+    created_at=None,
+):
+    """Write a small provenance sidecar beside a saved manifest."""
+
+    manifest_path = Path(manifest_path).expanduser().resolve()
+    metadata_path = manifest_metadata_path(manifest_path)
+    payload = {
+        "schema_version": 1,
+        "workflow": str(workflow),
+        "display_name": str(display_name).strip() or "sessions",
+        "created_local": (created_at or datetime.now()).isoformat(timespec="seconds"),
+        "manifest_file": manifest_path.name,
+        "row_count": int(row_count),
+        "code_commit": code_commit,
+        "parent_manifest": (
+            None if parent_manifest is None else str(Path(parent_manifest).expanduser().resolve())
+        ),
+    }
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return metadata_path
+
+
+def discover_manifest_files(manifest_dir, *, legacy_paths=()):
+    """List versioned and existing legacy manifests, newest first."""
+
+    candidates = []
+    directory = Path(manifest_dir).expanduser()
+    if directory.is_dir():
+        candidates.extend(directory.glob("*.csv"))
+    for raw_path in legacy_paths:
+        path = Path(raw_path).expanduser()
+        if path.is_file():
+            candidates.append(path)
+    unique = {path.resolve(): path.resolve() for path in candidates}
+    return sorted(
+        unique.values(),
+        key=lambda path: (path.stat().st_mtime, str(path)),
+        reverse=True,
+    )
+
+
+def manifest_display_label(path):
+    """Return a concise label for a manifest-library selector."""
+
+    path = Path(path)
+    metadata = manifest_metadata_path(path)
+    if metadata.is_file():
+        try:
+            payload = json.loads(metadata.read_text(encoding="utf-8"))
+            name = str(payload.get("display_name", "")).strip()
+            created = str(payload.get("created_local", "")).replace("T", " ")
+            if name:
+                return f"{name} · {created}" if created else name
+        except (OSError, ValueError, TypeError):
+            pass
+    return path.stem
+
+
+def replace_command_manifest(commands, manifest_path):
+    """Return command copies that reference the selected saved manifest."""
+
+    was_batch = bool(commands) and isinstance(commands[0], (list, tuple))
+    batch = commands if was_batch else [commands]
+    updated = []
+    for raw_command in batch:
+        command = list(raw_command)
+        if "--manifest" not in command:
+            raise ValueError("Workflow command does not contain --manifest")
+        command[command.index("--manifest") + 1] = str(Path(manifest_path))
+        updated.append(command)
+    return updated if was_batch else updated[0]
+
+
+def command_output_directories(commands):
+    """Return explicit analysis output directories referenced by commands."""
+
+    was_batch = bool(commands) and isinstance(commands[0], (list, tuple))
+    batch = commands if was_batch else [commands]
+    outputs = []
+    for command in batch:
+        for flag in ("--output-dir", "--output"):
+            if flag in command:
+                outputs.append(Path(command[command.index(flag) + 1]).expanduser())
+                break
+    return outputs
+
+
+def snapshot_manifest(manifest_path, output_dir):
+    """Copy the exact manifest and its metadata into an analysis run folder."""
+
+    manifest_path = Path(manifest_path).expanduser().resolve()
+    output_dir = Path(output_dir).expanduser()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    copied = output_dir / "input_manifest.csv"
+    shutil.copy2(manifest_path, copied)
+    sidecar = manifest_metadata_path(manifest_path)
+    if sidecar.is_file():
+        shutil.copy2(sidecar, output_dir / "input_manifest_metadata.json")
+    return copied
 
 
 def discover_psth_result_directories(base_dir):
@@ -496,22 +640,14 @@ def build_lifetime_command(
         command.extend(["--condition", str(condition_filter)])
     if action == "preprocess" and overwrite:
         command.append("--overwrite")
-    if (
-        action == "preprocess"
-        and workflow == "iflip3"
-        and iflip3_fit_settings is not None
-    ):
+    if action == "preprocess" and workflow == "iflip3" and iflip3_fit_settings is not None:
         command.extend(
             [
                 "--iflip3-fit-settings",
                 json.dumps(iflip3_fit_settings, separators=(",", ":"), sort_keys=True),
             ]
         )
-    if (
-        action == "preprocess"
-        and workflow == "iflip3"
-        and iflip3_calibration is not None
-    ):
+    if action == "preprocess" and workflow == "iflip3" and iflip3_calibration is not None:
         command.extend(["--iflip3-calibration", str(Path(iflip3_calibration))])
     if signal is not None:
         command.extend(["--signal", str(signal)])
@@ -557,9 +693,7 @@ def build_lifetime_command(
         )
         command.append("--heatmaps" if heatmaps else "--no-heatmaps")
         if y_limits is not None:
-            command.extend(
-                ["--y-limits", str(float(y_limits[0])), str(float(y_limits[1]))]
-            )
+            command.extend(["--y-limits", str(float(y_limits[0])), str(float(y_limits[1]))])
         if first_event_only:
             command.append("--first-event-only")
         if allow_partial_windows:
