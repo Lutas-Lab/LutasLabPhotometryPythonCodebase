@@ -44,7 +44,7 @@ Plotting, batch execution, temporal GLM utilities, and exact signed-lag design
 matrices now live in `lutaslab-core`. Sensor packages retain only
 acquisition-specific preprocessing and experiment-specific model assembly.
 The NumPy/SciPy ridge GLM in `lutaslab-core` is the default backend for
-continuous photometry; NeMoS is an optional compatibility backend.
+continuous photometry.
 
 See [`../docs/architecture.md`](../docs/architecture.md) for the ownership and
 support contract and [`../docs/release-hardening.md`](../docs/release-hardening.md)

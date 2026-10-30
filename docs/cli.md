@@ -244,8 +244,8 @@ Legacy within-session chronological validation remains available explicitly as
 `--alphas`; use `--alpha` only for a strength prespecified independently of the
 reported results. Binary lick forecasts report average precision as the
 primary metric, AUROC, log loss, prevalence, and average-precision gain over
-prevalence. The default estimator backend is scikit-learn and does not require
-NeMoS/JAX. Performance figures are saved as editable SVG and PNG by default.
+prevalence. The default estimator backend is scikit-learn. Performance figures
+are saved as editable SVG and PNG by default.
 
 A zero horizon can be used for contemporaneous behavioral GLMs. In that case,
 the target signal's current value is automatically removed from its own history

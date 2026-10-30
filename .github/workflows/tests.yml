@@ -137,24 +137,3 @@ jobs:
         run: .venv\Scripts\lutaslab-check-install.exe
       - name: Test Windows-facing GUI workflows
         run: .venv\Scripts\python.exe -m pytest packages/lutaslab-photometry/tests/test_gui_workflows.py packages/lutaslab-photometry/tests/test_streamlit_app.py
-
-  optional-nemos:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
-      - name: Install locked optional NeMoS backend
-        run: |
-          python -m pip install "uv==0.12.21"
-          uv sync --frozen --package lutaslab-photometry --extra dev --extra nemos --python 3.12
-      - name: Test NeMoS compatibility interface
-        run: >-
-          .venv/bin/python -m pytest
-          --cov=lutaslab_photometry.nemos_analysis
-          --cov-config=.coveragerc-nemos
-          --cov-report=term-missing
-          packages/lutaslab-photometry/tests/test_nemos_analysis.py

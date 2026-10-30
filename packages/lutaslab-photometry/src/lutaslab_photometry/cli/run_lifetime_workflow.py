@@ -110,6 +110,10 @@ def main(argv=None) -> int:
                 ),
                 iflip3_calibration=args.iflip3_calibration,
                 iflip3_temporal_bin_seconds=args.iflip3_temporal_bin_seconds,
+                progress_callback=lambda current, total, label: print(
+                    f"PROGRESS\t{current}\t{total}\t{label}",
+                    flush=True,
+                ),
             )
     elif args.action == "psth":
         if not args.signal or not args.event or not args.output_dir:

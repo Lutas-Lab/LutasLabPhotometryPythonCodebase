@@ -8,7 +8,6 @@ codebase to a reproducible internal release.
 - [x] Designate this monorepo as the authoritative codebase.
 - [x] Define shared versus acquisition-specific package ownership.
 - [x] Make `lutaslab_core.glm` the default continuous-photometry GLM backend.
-- [x] Retain NeMoS as an optional compatibility backend.
 - [x] Audit the former standalone repositories for notebooks or uncommitted
   work not represented in this monorepo.
 - [x] Curate the retained FluoPulse and iFLiP3 notebooks into the monorepo,
@@ -26,12 +25,9 @@ codebase to a reproducible internal release.
 
 ## 3. Environments and dependencies
 
-- [x] Keep NeMoS/JAX out of the base installation.
-- [x] Expose one `nemos` extra and constrain JAX to the tested 0.11 release
-  series.
 - [x] Standardize all workspace packages on Python 3.12 and create a
   reproducible `uv.lock` with package hashes.
-- [x] Verify a clean base install and a clean optional-NeMoS install.
+- [x] Verify a clean base install.
 - [x] Verify FluoPulse `h5py` import and package tests in the current Windows
   analysis environment (`h5py 3.16.0`; 15 tests passed).
 
@@ -39,9 +35,7 @@ codebase to a reproducible internal release.
 
 - [x] Add CI jobs for `lutaslab-core`, conventional photometry,
   `fluopulse-analysis`, and `iflip3-analysis` independently.
-- [x] Add a separate optional-NeMoS CI job so its dependency failures cannot
-  hide failures in the default analysis path.
 - [x] Standardize CI and local development on Python 3.12.
 - [x] Define public API compatibility expectations and deprecation policy.
-- [x] Run all package tests from clean default and optional-NeMoS environments.
+- [x] Run all package tests from a clean default environment.
 - [ ] Tag and document the first internal release.

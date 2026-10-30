@@ -194,7 +194,6 @@ def save_session(
     save_dict["numpy_version"] = packages["numpy"] or "unknown"
     save_dict["scipy_version"] = packages["scipy"] or "unknown"
     save_dict["pynapple_version"] = packages["pynapple"] or "unknown"
-    save_dict["nemos_version"] = packages["nemos"] or "unknown"
 
     # --------------------------------------------------------
     # Save

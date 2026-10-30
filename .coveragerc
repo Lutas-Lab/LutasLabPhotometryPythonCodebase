@@ -1,7 +1,6 @@
 [run]
 omit =
     */lutaslab_photometry/cli/*
-    */lutaslab_photometry/nemos_analysis.py
 
 [report]
 show_missing = true

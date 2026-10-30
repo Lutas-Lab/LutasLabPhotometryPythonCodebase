@@ -717,12 +717,16 @@ def test_iflip3_preprocessing_applies_saved_calibration(monkeypatch, tmp_path):
 
     monkeypatch.setattr(workflows, "load_lifetime_session", fake_load)
 
+    progress = []
     outputs = preprocess_lifetime_sessions(
         "iflip3",
         [row],
         tmp_path,
         iflip3_calibration=calibration,
         iflip3_temporal_bin_seconds=1.0,
+        progress_callback=lambda current, total, label: progress.append(
+            (current, total, label)
+        ),
     )
 
     assert received == {
@@ -741,6 +745,11 @@ def test_iflip3_preprocessing_applies_saved_calibration(monkeypatch, tmp_path):
         == "shared_multi_session_calibration"
     )
     assert loaded.metadata["provenance"]["parameters"]["temporal_bin_seconds"] == 1.0
+    assert progress == [
+        (0, 1, "Starting iflip3 preprocessing"),
+        (0, 1, "Processing M1 260101 run 1"),
+        (1, 1, "Processed M1 260101 run 1"),
+    ]
 
 
 def test_processed_lifetime_file_is_required_for_downstream_analysis(tmp_path):

@@ -211,10 +211,9 @@ uv run lutaslab-validate-notebooks
 ```
 
 CI reports line coverage separately for each package and enforces conservative
-package-specific minimums. Optional NeMoS coverage is measured in its dedicated
-environment rather than being counted as missing from the base installation.
+package-specific minimums.
 
-GitHub Actions tests the conventional package, shared core, FluoPulse, iFLiP3,
-and optional NeMoS compatibility in separate jobs. The codebase is under active
+GitHub Actions tests the conventional package, shared core, FluoPulse, and
+iFLiP3 in separate jobs. The codebase is under active
 scientific development; analysis parameters are configurable modeling choices,
 not fixed biological assumptions.

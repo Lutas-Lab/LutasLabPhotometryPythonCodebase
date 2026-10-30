@@ -24,15 +24,8 @@ default for continuous photometry models. It provides the temporal-basis,
 signed-lag, blocked/grouped cross-validation, ridge fitting, prediction, and
 kernel-reconstruction operations used by the Figure 5 reanalyses.
 
-NeMoS is optional. `lutaslab_photometry.nemos_analysis` remains available for older notebooks
-and for analyses that specifically need NeMoS/JAX functionality, but it is not
-required by preprocessing, plotting, Pynapple integration, or the supported
-continuous-photometry GLM workflow. New analyses should use
-`lutaslab_core.glm` unless a documented NeMoS-only capability is needed.
-
-All workspace packages support Python 3.12. The single `nemos` extra constrains
-JAX to the tested 0.11 release series. Base preprocessing and analysis do not
-require NeMoS or JAX.
+All workspace packages support Python 3.12. Continuous-photometry models use
+the maintained NumPy/SciPy and scikit-learn implementations.
 
 ## Repository lifecycle
 
@@ -51,8 +44,8 @@ is not part of the package migration itself.
   reproducible workflows exposed as
   console commands and may provide additional
   experiment-specific options.
-- Notebook code and `lutaslab_photometry.nemos_analysis` are compatibility interfaces and are
-  not the preferred foundation for new reusable code.
+- Notebook code is a compatibility interface and is not the preferred
+  foundation for new reusable code.
 
 The current release series is `0.1.x`: scientifically usable and tested, but
 still open to small API changes before a stable `1.0` release.

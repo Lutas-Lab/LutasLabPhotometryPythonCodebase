@@ -8,15 +8,6 @@ in `lutaslab_core.glm`. The synthetic
 builds a trial-reset raised-cosine design, performs grouped ridge selection,
 and fits a causal gamma transfer function without paper-specific data.
 
-NeMoS remains available through `lutaslab_photometry.nemos_analysis` for older
-notebooks and analyses that explicitly require NeMoS/JAX objects. This optional
-backend requires Python 3.12 and uses the tested JAX 0.11 release series.
-Install it with:
-
-```powershell
-uv sync --frozen --all-packages --extra nemos
-```
-
 ## Predictors and signal representations
 
 Current behavioral predictors include locomotion, licking, visual cue, and

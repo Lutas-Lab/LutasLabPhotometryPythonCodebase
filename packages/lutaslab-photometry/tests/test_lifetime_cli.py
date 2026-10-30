@@ -77,13 +77,18 @@ def test_lifetime_cli_dispatches_preprocess(workflow_stubs, capsys):
     name, args, kwargs = calls.pop()
     assert name == "preprocess"
     assert args == ("iflip3", rows, "data")
+    progress_callback = kwargs.pop("progress_callback")
+    assert callable(progress_callback)
     assert kwargs == {
         "overwrite": True,
         "iflip3_fit_settings": None,
         "iflip3_calibration": None,
         "iflip3_temporal_bin_seconds": 2.0,
     }
-    assert str(output) in capsys.readouterr().out
+    progress_callback(1, 2, "Processed M1")
+    console = capsys.readouterr().out
+    assert "PROGRESS\t1\t2\tProcessed M1" in console
+    assert str(output) in console
 
 
 def test_lifetime_cli_encodes_expected_running_qc(workflow_stubs, monkeypatch, capsys):

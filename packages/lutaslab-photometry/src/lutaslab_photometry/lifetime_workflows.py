@@ -1783,9 +1783,11 @@ def preprocess_lifetime_sessions(
     iflip3_fit_settings: dict | None = None,
     iflip3_calibration: IFLIP3Calibration | str | Path | None = None,
     iflip3_temporal_bin_seconds: float | None = None,
+    progress_callback=None,
 ) -> list[Path]:
     """Process raw lifetime sessions and save each result beside its recording."""
 
+    rows = list(rows)
     outputs = []
     calibration = (
         load_iflip3_calibration(iflip3_calibration)
@@ -1802,15 +1804,22 @@ def preprocess_lifetime_sessions(
         calibration,
         iflip3_temporal_bin_seconds,
     )
-    for row in rows:
-        output = lifetime_processed_path(workflow, row, data_root)
-        if output.exists() and not overwrite:
-            outputs.append(output)
-            continue
+    total = len(rows)
+    if progress_callback is not None:
+        progress_callback(0, total, f"Starting {workflow} preprocessing")
+    for index, row in enumerate(rows):
         identity = (
             f"{row.get('mouse', '<unknown>')} {row.get('date', '<unknown>')} "
             f"run {row.get('run', '<unknown>')}"
         )
+        if progress_callback is not None:
+            progress_callback(index, total, f"Processing {identity}")
+        output = lifetime_processed_path(workflow, row, data_root)
+        if output.exists() and not overwrite:
+            outputs.append(output)
+            if progress_callback is not None:
+                progress_callback(index + 1, total, f"Already processed {identity}")
+            continue
         source_column = "iflip_path" if workflow == "iflip3" else "doric_path"
         try:
             if workflow == "iflip3" and (
@@ -1841,6 +1850,8 @@ def preprocess_lifetime_sessions(
                 f"nidaq={row.get('nidaq_path', '<missing>')!r}: {error}"
             ) from error
         outputs.append(output)
+        if progress_callback is not None:
+            progress_callback(index + 1, total, f"Processed {identity}")
     return outputs
 
 

@@ -1,8 +1,8 @@
 # Reproducible Python environment
 
 All workspace packages use Python 3.12. A single supported interpreter keeps
-the locked analysis environment, optional NeMoS/JAX backend, GUI, and CI in
-sync. `uv.lock` contains the compatible resolution, source artifacts, and
+the locked analysis environment, GUI, and CI in sync. `uv.lock` contains the
+compatible resolution, source artifacts, and
 hashes; do not hand-edit it.
 
 ## Recommended lab-user environment
@@ -76,24 +76,11 @@ has not yet been read. That indicates a Conda channel, proxy, certificate, or
 Terms-of-Service problem; using the recommended `uv` workflow avoids that
 Conda-specific setup step.
 
-## Optional NeMoS compatibility environment
-
-Add the optional backend only when an older notebook or a NeMoS-specific
-analysis requires it:
-
-```powershell
-uv sync --frozen --all-packages --extra nemos
-```
-
-The `nemos` extra requires Python 3.12 and constrains JAX to the tested 0.11
-release series. Running a later sync without `--extra nemos` removes the
-optional backend from the environment.
-
 ## Maintainer and developer environment
 
 The `dev` extra is for maintainers and contributors; normal analysis does not
-require it. Maintainers can add forecasting support and run the complete
-non-NeMoS test suite with:
+require it. Maintainers can add forecasting support and run the complete test
+suite with:
 
 ```powershell
 uv sync --frozen --all-packages --extra dev --extra forecasting
@@ -104,17 +91,8 @@ uv run ruff check packages/lutaslab-core/src packages/lutaslab-core/tests
 uv run mypy
 ```
 
-Install and test NeMoS separately so an optional JAX dependency problem cannot
-hide failures in the standard analysis stack:
-
-```powershell
-uv sync --frozen --all-packages --extra dev --extra nemos
-uv run python -m pytest packages/lutaslab-photometry/tests/test_nemos_analysis.py
-```
-
 GitHub Actions remains the authoritative full validation matrix. It tests the
-shared core, conventional photometry, FluoPulse, iFLiP3, and NeMoS compatibility
-in separate jobs.
+shared core, conventional photometry, FluoPulse, and iFLiP3 in separate jobs.
 
 ## Updating dependencies
 
@@ -123,7 +101,7 @@ Dependency updates are deliberate source changes:
 1. edit a dependency range in the appropriate `pyproject.toml`;
 2. run `uv lock --upgrade-package PACKAGE` for a targeted update, or
    `uv lock --upgrade` for a full refresh;
-3. rebuild and test both default and NeMoS environments;
+3. rebuild and test the default environment;
 4. review and commit `pyproject.toml` and `uv.lock` together.
 
 Use `uv lock --check` in read-only validation to confirm that project metadata
@@ -131,13 +109,6 @@ and the lockfile agree.
 
 ## Clean-environment verification
 
-On 2026-09-30, two isolated Python 3.12.14 environments were created from the
-lockfile on Windows:
-
-- default: NeMoS absent, `h5py 3.16.0`, all 128 package tests passed;
-- optional backend: NeMoS 0.2.9 and JAX/JAXLIB 0.11.2 installed, all 128
-  package tests passed, and an actual Gaussian ridge fit produced finite
-  predictions.
-
-Both environments also passed notebook validation and Ruff. The temporary
-verification environments are not part of the repository.
+On 2026-09-30, an isolated Python 3.12.14 environment was created from the
+lockfile on Windows. The package tests, notebook validation, and Ruff checks
+passed. The temporary verification environment is not part of the repository.

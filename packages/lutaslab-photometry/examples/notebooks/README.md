@@ -58,7 +58,6 @@ The notebook demonstrates how to:
 - inspect visual cue events
 - inspect solenoid/reward events
 - compare raw 465 with processed dF/F
-- optionally prepare raw 465 for NeMoS modeling
 
 ### Session Selection
 
@@ -350,5 +349,4 @@ Example notebooks committed to GitHub should preferably:
 # Modeling workflows
 
 The supported ridge-GLM and forecasting workflows are documented in
-[`../../docs/modeling.md`](../../docs/modeling.md). NeMoS remains an optional
-compatibility backend rather than the default notebook path.
+[`../../docs/modeling.md`](../../docs/modeling.md).

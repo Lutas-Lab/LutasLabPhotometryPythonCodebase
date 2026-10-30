@@ -342,17 +342,7 @@ Binary outputs emphasize average precision and also report AUROC, log loss,
 prevalence, and average-precision gain over prevalence. All feature scaling and
 baseline estimation use training data only.
 
-This module uses scikit-learn and does not require NeMoS or JAX.
-
----
-
-# `nemos_analysis.py`
-
-Functions for modeling relationships between photometry and behavior using NeMoS.
-
-The NeMoS analysis is currently designed to work with raw demultiplexed 465 nm fluorescence rather than requiring IRLS-corrected dF/F.
-
-This is useful for recordings in which the 405-to-465 IRLS correction performs poorly.
+This module uses scikit-learn.
 
 ---
 
@@ -393,27 +383,7 @@ Importantly, this operation does **not** remove slow fluorescence changes.
 
 A broad B-spline basis can be used to estimate gradual changes across the recording.
 
-For example:
-
-```python
-behavioral = lutaslab_photometry.nemos_analysis.prepare_behavioral_response(
-    session=session,
-    data=data,
-    channel=1,
-    n_slow_basis=10
-)
-```
-
-This returns information including:
-
-```python
-behavioral["y"]
-behavioral["slow_prediction"]
-behavioral["residual"]
-behavioral["glm_time"]
-```
-
-where:
+The resulting signals are:
 
 ```text
 y
@@ -446,17 +416,7 @@ cue onset
 solenoid/reward onset
 ```
 
-These can be created on the common GLM timebase with:
-
-```python
-predictors = lutaslab_photometry.nemos_analysis.prepare_standard_predictors(
-    session=session,
-    data=data,
-    glm_time=behavioral["glm_time"]
-)
-```
-
-The predictors are returned as:
+The standard predictor set is:
 
 ```python
 predictors["locomotion"]
@@ -868,11 +828,6 @@ heatmaps             temporal kernels
 trial averages       model comparison
 ```
 
-`nemos_analysis.py` remains available as an optional compatibility backend for
-workflows that specifically require NeMoS/JAX.
-
----
-
 # Example Notebook Setup
 
 A typical notebook can begin with:
@@ -905,29 +860,6 @@ data = lutaslab_photometry.pynapple_utils.session_to_pynapple(
 )
 ```
 
-Prepare the photometry response:
-
-```python
-behavioral = lutaslab_photometry.nemos_analysis.prepare_behavioral_response(
-    session=session,
-    data=data,
-    channel=1,
-    n_slow_basis=10
-)
-```
-
-Prepare behavioral predictors:
-
-```python
-predictors = lutaslab_photometry.nemos_analysis.prepare_standard_predictors(
-    session=session,
-    data=data,
-    glm_time=behavioral["glm_time"]
-)
-```
-
----
-
 # Python Environment
 
 The general preprocessing and plotting code uses packages including:
@@ -939,17 +871,6 @@ Matplotlib
 Pynapple
 ```
 
-The NeMoS modeling environment additionally uses:
-
-```text
-NeMoS
-JAX
-```
-
-The current NeMoS environment has been developed using Python 3.12 on NIH Biowulf/Linux.
-
----
-
 # `__init__.py`
 
 The `__init__.py` file marks `lutaslab_photometry` as a Python package.
@@ -960,7 +881,6 @@ This allows imports such as:
 import lutaslab_photometry.preprocess
 import lutaslab_photometry.plotting
 import lutaslab_photometry.pynapple_utils
-import lutaslab_photometry.nemos_analysis
 ```
 
 The file itself may be empty.
@@ -979,12 +899,6 @@ This folder contains compiled Python bytecode files ending in:
 
 ```text
 .pyc
-```
-
-For example:
-
-```text
-nemos_analysis.cpython-312.pyc
 ```
 
 These files are automatically generated when Python imports modules.
@@ -1014,7 +928,6 @@ packages/lutaslab-photometry/
         plotting.py
         pynapple_utils.py
         save_sessiondata.py
-        nemos_analysis.py
     tests/
 ```
 
@@ -1033,7 +946,7 @@ If Git is later used directly from the command line, these generated files can b
 
 This analysis pipeline is under active development.
 
-In particular, the NeMoS modeling framework is still being evaluated and refined with respect to:
+In particular, the behavioral modeling framework is still being evaluated and refined with respect to:
 
 - temporal window selection
 - causal versus two-sided temporal models

@@ -28,10 +28,6 @@ notebooks = [
     "ipykernel>=6,<8",
     "jupyterlab>=4,<5",
 ]
-nemos = [
-    "nemos>=0.2.9,<0.3",
-    "jax>=0.11,<0.12",
-]
 dev = [
     "mypy>=1.14,<2",
     "pytest>=8,<9",

@@ -28,7 +28,6 @@ DEFAULT_PACKAGES = (
     "scipy",
     "matplotlib",
     "pynapple",
-    "nemos",
 )
 
 ProvenanceState = Literal[
