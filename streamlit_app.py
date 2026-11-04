@@ -1480,7 +1480,7 @@ def _show_psth_summary_results(output_directory, key_prefix):
             )
 
 
-def _psth_summary_controls(default_base_directory, key_prefix, *, summary_output_base=None):
+def _psth_summary_controls(default_base_directory, key_prefix):
     """Render saved-PSTH metric controls shared by every acquisition system."""
 
     st.subheader("PSTH summary statistics")
@@ -1690,11 +1690,7 @@ def _psth_summary_controls(default_base_directory, key_prefix, *, summary_output
     output_key = f"{key_prefix}_summary_output"
     last_input_key = f"{key_prefix}_summary_last_input"
     result_key = f"{key_prefix}_summary_result_directory"
-    default_output = str(
-        Path(summary_output_base).expanduser()
-        if summary_output_base is not None
-        else Path(input_directory).expanduser() / "summary_statistics"
-    )
+    default_output = str(Path(input_directory).expanduser() / "summary_statistics")
     if st.session_state.get(last_input_key) != str(input_directory):
         st.session_state[output_key] = default_output
         st.session_state[last_input_key] = str(input_directory)
@@ -1702,7 +1698,10 @@ def _psth_summary_controls(default_base_directory, key_prefix, *, summary_output
     output_base = st.text_input(
         "Summary-statistics output base directory",
         key=output_key,
-        help="Each run is saved in a new timestamped folder below this directory.",
+        help=(
+            "By default this is inside the selected PSTH run, preserving an obvious "
+            "link to its source. Each statistics run gets a timestamped subfolder."
+        ),
     )
     window_label = safe_analysis_run_label(f"{response_start:g}to{response_end:g}s")
     output_directory = next_analysis_run_directory(output_base, window_label)
@@ -3227,7 +3226,6 @@ def _lifetime_gui(workflow: str) -> None:
         _psth_summary_controls(
             analysis_workspace / "psth",
             f"{workflow}_psth",
-            summary_output_base=analysis_workspace / "summary_statistics",
         )
 
     with glm_tab:
@@ -3999,7 +3997,6 @@ with summary_tab:
     _psth_summary_controls(
         conventional_analysis_workspace / "psth",
         "conventional_psth",
-        summary_output_base=conventional_analysis_workspace / "summary_statistics",
     )
 
 with glm_tab:

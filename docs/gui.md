@@ -59,21 +59,18 @@ Each acquisition system has a separate analysis workspace:
 analysis/
   conventional/
     manifests/
-    psth/
-    summary_statistics/
+    psth/<run>/summary_statistics/
     session_traces/
     glm/
   fluopulse/
     manifests/
-    psth/
-    summary_statistics/
+    psth/<run>/summary_statistics/
     session_traces/
     glm/
   iflip3/
     manifests/
     calibrations/
-    psth/
-    summary_statistics/
+    psth/<run>/summary_statistics/
     session_traces/
     glm/
 ```
@@ -217,8 +214,11 @@ locate peaks and troughs. Outputs include session and mouse metric tables, group
 mean/SEM/N, Holm-adjusted pairwise tests, publication-style figures, one
 all-metric Prism table, and a separate Prism-wide CSV for each metric. In the
 per-metric files, each row is a mouse and each group/condition is a column, so
-paired mice remain aligned for direct import into GraphPad Prism. A new
-timestamped output folder is created for each summary run.
+paired mice remain aligned for direct import into GraphPad Prism. Each summary
+is saved under its source PSTH as
+`<PSTH run>/summary_statistics/<timestamp>__<response-window>`, making the
+origin clear from the folder hierarchy. The output base remains editable for
+unusual export locations.
 
 Two families of results are intentionally kept separate. The original
 `psth_*_metrics.csv` files calculate each metric from an averaged PSTH. The
