@@ -50,6 +50,7 @@ from lutaslab_photometry.lifetime_workflows import (
     calibrate_iflip3_sessions,
     discover_lifetime_paths,
     estimate_iflip3_binning_sensitivity,
+    iflip3_mpet_for_window,
     iflip3_residual_summary,
     lifetime_manifest_columns,
     lifetime_preprocessing_parameters,
@@ -98,13 +99,32 @@ CONVENTIONAL_PHOTOMETRY_SIGNAL_LABELS = {
 }
 LIFETIME_SIGNAL_LABELS = {
     "mpet": "MPET — standard correction (background if provided + afterpulse)",
+    "mpet_fitted_t0": "MPET — standard correction using fitted t0",
     "mpet_afterpulse_only": "MPET — afterpulse corrected only",
     "mpet_uncorrected": "MPET — uncorrected",
-    "long_lifetime_fraction": "Long-lifetime fraction — standard correction",
+    "long_lifetime_fraction": "Long count fraction — standard correction",
+    "long_preexponential_fraction": (
+        "Long pre-exponential amplitude fraction — standard correction"
+    ),
+    "amplitude_weighted_fitted_lifetime": (
+        "Amplitude-weighted fitted lifetime — standard correction"
+    ),
+    "intensity_weighted_fitted_lifetime": (
+        "Intensity-weighted fitted lifetime — standard correction"
+    ),
     "short_component_counts": "Short-component counts — standard correction",
     "long_component_counts": "Long-component counts — standard correction",
     "long_lifetime_fraction_afterpulse_only": (
-        "Long-lifetime fraction — afterpulse corrected only"
+        "Long count fraction — afterpulse corrected only"
+    ),
+    "long_preexponential_fraction_afterpulse_only": (
+        "Long pre-exponential amplitude fraction — afterpulse corrected only"
+    ),
+    "amplitude_weighted_fitted_lifetime_afterpulse_only": (
+        "Amplitude-weighted fitted lifetime — afterpulse corrected only"
+    ),
+    "intensity_weighted_fitted_lifetime_afterpulse_only": (
+        "Intensity-weighted fitted lifetime — afterpulse corrected only"
     ),
     "short_component_counts_afterpulse_only": (
         "Short-component counts — afterpulse corrected only"
@@ -492,7 +512,7 @@ def _iflip3_fit_controls() -> dict[str, dict[str, float | str]]:
     return settings
 
 
-def _show_iflip3_fit_preview(preview) -> None:
+def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
     """Display fit curves, structured residuals, parameters, and quality metrics."""
 
     import matplotlib.pyplot as plt
@@ -556,6 +576,303 @@ def _show_iflip3_fit_preview(preview) -> None:
     for column, (name, value) in zip(residual_metrics, residual_values, strict=True):
         column.metric(name, value)
     st.caption(f"Residual background: {preview.background:.5g} aggregate counts/bin")
+
+    if st.checkbox(
+        "Overlay long count fraction and long pre-exponential amplitude fraction",
+        key=f"{key_prefix}_overlay_component_fractions",
+        help=(
+            "Count fraction uses the areas assigned to the two fitted components. "
+            "Pre-exponential amplitude fraction removes each component basis area, "
+            "so it compares the fitted amplitudes at time zero."
+        ),
+    ):
+        sample_index = np.arange(preview.long_lifetime_fraction.size)
+        fraction_figure, fraction_axis = plt.subplots(
+            figsize=(8.5, 3.2), constrained_layout=True
+        )
+        fraction_axis.plot(
+            sample_index,
+            preview.long_lifetime_fraction,
+            label="Long count fraction",
+            color="#4c78a8",
+        )
+        fraction_axis.plot(
+            sample_index,
+            preview.long_preexponential_fraction,
+            label="Long pre-exponential amplitude fraction",
+            color="#f58518",
+        )
+        fraction_axis.set(
+            xlabel="Fitted temporal bin",
+            ylabel="Long-component fraction",
+            ylim=(0.0, 1.0),
+        )
+        fraction_axis.legend(frameon=False)
+        st.pyplot(fraction_figure, clear_figure=True)
+        plt.close(fraction_figure)
+
+    lifetime_columns = st.columns(2)
+    show_amplitude_weighted = lifetime_columns[0].checkbox(
+        "Plot amplitude-weighted fitted lifetime",
+        key=f"{key_prefix}_plot_amplitude_weighted_lifetime",
+    )
+    show_intensity_weighted = lifetime_columns[1].checkbox(
+        "Plot intensity-weighted fitted lifetime",
+        key=f"{key_prefix}_plot_intensity_weighted_lifetime",
+    )
+    if show_amplitude_weighted or show_intensity_weighted:
+        sample_index = np.arange(preview.long_lifetime_fraction.size)
+        lifetime_figure, lifetime_axis = plt.subplots(
+            figsize=(8.5, 3.2), constrained_layout=True
+        )
+        if show_amplitude_weighted:
+            lifetime_axis.plot(
+                sample_index,
+                preview.amplitude_weighted_fitted_lifetime,
+                label="Amplitude-weighted",
+                color="#54a24b",
+            )
+        if show_intensity_weighted:
+            lifetime_axis.plot(
+                sample_index,
+                preview.intensity_weighted_fitted_lifetime,
+                label="Intensity-weighted",
+                color="#e45756",
+            )
+        lifetime_axis.set(
+            xlabel="Fitted temporal bin",
+            ylabel="Fitted lifetime (ns)",
+        )
+        lifetime_axis.legend(frameon=False)
+        st.pyplot(lifetime_figure, clear_figure=True)
+        plt.close(lifetime_figure)
+
+    if (
+        preview.mpet_lifetime_time is not None
+        and preview.mpet_corrected_curves is not None
+        and preview.mpet_t0 is not None
+        and st.checkbox(
+            "Compare acquisition-header and fitted t0 for MPET",
+            key=f"{key_prefix}_compare_mpet_t0",
+        )
+    ):
+        default_range = preview.mpet_default_range
+        header_mpet = iflip3_mpet_for_window(
+            preview,
+            default_range,
+            t0_source="header",
+        )
+        fitted_mpet = iflip3_mpet_for_window(
+            preview,
+            default_range,
+            t0_source="fitted",
+        )
+        t0_difference = preview.t0 - preview.mpet_t0
+        t0_metrics = st.columns(3)
+        t0_metrics[0].metric("Header t0", f"{preview.mpet_t0:.4g} ns")
+        t0_metrics[1].metric("Fitted t0", f"{preview.t0:.4g} ns")
+        t0_metrics[2].metric(
+            "Fitted − header t0",
+            f"{t0_difference * 1000.0:.3g} ps",
+        )
+        st.caption(
+            "Changing t0 shifts the complete MPET trace by a constant and does not "
+            "change within-session response shape. A variable shift across mice can, "
+            "however, contribute directly to absolute MPET differences."
+        )
+        t0_figure, t0_axis = plt.subplots(
+            figsize=(8.5, 3.2), constrained_layout=True
+        )
+        sample_index = np.arange(header_mpet.size)
+        t0_axis.plot(
+            sample_index,
+            header_mpet,
+            color="#4c78a8",
+            label="Header-t0 MPET",
+        )
+        t0_axis.plot(
+            sample_index,
+            fitted_mpet,
+            color="#f58518",
+            label="Fitted-t0 MPET",
+        )
+        t0_axis.set(
+            xlabel="Fitted temporal bin",
+            ylabel="Absolute MPET (ns)",
+        )
+        t0_axis.legend(frameon=False)
+        st.pyplot(t0_figure, clear_figure=True)
+        plt.close(t0_figure)
+
+    if (
+        preview.mpet_lifetime_time is not None
+        and preview.mpet_corrected_curves is not None
+        and preview.mpet_t0 is not None
+        and st.checkbox(
+            "Explore MPET lifetime-window sensitivity",
+            key=f"{key_prefix}_explore_mpet_window",
+            help=(
+                "Change the nanosecond-scale photon-arrival window used for MPET. "
+                "This is separate from temporal binning across the recording."
+            ),
+        )
+    ):
+        microtime = np.asarray(preview.mpet_lifetime_time, dtype=float)
+        step = float(np.median(np.diff(microtime)))
+        default_start = max(preview.mpet_default_range[0], float(microtime.min()))
+        default_end = min(preview.mpet_default_range[1], float(microtime.max()))
+        selected_start, selected_end = st.slider(
+            "MPET photon-arrival window (ns)",
+            min_value=float(microtime.min()),
+            max_value=float(microtime.max()),
+            value=(float(default_start), float(default_end)),
+            step=step,
+            key=f"{key_prefix}_mpet_window",
+        )
+        st.caption(
+            f"MPET subtracts the acquisition-header t0 ({preview.mpet_t0:.4g} ns) "
+            "after calculating the photon-count centroid. Window limits remain in "
+            "absolute acquisition microtime."
+        )
+        if selected_start >= selected_end:
+            st.warning("Choose an MPET window containing at least two distinct bounds.")
+        else:
+            default_mpet = iflip3_mpet_for_window(
+                preview, (default_start, default_end)
+            )
+            selected_mpet = iflip3_mpet_for_window(
+                preview, (selected_start, selected_end)
+            )
+            finite = np.isfinite(default_mpet) & np.isfinite(selected_mpet)
+            delta_ps = (selected_mpet - default_mpet) * 1000.0
+            correlation = float("nan")
+            if (
+                np.count_nonzero(finite) > 1
+                and np.nanstd(default_mpet[finite]) > 0
+                and np.nanstd(selected_mpet[finite]) > 0
+            ):
+                correlation = float(
+                    np.corrcoef(default_mpet[finite], selected_mpet[finite])[0, 1]
+                )
+            comparison_metrics = st.columns(3)
+            comparison_metrics[0].metric(
+                "Median MPET shift",
+                f"{np.nanmedian(delta_ps):.3g} ps",
+            )
+            comparison_metrics[1].metric(
+                "RMS MPET difference",
+                f"{np.sqrt(np.nanmean(delta_ps**2)):.3g} ps",
+            )
+            comparison_metrics[2].metric(
+                "Trace correlation with default",
+                "—" if not np.isfinite(correlation) else f"{correlation:.4f}",
+            )
+
+            aggregate_corrected = np.asarray(
+                preview.mpet_corrected_curves, dtype=float
+            ).sum(axis=1)
+            window_figure, window_axis = plt.subplots(
+                figsize=(8.5, 3.2), constrained_layout=True
+            )
+            window_axis.plot(microtime, aggregate_corrected, color="black")
+            window_axis.axvspan(
+                default_start,
+                default_end,
+                color="#4c78a8",
+                alpha=0.12,
+                label="Default window",
+            )
+            window_axis.axvspan(
+                selected_start,
+                selected_end,
+                color="#f58518",
+                alpha=0.18,
+                label="Selected window",
+            )
+            window_axis.axvline(
+                preview.mpet_t0,
+                color="#54a24b",
+                linestyle="--",
+                label="Header t0",
+            )
+            window_axis.set(
+                xlabel="Time after acquisition-cycle origin (ns)",
+                ylabel="Aggregate corrected counts",
+            )
+            window_axis.legend(frameon=False, ncols=3)
+            st.pyplot(window_figure, clear_figure=True)
+            plt.close(window_figure)
+
+            available_comparisons = {
+                "Long count fraction": preview.long_lifetime_fraction,
+                "Long amplitude fraction": preview.long_preexponential_fraction,
+                "Amplitude-weighted fitted lifetime": (
+                    preview.amplitude_weighted_fitted_lifetime
+                ),
+                "Intensity-weighted fitted lifetime": (
+                    preview.intensity_weighted_fitted_lifetime
+                ),
+            }
+            chosen_comparisons = st.multiselect(
+                "Normalized comparison traces",
+                tuple(available_comparisons),
+                default=tuple(available_comparisons),
+                key=f"{key_prefix}_mpet_comparison_traces",
+                help=(
+                    "Each trace is centered and scaled independently so response "
+                    "shape can be compared despite different physical units."
+                ),
+            )
+
+            def standardized(values):
+                values = np.asarray(values, dtype=float)
+                scale = float(np.nanstd(values))
+                if not np.isfinite(scale) or scale == 0:
+                    return np.full(values.shape, np.nan)
+                return (values - np.nanmean(values)) / scale
+
+            comparison_figure, comparison_axis = plt.subplots(
+                figsize=(8.5, 4.0), constrained_layout=True
+            )
+            sample_index = np.arange(default_mpet.size)
+            comparison_axis.plot(
+                sample_index,
+                standardized(default_mpet),
+                color="black",
+                linestyle="--",
+                label=(
+                    f"MPET default ({default_start:g}–{default_end:g} ns)"
+                ),
+            )
+            comparison_axis.plot(
+                sample_index,
+                standardized(selected_mpet),
+                color="#d62728",
+                label=f"MPET selected ({selected_start:g}–{selected_end:g} ns)",
+            )
+            comparison_colors = ("#4c78a8", "#f58518", "#54a24b", "#b279a2")
+            for (label, values), color in zip(
+                (
+                    (label, available_comparisons[label])
+                    for label in chosen_comparisons
+                ),
+                comparison_colors,
+                strict=False,
+            ):
+                comparison_axis.plot(
+                    sample_index,
+                    standardized(values),
+                    color=color,
+                    alpha=0.85,
+                    label=label,
+                )
+            comparison_axis.set(
+                xlabel="Fitted temporal bin",
+                ylabel="Standardized value (z score)",
+            )
+            comparison_axis.legend(frameon=False, ncols=2)
+            st.pyplot(comparison_figure, clear_figure=True)
+            plt.close(comparison_figure)
 
 
 def _show_iflip3_binning_sensitivity(sensitivity) -> None:
@@ -2289,7 +2606,10 @@ def _lifetime_gui(workflow: str) -> None:
                             "The selected session or calibration changed after this preview. "
                             "Inspect the calibrated session again."
                         )
-                    _show_iflip3_fit_preview(calibrated_preview)
+                    _show_iflip3_fit_preview(
+                        calibrated_preview,
+                        key_prefix="iflip3_calibrated_preview",
+                    )
                     st.success(
                         "This view uses fixed τ1, τ2, t0, and IRF σ with residual "
                         "background fixed at zero."
@@ -2354,7 +2674,10 @@ def _lifetime_gui(workflow: str) -> None:
                                 "The selected session or fit controls changed after this preview. "
                                 "Run the unconstrained fit again."
                             )
-                        _show_iflip3_fit_preview(preview)
+                        _show_iflip3_fit_preview(
+                            preview,
+                            key_prefix="iflip3_manual_preview",
+                        )
                         if preview.success:
                             st.success(
                                 "The local optimizer converged. Differences from the shared "

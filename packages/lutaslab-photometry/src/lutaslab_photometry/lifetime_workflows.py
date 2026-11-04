@@ -61,19 +61,36 @@ LIFETIME_SIGNALS = {
     "fluopulse": ("tau", "amplitude", "fit_r_square"),
     "iflip3": (
         "mpet",
+        "mpet_fitted_t0",
         "mpet_afterpulse_only",
         "mpet_uncorrected",
         "long_lifetime_fraction",
+        "long_preexponential_fraction",
+        "amplitude_weighted_fitted_lifetime",
+        "intensity_weighted_fitted_lifetime",
         "short_component_counts",
         "long_component_counts",
         "long_lifetime_fraction_afterpulse_only",
+        "long_preexponential_fraction_afterpulse_only",
+        "amplitude_weighted_fitted_lifetime_afterpulse_only",
+        "intensity_weighted_fitted_lifetime_afterpulse_only",
         "short_component_counts_afterpulse_only",
         "long_component_counts_afterpulse_only",
         "raw_intensity",
     ),
 }
 LIFETIME_BEHAVIOR_SIGNALS = ("licking", "running_speed")
-LIFETIME_TIME_SIGNALS = ("tau", "mpet", "mpet_afterpulse_only", "mpet_uncorrected")
+LIFETIME_TIME_SIGNALS = (
+    "tau",
+    "mpet",
+    "mpet_fitted_t0",
+    "mpet_afterpulse_only",
+    "mpet_uncorrected",
+    "amplitude_weighted_fitted_lifetime",
+    "intensity_weighted_fitted_lifetime",
+    "amplitude_weighted_fitted_lifetime_afterpulse_only",
+    "intensity_weighted_fitted_lifetime_afterpulse_only",
+)
 LIFETIME_EVENTS = (
     "ensure",
     "visual_cue",
@@ -82,7 +99,7 @@ LIFETIME_EVENTS = (
     "lick_bout_offset",
     *DERIVED_ALIGNMENT_EVENTS,
 )
-LIFETIME_PROCESSED_SCHEMA_VERSION = "1.1"
+LIFETIME_PROCESSED_SCHEMA_VERSION = "1.2"
 IFLIP3_CALIBRATION_SCHEMA_VERSION = "2.0"
 # The header sync rate may be a measured rather than nominal value. Differences
 # below 0.1% are small relative to the 0.1 ns lifetime-bin grid used by current
@@ -119,8 +136,15 @@ class IFLIP3FitPreview:
     short_component_counts: np.ndarray
     long_component_counts: np.ndarray
     long_lifetime_fraction: np.ndarray
+    long_preexponential_fraction: np.ndarray
+    amplitude_weighted_fitted_lifetime: np.ndarray
+    intensity_weighted_fitted_lifetime: np.ndarray
     fit_rmse_by_sample: np.ndarray
     sampling_frequency: float
+    mpet_lifetime_time: np.ndarray | None = None
+    mpet_corrected_curves: np.ndarray | None = None
+    mpet_t0: float | None = None
+    mpet_default_range: tuple[float, float] = (0.4, 12.3)
 
 
 @dataclass(frozen=True)
@@ -929,7 +953,17 @@ def _load_corrected_iflip3_curves(
     spc_range: tuple[float, float],
     afterpulse_ratio: float,
     apply_measured_background: bool = True,
-) -> tuple[np.ndarray, np.ndarray, float, float, bool, dict[str, Path | None]]:
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    float,
+    float,
+    bool,
+    dict[str, Path | None],
+    np.ndarray,
+    np.ndarray,
+    float,
+]:
     """Load one recording and return its corrected curves inside the fit window."""
 
     from iflip3 import average_background, calculate_mpet, lifetime_window, read_iflip3
@@ -952,13 +986,18 @@ def _load_corrected_iflip3_curves(
     if corrected.ndim == 3:
         corrected = corrected[:, :, 0]
     use = lifetime_window(recording.lifetime_time, spc_range)
+    full_time = np.asarray(recording.lifetime_time, dtype=float)
+    mpet_t0 = float(recording.header.get_path("state.t0.Value"))
     return (
-        np.asarray(recording.lifetime_time[use], dtype=float),
+        full_time[use],
         corrected[use],
         float(recording.header.pulse_interval_ns),
         float(recording.header.sampling_frequency),
         measured_background is not None,
         resolved,
+        full_time,
+        corrected,
+        mpet_t0,
     )
 
 
@@ -987,6 +1026,107 @@ def _temporally_bin_iflip3_curves(
             f"{1.0 / sampling_frequency:.6g}-second sample interval"
         )
     return bin_curves(curves, group_size, reducer="sum")
+
+
+def _iflip3_component_summaries(
+    time: np.ndarray,
+    component_counts: np.ndarray,
+    lifetimes: np.ndarray,
+    t0: float,
+    irf_sigma: float,
+    pulse_interval: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Derive pre-exponential and lifetime summaries from count coefficients.
+
+    Target fitting uses unit-area decay bases, so ``component_counts`` are
+    photon contributions. Dividing those coefficients by the corresponding
+    unnormalized basis areas recovers the relative pre-exponential amplitudes
+    for the exact periodic, IRF-convolved model and fitted lifetime window.
+    """
+
+    from iflip3 import periodic_exgaussian_basis
+
+    counts = np.asarray(component_counts, dtype=float)
+    taus = np.asarray(lifetimes, dtype=float)
+    if counts.ndim != 2 or counts.shape[1] != 2 or taus.shape != (2,):
+        raise ValueError("iFLIP3 component summaries require exactly two components")
+    basis_areas = np.asarray(
+        [
+            periodic_exgaussian_basis(
+                time,
+                tau,
+                t0,
+                irf_sigma,
+                pulse_interval,
+                normalize=None,
+            ).sum()
+            for tau in taus
+        ],
+        dtype=float,
+    )
+    if np.any(~np.isfinite(basis_areas)) or np.any(basis_areas <= 0):
+        raise ValueError("Cannot derive amplitudes from a degenerate lifetime basis")
+
+    amplitudes = counts / basis_areas[None, :]
+    amplitude_total = amplitudes.sum(axis=1)
+    count_total = counts.sum(axis=1)
+    long_amplitude_fraction = np.divide(
+        amplitudes[:, 1],
+        amplitude_total,
+        out=np.full(counts.shape[0], np.nan),
+        where=amplitude_total > 0,
+    )
+    amplitude_weighted_lifetime = np.divide(
+        amplitudes @ taus,
+        amplitude_total,
+        out=np.full(counts.shape[0], np.nan),
+        where=amplitude_total > 0,
+    )
+    intensity_weighted_lifetime = np.divide(
+        counts @ taus,
+        count_total,
+        out=np.full(counts.shape[0], np.nan),
+        where=count_total > 0,
+    )
+    return (
+        long_amplitude_fraction,
+        amplitude_weighted_lifetime,
+        intensity_weighted_lifetime,
+        basis_areas,
+    )
+
+
+def iflip3_mpet_for_window(
+    preview: IFLIP3FitPreview,
+    limits: tuple[float, float],
+    *,
+    t0_source: str = "header",
+) -> np.ndarray:
+    """Recalculate MPET for an inspected session using selected microtime bounds."""
+
+    from iflip3 import mpet_from_corrected
+
+    if (
+        preview.mpet_lifetime_time is None
+        or preview.mpet_corrected_curves is None
+        or preview.mpet_t0 is None
+    ):
+        raise ValueError("This preview does not contain MPET window-sensitivity data")
+    if limits[0] >= limits[1]:
+        raise ValueError("MPET lifetime-window limits must be increasing")
+    if t0_source == "header":
+        t0 = preview.mpet_t0
+    elif t0_source == "fitted":
+        t0 = preview.t0
+    else:
+        raise ValueError("t0_source must be 'header' or 'fitted'")
+    values = mpet_from_corrected(
+        preview.mpet_corrected_curves,
+        preview.mpet_lifetime_time,
+        limits,
+        t0,
+    )
+    return np.asarray(values, dtype=float)
 
 
 def _iflip3_preview_with_fixed_shape(
@@ -1036,6 +1176,19 @@ def _iflip3_preview_with_fixed_shape(
     residuals = aggregate - fitted
     residual_sum_squares = float(np.sum(residuals**2))
     total_sum_squares = float(np.sum((aggregate - aggregate.mean()) ** 2))
+    (
+        long_preexponential_fraction,
+        amplitude_weighted_fitted_lifetime,
+        intensity_weighted_fitted_lifetime,
+        _,
+    ) = _iflip3_component_summaries(
+        time,
+        target.component_counts,
+        reference.lifetimes,
+        reference.t0,
+        reference.irf_sigma,
+        pulse_interval,
+    )
     return IFLIP3FitPreview(
         lifetime_time=time,
         aggregate_decay=aggregate,
@@ -1058,6 +1211,9 @@ def _iflip3_preview_with_fixed_shape(
         short_component_counts=target.component_counts[:, 0],
         long_component_counts=target.component_counts[:, 1],
         long_lifetime_fraction=target.component_fractions[:, 1],
+        long_preexponential_fraction=long_preexponential_fraction,
+        amplitude_weighted_fitted_lifetime=amplitude_weighted_fitted_lifetime,
+        intensity_weighted_fitted_lifetime=intensity_weighted_fitted_lifetime,
         fit_rmse_by_sample=np.sqrt(np.mean(target.residuals**2, axis=0)),
         sampling_frequency=reference.sampling_frequency,
     )
@@ -1111,7 +1267,7 @@ def calibrate_iflip3_sessions(
     reference_pulse_interval = None
     reference_session_id = None
     for row in rows:
-        time_axis, curves, pulse_interval, _, has_background, resolved = (
+        time_axis, curves, pulse_interval, _, has_background, resolved, _, _, _ = (
             _load_corrected_iflip3_curves(
                 row,
                 root,
@@ -1256,7 +1412,17 @@ def preview_iflip3_fit(
     from iflip3 import fit_decay, fit_target, periodic_exgaussian_basis
 
     root = Path(data_root).expanduser()
-    time, curves, pulse_interval, sampling_frequency, _, _ = (
+    (
+        time,
+        curves,
+        pulse_interval,
+        sampling_frequency,
+        _,
+        _,
+        mpet_lifetime_time,
+        mpet_corrected_curves,
+        mpet_t0,
+    ) = (
         _load_corrected_iflip3_curves(
             row,
             root,
@@ -1266,6 +1432,9 @@ def preview_iflip3_fit(
     )
     curves = _temporally_bin_iflip3_curves(
         curves, sampling_frequency, temporal_bin_seconds
+    )
+    mpet_corrected_curves = _temporally_bin_iflip3_curves(
+        mpet_corrected_curves, sampling_frequency, temporal_bin_seconds
     )
     aggregate = curves.sum(axis=1)
     controls = normalize_iflip3_fit_settings(settings)
@@ -1326,6 +1495,19 @@ def preview_iflip3_fit(
         else float("nan")
     )
     counts = target.component_counts
+    (
+        long_preexponential_fraction,
+        amplitude_weighted_fitted_lifetime,
+        intensity_weighted_fitted_lifetime,
+        _,
+    ) = _iflip3_component_summaries(
+        time,
+        counts,
+        fit.lifetimes,
+        fit.t0,
+        fit.irf_sigma,
+        pulse_interval,
+    )
     return IFLIP3FitPreview(
         lifetime_time=time,
         aggregate_decay=aggregate,
@@ -1344,8 +1526,14 @@ def preview_iflip3_fit(
         short_component_counts=counts[:, 0],
         long_component_counts=counts[:, 1],
         long_lifetime_fraction=target.component_fractions[:, 1],
+        long_preexponential_fraction=long_preexponential_fraction,
+        amplitude_weighted_fitted_lifetime=amplitude_weighted_fitted_lifetime,
+        intensity_weighted_fitted_lifetime=intensity_weighted_fitted_lifetime,
         fit_rmse_by_sample=np.sqrt(np.mean(target.residuals**2, axis=0)),
         sampling_frequency=sampling_frequency,
+        mpet_lifetime_time=mpet_lifetime_time,
+        mpet_corrected_curves=mpet_corrected_curves,
+        mpet_t0=mpet_t0,
     )
 
 
@@ -1415,7 +1603,17 @@ def apply_iflip3_calibration(
     from iflip3 import fit_target, periodic_exgaussian_basis
 
     root = Path(data_root).expanduser()
-    time, curves, pulse_interval, sampling_frequency, _, _ = (
+    (
+        time,
+        curves,
+        pulse_interval,
+        sampling_frequency,
+        _,
+        _,
+        mpet_lifetime_time,
+        mpet_corrected_curves,
+        mpet_t0,
+    ) = (
         _load_corrected_iflip3_curves(
             row,
             root,
@@ -1425,6 +1623,9 @@ def apply_iflip3_calibration(
     )
     curves = _temporally_bin_iflip3_curves(
         curves, sampling_frequency, temporal_bin_seconds
+    )
+    mpet_corrected_curves = _temporally_bin_iflip3_curves(
+        mpet_corrected_curves, sampling_frequency, temporal_bin_seconds
     )
     if time.shape != calibration.lifetime_time.shape or not np.allclose(
         time, calibration.lifetime_time, rtol=0.0, atol=1e-9
@@ -1474,6 +1675,19 @@ def apply_iflip3_calibration(
     residuals = aggregate - fitted
     residual_sum_squares = float(np.sum(residuals**2))
     total_sum_squares = float(np.sum((aggregate - aggregate.mean()) ** 2))
+    (
+        long_preexponential_fraction,
+        amplitude_weighted_fitted_lifetime,
+        intensity_weighted_fitted_lifetime,
+        _,
+    ) = _iflip3_component_summaries(
+        time,
+        target.component_counts,
+        calibration.lifetimes,
+        session_t0,
+        calibration.irf_sigma,
+        calibration.pulse_interval,
+    )
     return IFLIP3FitPreview(
         lifetime_time=time,
         aggregate_decay=aggregate,
@@ -1496,8 +1710,14 @@ def apply_iflip3_calibration(
         short_component_counts=target.component_counts[:, 0],
         long_component_counts=target.component_counts[:, 1],
         long_lifetime_fraction=target.component_fractions[:, 1],
+        long_preexponential_fraction=long_preexponential_fraction,
+        amplitude_weighted_fitted_lifetime=amplitude_weighted_fitted_lifetime,
+        intensity_weighted_fitted_lifetime=intensity_weighted_fitted_lifetime,
         fit_rmse_by_sample=np.sqrt(np.mean(target.residuals**2, axis=0)),
         sampling_frequency=sampling_frequency,
+        mpet_lifetime_time=mpet_lifetime_time,
+        mpet_corrected_curves=mpet_corrected_curves,
+        mpet_t0=mpet_t0,
     )
 
 
@@ -1538,7 +1758,17 @@ def _load_iflip3(
                 temporal_bin_seconds=temporal_bin_seconds,
             )
         )
-        alternate_time, alternate_curves, alternate_pulse_interval, _, _, _ = (
+        (
+            alternate_time,
+            alternate_curves,
+            alternate_pulse_interval,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+        ) = (
             _load_corrected_iflip3_curves(
                 row,
                 data_root,
@@ -1560,8 +1790,18 @@ def _load_iflip3(
             alternate_pulse_interval,
         )
         timestamps = core.continuous["mpet"].timestamps
+        mpet_fitted_t0 = (
+            np.asarray(core.continuous["mpet"].values, dtype=float)
+            + float(preview.mpet_t0)
+            - preview.t0
+        )
         core.continuous.update(
             {
+                "mpet_fitted_t0": ContinuousSignal(
+                    timestamps,
+                    mpet_fitted_t0,
+                    "ns",
+                ),
                 "short_component_counts": ContinuousSignal(
                     timestamps, preview.short_component_counts, "counts"
                 ),
@@ -1570,6 +1810,19 @@ def _load_iflip3(
                 ),
                 "long_lifetime_fraction": ContinuousSignal(
                     timestamps, preview.long_lifetime_fraction, "fraction"
+                ),
+                "long_preexponential_fraction": ContinuousSignal(
+                    timestamps, preview.long_preexponential_fraction, "fraction"
+                ),
+                "amplitude_weighted_fitted_lifetime": ContinuousSignal(
+                    timestamps,
+                    preview.amplitude_weighted_fitted_lifetime,
+                    "ns",
+                ),
+                "intensity_weighted_fitted_lifetime": ContinuousSignal(
+                    timestamps,
+                    preview.intensity_weighted_fitted_lifetime,
+                    "ns",
                 ),
                 "lifetime_fit_rmse": ContinuousSignal(
                     timestamps, preview.fit_rmse_by_sample, "counts/bin"
@@ -1589,6 +1842,25 @@ def _load_iflip3(
                     alternate_preview.long_lifetime_fraction,
                     "fraction",
                 ),
+                "long_preexponential_fraction_afterpulse_only": ContinuousSignal(
+                    timestamps,
+                    alternate_preview.long_preexponential_fraction,
+                    "fraction",
+                ),
+                "amplitude_weighted_fitted_lifetime_afterpulse_only": (
+                    ContinuousSignal(
+                        timestamps,
+                        alternate_preview.amplitude_weighted_fitted_lifetime,
+                        "ns",
+                    )
+                ),
+                "intensity_weighted_fitted_lifetime_afterpulse_only": (
+                    ContinuousSignal(
+                        timestamps,
+                        alternate_preview.intensity_weighted_fitted_lifetime,
+                        "ns",
+                    )
+                ),
                 "lifetime_fit_rmse_afterpulse_only": ContinuousSignal(
                     timestamps,
                     alternate_preview.fit_rmse_by_sample,
@@ -1599,10 +1871,25 @@ def _load_iflip3(
         core.metadata["lifetime_fit"] = {
             "lifetimes_ns": preview.lifetimes.tolist(),
             "t0_ns": preview.t0,
+            "mpet_header_t0_ns": preview.mpet_t0,
+            "fitted_minus_header_t0_ns": preview.t0 - float(preview.mpet_t0),
             "irf_sigma_ns": preview.irf_sigma,
             "aggregate_background_counts_per_bin": preview.background,
             "aggregate_rmse": preview.rmse,
             "aggregate_r_squared": preview.r_squared,
+            "derived_output_definitions": {
+                "long_preexponential_fraction": (
+                    "long pre-exponential amplitude divided by total "
+                    "pre-exponential amplitude"
+                ),
+                "amplitude_weighted_fitted_lifetime": (
+                    "sum(A_i * tau_i) / sum(A_i)"
+                ),
+                "intensity_weighted_fitted_lifetime": (
+                    "sum(N_i * tau_i) / sum(N_i), where N_i are fitted "
+                    "area/count coefficients"
+                ),
+            },
             "fit_settings": (
                 None
                 if calibration is not None

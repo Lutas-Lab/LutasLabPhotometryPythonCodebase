@@ -108,6 +108,9 @@ def test_multi_session_iflip3_calibration_roundtrips_and_fixes_background(
                 "source_path": Path(f"recording-{row['run']}.iFLiP3"),
                 "background_path": Path("background.iFLiP3"),
             },
+                time,
+                curves,
+                session_t0,
         )
 
     monkeypatch.setattr(workflows, "_load_corrected_iflip3_curves", corrected)
@@ -205,6 +208,9 @@ def test_iflip3_calibration_reports_material_pulse_rate_difference(monkeypatch):
             10.0,
             True,
             {"source_path": Path("recording.iFLiP3"), "background_path": None},
+                time,
+                np.ones((time.size, 2)),
+                1.0,
         )
 
     monkeypatch.setattr(workflows, "_load_corrected_iflip3_curves", corrected)
@@ -339,7 +345,35 @@ def test_iflip3_fit_preview_returns_quality_and_time_resolved_components(monkeyp
     np.testing.assert_allclose(preview.lifetimes, [0.7, 2.6], atol=0.04)
     assert preview.r_squared > 0.999
     assert preview.long_lifetime_fraction.shape == (12,)
+    assert preview.long_preexponential_fraction.shape == (12,)
+    assert preview.amplitude_weighted_fitted_lifetime.shape == (12,)
+    assert preview.intensity_weighted_fitted_lifetime.shape == (12,)
     assert preview.fit_rmse_by_sample.shape == (12,)
+    assert preview.mpet_t0 == 1.0
+    assert preview.mpet_lifetime_time[0] == 0.0
+    default_mpet = workflows.iflip3_mpet_for_window(preview, (0.4, 12.3))
+    use = (lifetime_time >= 0.4) & (lifetime_time <= 12.3)
+    expected_mpet = (
+        (curves[use] * lifetime_time[use, None]).sum(axis=0)
+        / curves[use].sum(axis=0)
+        - 1.0
+    )
+    np.testing.assert_allclose(default_mpet, expected_mpet)
+    shortened_mpet = workflows.iflip3_mpet_for_window(preview, (0.6, 10.0))
+    assert not np.allclose(shortened_mpet, default_mpet)
+    fitted_t0_preview = types.SimpleNamespace(
+        mpet_lifetime_time=preview.mpet_lifetime_time,
+        mpet_corrected_curves=preview.mpet_corrected_curves,
+        mpet_t0=1.0,
+        t0=1.2,
+    )
+    fitted_t0_mpet = workflows.iflip3_mpet_for_window(
+        fitted_t0_preview,
+        (0.4, 12.3),
+        t0_source="fitted",
+    )
+    np.testing.assert_allclose(fitted_t0_mpet, default_mpet - 0.2)
+    assert 0.4 < preview.mpet_t0
 
 
 def test_iflip3_binning_sensitivity_reports_improving_poisson_precision():
@@ -371,6 +405,9 @@ def test_iflip3_binning_sensitivity_reports_improving_poisson_precision():
         short_component_counts=short_counts,
         long_component_counts=long_counts,
         long_lifetime_fraction=np.full(n_samples, 2 / 3),
+        long_preexponential_fraction=np.full(n_samples, 0.35),
+        amplitude_weighted_fitted_lifetime=np.full(n_samples, 1.365),
+        intensity_weighted_fitted_lifetime=np.full(n_samples, 1.9666666667),
         fit_rmse_by_sample=np.zeros(n_samples),
         sampling_frequency=10.0,
     )
@@ -411,6 +448,48 @@ def test_temporal_binning_sums_corrected_iflip3_curves():
     )
 
 
+def test_iflip3_component_summaries_distinguish_count_and_amplitude_weighting():
+    from iflip3.models import periodic_exgaussian_basis
+
+    time = np.arange(0.4, 12.31, 0.1)
+    lifetimes = np.array([0.7, 2.6])
+    counts = np.array([[3000.0, 6000.0], [6000.0, 3000.0]])
+
+    long_amplitude_fraction, amplitude_lifetime, intensity_lifetime, areas = (
+        workflows._iflip3_component_summaries(
+            time,
+            counts,
+            lifetimes,
+            t0=1.0,
+            irf_sigma=0.14,
+            pulse_interval=12.5,
+        )
+    )
+
+    expected_areas = np.array(
+        [
+            periodic_exgaussian_basis(
+                time, tau, 1.0, 0.14, 12.5, normalize=None
+            ).sum()
+            for tau in lifetimes
+        ]
+    )
+    amplitudes = counts / expected_areas
+    np.testing.assert_allclose(areas, expected_areas)
+    np.testing.assert_allclose(
+        long_amplitude_fraction, amplitudes[:, 1] / amplitudes.sum(axis=1)
+    )
+    np.testing.assert_allclose(
+        amplitude_lifetime,
+        (amplitudes * lifetimes).sum(axis=1) / amplitudes.sum(axis=1),
+    )
+    np.testing.assert_allclose(
+        intensity_lifetime,
+        (counts * lifetimes).sum(axis=1) / counts.sum(axis=1),
+    )
+    assert long_amplitude_fraction[0] < 2 / 3
+
+
 def test_iflip3_afterpulse_only_fit_reuses_corrected_decay_shape():
     from iflip3.models import periodic_exgaussian_basis
 
@@ -442,6 +521,9 @@ def test_iflip3_afterpulse_only_fit_reuses_corrected_decay_shape():
         short_component_counts=np.array([2000.0, 2200.0]),
         long_component_counts=np.array([4000.0, 3800.0]),
         long_lifetime_fraction=np.array([2 / 3, 0.6333333333]),
+        long_preexponential_fraction=np.array([0.35, 0.32]),
+        amplitude_weighted_fitted_lifetime=np.array([1.365, 1.308]),
+        intensity_weighted_fitted_lifetime=np.array([1.9666666667, 1.9033333333]),
         fit_rmse_by_sample=np.zeros(2),
         sampling_frequency=10.0,
     )
@@ -472,12 +554,22 @@ def test_iflip3_comparison_signals_are_available_to_downstream_workflows():
     assert {
         "mpet_afterpulse_only",
         "mpet_uncorrected",
+        "mpet_fitted_t0",
+        "long_preexponential_fraction",
+        "amplitude_weighted_fitted_lifetime",
+        "intensity_weighted_fitted_lifetime",
         "long_lifetime_fraction_afterpulse_only",
+        "long_preexponential_fraction_afterpulse_only",
+        "amplitude_weighted_fitted_lifetime_afterpulse_only",
+        "intensity_weighted_fitted_lifetime_afterpulse_only",
         "short_component_counts_afterpulse_only",
         "long_component_counts_afterpulse_only",
     }.issubset(workflows.LIFETIME_SIGNALS["iflip3"])
     assert "mpet_afterpulse_only" in workflows.LIFETIME_TIME_SIGNALS
     assert "mpet_uncorrected" in workflows.LIFETIME_TIME_SIGNALS
+    assert "mpet_fitted_t0" in workflows.LIFETIME_TIME_SIGNALS
+    assert "amplitude_weighted_fitted_lifetime" in workflows.LIFETIME_TIME_SIGNALS
+    assert "intensity_weighted_fitted_lifetime" in workflows.LIFETIME_TIME_SIGNALS
 
 
 def test_write_iflip3_manifest_preserves_background_provenance(tmp_path):

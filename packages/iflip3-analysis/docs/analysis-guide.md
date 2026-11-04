@@ -157,6 +157,17 @@ Here:
 - $C_{k,j}$ is the corrected photon count;
 - $t_0$ is the instrument timing offset.
 
+The window limits use the acquisition's absolute microtime coordinates; they
+are not expressed relative to $t_0$. MPET subtracts $t_0$ only after calculating
+the centroid. Consequently, the usual 0.4 ns start can precede the nominal
+laser timing near 1 ns and retain the IRF-broadened leading edge.
+
+The standard MPET channel uses `state.t0.Value` from the acquisition header. A
+second `mpet_fitted_t0` channel uses the session-specific $t_0$ obtained from
+the calibrated decay fit. These traces differ only by the constant
+$t_{0,header}-t_{0,fitted}$, so they have identical within-session response
+shape but can differ in absolute baseline between animals or acquisition days.
+
 MPET is therefore **photon-count weighted**, which is also reasonably called
 intensity weighted. A bin containing twice as many corrected photons contributes
 twice as much to the numerator and denominator. MPET does not require a
@@ -308,6 +319,40 @@ fraction obtained by comparing the peak heights of the short and long curves.
 The long component spreads its photons across more lifetime bins, so its peak
 can be lower even when it contains most of the fitted photons.
 
+The software also reports the **long pre-exponential amplitude fraction**. Let
+$S_i$ be the area of the unnormalized periodic, IRF-convolved basis for
+component $i$ over the fitted lifetime window. The fitted pre-exponential
+coefficient is
+
+$$
+A_{i,j}=\frac{N_{i,j}}{S_i},
+$$
+
+and the long amplitude fraction is
+
+$$
+f^{(A)}_{long,j}=\frac{A_{2,j}}{A_{1,j}+A_{2,j}}.
+$$
+
+This is the model's time-zero amplitude fraction, not the fraction of observed
+photons. Using the exact basis areas matters because the IRF, periodic excitation,
+$t_0$, and fitted time window all affect the conversion from area to amplitude.
+
+Two fitted lifetime summaries are available:
+
+$$
+\tau_{amplitude,j}=\frac{A_{1,j}\tau_1+A_{2,j}\tau_2}{A_{1,j}+A_{2,j}},
+$$
+
+$$
+\tau_{intensity,j}=\frac{N_{1,j}\tau_1+N_{2,j}\tau_2}{N_{1,j}+N_{2,j}}.
+$$
+
+Here “intensity-weighted” means weighted by each fitted component's integrated
+photon contribution; it does not mean weighting by the raw brightness trace.
+These are derived from the same fixed-shape fit and do not introduce a second
+fit.
+
 ![MPET and component-fraction weighting](images/analysis-guide/05-weighting-outputs.png)
 
 The main output channels answer related but different questions:
@@ -316,6 +361,9 @@ The main output channels answer related but different questions:
 |---|---|---|
 | MPET | corrected photon-count centroid minus $t_0$ | model-independent shift in photon timing |
 | Long fraction | $N_2/(N_1+N_2)$ | fraction of fitted photons assigned to the long state |
+| Long amplitude fraction | $A_2/(A_1+A_2)$ | fraction of the fitted pre-exponential amplitude assigned to the long state |
+| Amplitude-weighted fitted lifetime | $\sum A_i\tau_i/\sum A_i$ | lifetime summary emphasizing pre-exponential amplitudes |
+| Intensity-weighted fitted lifetime | $\sum N_i\tau_i/\sum N_i$ | lifetime summary emphasizing integrated fitted photons |
 | $N_1$, $N_2$ | nonnegative coefficients of area-normalized bases | fitted photon contribution of each state |
 | Raw intensity | sum of recorded counts | brightness and acquisition QC |
 
@@ -351,7 +399,14 @@ The Streamlit GUI supports this workflow under the iFLIP3 lifetime analysis:
 - select native or coarser temporal pooling for preprocessing;
 - save the calibration and record preprocessing provenance;
 - inspect MPET, component fraction, intensity, fit residuals, and synchronization
-  quality.
+  quality;
+- optionally overlay count fraction with pre-exponential amplitude fraction and
+  plot amplitude- or intensity-weighted fitted lifetime traces;
+- interactively move the MPET microtime-window endpoints, view their positions
+  relative to the corrected decay and header $t_0$, and compare the resulting
+  standardized MPET response with the fitted fraction and lifetime summaries;
+- compare header- and fitted-$t_0$ MPET directly and inspect the timing offset
+  that could contribute to absolute MPET variability across sessions.
 
 The maintained implementation is in:
 
