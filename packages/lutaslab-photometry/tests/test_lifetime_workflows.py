@@ -408,6 +408,9 @@ def test_iflip3_binning_sensitivity_reports_improving_poisson_precision():
         long_preexponential_fraction=np.full(n_samples, 0.35),
         amplitude_weighted_fitted_lifetime=np.full(n_samples, 1.365),
         intensity_weighted_fitted_lifetime=np.full(n_samples, 1.9666666667),
+        sensor_only_fitted_mpet=np.full(n_samples, 1.9),
+        fitted_flat_background_counts=np.zeros(n_samples),
+        fitted_flat_background_fraction=np.zeros(n_samples),
         fit_rmse_by_sample=np.zeros(n_samples),
         sampling_frequency=10.0,
     )
@@ -455,7 +458,13 @@ def test_iflip3_component_summaries_distinguish_count_and_amplitude_weighting():
     lifetimes = np.array([0.7, 2.6])
     counts = np.array([[3000.0, 6000.0], [6000.0, 3000.0]])
 
-    long_amplitude_fraction, amplitude_lifetime, intensity_lifetime, areas = (
+    (
+        long_amplitude_fraction,
+        amplitude_lifetime,
+        intensity_lifetime,
+        areas,
+        sensor_only_mpet,
+    ) = (
         workflows._iflip3_component_summaries(
             time,
             counts,
@@ -488,6 +497,8 @@ def test_iflip3_component_summaries_distinguish_count_and_amplitude_weighting():
         (counts * lifetimes).sum(axis=1) / counts.sum(axis=1),
     )
     assert long_amplitude_fraction[0] < 2 / 3
+    assert np.all(np.isfinite(sensor_only_mpet))
+    assert sensor_only_mpet[0] > sensor_only_mpet[1]
 
 
 def test_iflip3_afterpulse_only_fit_reuses_corrected_decay_shape():
@@ -524,6 +535,9 @@ def test_iflip3_afterpulse_only_fit_reuses_corrected_decay_shape():
         long_preexponential_fraction=np.array([0.35, 0.32]),
         amplitude_weighted_fitted_lifetime=np.array([1.365, 1.308]),
         intensity_weighted_fitted_lifetime=np.array([1.9666666667, 1.9033333333]),
+        sensor_only_fitted_mpet=np.array([1.9, 1.8]),
+        fitted_flat_background_counts=np.zeros(2),
+        fitted_flat_background_fraction=np.zeros(2),
         fit_rmse_by_sample=np.zeros(2),
         sampling_frequency=10.0,
     )
@@ -558,10 +572,16 @@ def test_iflip3_comparison_signals_are_available_to_downstream_workflows():
         "long_preexponential_fraction",
         "amplitude_weighted_fitted_lifetime",
         "intensity_weighted_fitted_lifetime",
+        "sensor_only_fitted_mpet",
+        "fitted_flat_background_counts",
+        "fitted_flat_background_fraction",
         "long_lifetime_fraction_afterpulse_only",
         "long_preexponential_fraction_afterpulse_only",
         "amplitude_weighted_fitted_lifetime_afterpulse_only",
         "intensity_weighted_fitted_lifetime_afterpulse_only",
+        "sensor_only_fitted_mpet_afterpulse_only",
+        "fitted_flat_background_counts_afterpulse_only",
+        "fitted_flat_background_fraction_afterpulse_only",
         "short_component_counts_afterpulse_only",
         "long_component_counts_afterpulse_only",
     }.issubset(workflows.LIFETIME_SIGNALS["iflip3"])
@@ -570,6 +590,7 @@ def test_iflip3_comparison_signals_are_available_to_downstream_workflows():
     assert "mpet_fitted_t0" in workflows.LIFETIME_TIME_SIGNALS
     assert "amplitude_weighted_fitted_lifetime" in workflows.LIFETIME_TIME_SIGNALS
     assert "intensity_weighted_fitted_lifetime" in workflows.LIFETIME_TIME_SIGNALS
+    assert "sensor_only_fitted_mpet" in workflows.LIFETIME_TIME_SIGNALS
 
 
 def test_write_iflip3_manifest_preserves_background_provenance(tmp_path):

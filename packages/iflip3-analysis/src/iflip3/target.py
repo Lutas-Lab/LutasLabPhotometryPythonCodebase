@@ -20,6 +20,7 @@ class TargetAnalysisResult:
     fitted: np.ndarray
     residuals: np.ndarray
     residual_background_per_bin: np.ndarray
+    fitted_background_counts: np.ndarray
 
     @property
     def component_counts(self) -> np.ndarray:
@@ -38,6 +39,18 @@ class TargetAnalysisResult:
             self.coefficients,
             totals,
             out=np.full_like(self.coefficients, np.nan),
+            where=totals > 0,
+        )
+
+    @property
+    def background_fraction(self) -> np.ndarray:
+        """Fraction of locally fitted photons assigned to the flat background."""
+
+        totals = self.total_component_counts + self.fitted_background_counts
+        return np.divide(
+            self.fitted_background_counts,
+            totals,
+            out=np.full_like(self.fitted_background_counts, np.nan),
             where=totals > 0,
         )
 
@@ -87,14 +100,17 @@ def fit_target(
     irf_sigma: float,
     pulse_interval: float = 12.5,
     residual_background_per_bin: float | np.ndarray = 0.0,
+    fit_background: bool = False,
     weighting: str = "none",
 ) -> TargetAnalysisResult:
     """Solve component counts with lifetimes and instrument parameters fixed.
 
     Parameters are fixed across all curves. Only nonnegative component photon
     contributions vary with time. A known recording-level residual background
-    can be subtracted, but no independent local background is fitted; this
-    prevents the long component and background from becoming non-identifiable.
+    can be supplied separately. When ``fit_background`` is true, each curve
+    also receives a nonnegative, flat background coefficient. Because all
+    columns are unit-area normalized, that coefficient is the total number of
+    fitted flat-background counts across the lifetime window.
     """
 
     time = np.asarray(time, dtype=float)
@@ -121,7 +137,7 @@ def fit_target(
         irf_sigma,
         pulse_interval,
         normalize="area",
-        include_background=False,
+        include_background=fit_background,
     )
 
     if weighting == "none":
@@ -136,18 +152,25 @@ def fit_target(
     else:
         raise ValueError("weighting must be 'none' or 'poisson'")
 
-    coefficients = np.empty((curves.shape[1], lifetimes_array.size), dtype=float)
+    all_coefficients = np.empty((curves.shape[1], basis.shape[1]), dtype=float)
     for column in range(curves.shape[1]):
         weighted_basis = basis * weights[:, column, None]
         weighted_curve = adjusted[:, column] * weights[:, column]
-        coefficients[column] = nnls(weighted_basis, weighted_curve)[0]
+        all_coefficients[column] = nnls(weighted_basis, weighted_curve)[0]
 
-    fitted_adjusted = basis @ coefficients.T
+    fitted_adjusted = basis @ all_coefficients.T
     fitted = fitted_adjusted + background
+    coefficients = all_coefficients[:, : lifetimes_array.size]
+    fitted_background_counts = (
+        all_coefficients[:, -1]
+        if fit_background
+        else np.zeros(curves.shape[1], dtype=float)
+    )
     return TargetAnalysisResult(
         lifetimes=lifetimes_array,
         coefficients=coefficients,
         fitted=fitted,
         residuals=curves - fitted,
         residual_background_per_bin=background,
+        fitted_background_counts=fitted_background_counts,
     )

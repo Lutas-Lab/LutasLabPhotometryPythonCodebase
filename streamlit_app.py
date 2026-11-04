@@ -112,6 +112,13 @@ LIFETIME_SIGNAL_LABELS = {
     "intensity_weighted_fitted_lifetime": (
         "Intensity-weighted fitted lifetime — standard correction"
     ),
+    "sensor_only_fitted_mpet": "Sensor-only fitted MPET — standard correction",
+    "fitted_flat_background_counts": (
+        "Fitted flat-background counts — standard correction"
+    ),
+    "fitted_flat_background_fraction": (
+        "Fitted flat-background fraction — standard correction"
+    ),
     "short_component_counts": "Short-component counts — standard correction",
     "long_component_counts": "Long-component counts — standard correction",
     "long_lifetime_fraction_afterpulse_only": (
@@ -125,6 +132,15 @@ LIFETIME_SIGNAL_LABELS = {
     ),
     "intensity_weighted_fitted_lifetime_afterpulse_only": (
         "Intensity-weighted fitted lifetime — afterpulse corrected only"
+    ),
+    "sensor_only_fitted_mpet_afterpulse_only": (
+        "Sensor-only fitted MPET — afterpulse corrected only"
+    ),
+    "fitted_flat_background_counts_afterpulse_only": (
+        "Fitted flat-background counts — afterpulse corrected only"
+    ),
+    "fitted_flat_background_fraction_afterpulse_only": (
+        "Fitted flat-background fraction — afterpulse corrected only"
     ),
     "short_component_counts_afterpulse_only": (
         "Short-component counts — afterpulse corrected only"
@@ -576,6 +592,91 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
     for column, (name, value) in zip(residual_metrics, residual_values, strict=True):
         column.metric(name, value)
     st.caption(f"Residual background: {preview.background:.5g} aggregate counts/bin")
+
+    if st.checkbox(
+        "Inspect fitted flat background and sensor-only MPET",
+        key=f"{key_prefix}_inspect_flat_background",
+        help=(
+            "Fits a separate nonnegative constant offset to every temporal bin. "
+            "Sensor-only MPET is reconstructed from the short and long fitted "
+            "components after leaving that offset out."
+        ),
+    ):
+        background_fraction = np.asarray(
+            preview.fitted_flat_background_fraction, dtype=float
+        )
+        background_counts = np.asarray(
+            preview.fitted_flat_background_counts, dtype=float
+        )
+        background_metrics = st.columns(3)
+        background_metrics[0].metric(
+            "Median flat-background fraction",
+            f"{100.0 * np.nanmedian(background_fraction):.3g}%",
+        )
+        background_metrics[1].metric(
+            "95th percentile fraction",
+            f"{100.0 * np.nanpercentile(background_fraction, 95):.3g}%",
+        )
+        background_metrics[2].metric(
+            "Median flat-background photons",
+            f"{np.nanmedian(background_counts):.4g}",
+        )
+
+        comparison_figure, (background_axis, mpet_axis) = plt.subplots(
+            2,
+            1,
+            figsize=(8.5, 5.8),
+            sharex=True,
+            constrained_layout=True,
+        )
+        sample_index = np.arange(background_fraction.size)
+        background_axis.plot(sample_index, background_fraction, color="#b279a2")
+        background_axis.set_ylabel("Flat-background\nfraction")
+        if (
+            preview.mpet_lifetime_time is not None
+            and preview.mpet_corrected_curves is not None
+            and preview.mpet_t0 is not None
+        ):
+            direct_mpet = iflip3_mpet_for_window(
+                preview,
+                preview.mpet_default_range,
+                t0_source="fitted",
+            )
+            sensor_mpet = np.asarray(preview.sensor_only_fitted_mpet, dtype=float)
+            mpet_axis.plot(
+                sample_index,
+                direct_mpet,
+                label="Direct corrected MPET (fitted t0)",
+                color="#4c78a8",
+            )
+            mpet_axis.plot(
+                sample_index,
+                sensor_mpet,
+                label="Sensor-only fitted MPET",
+                color="#f58518",
+            )
+            mpet_axis.legend(frameon=False)
+            median_shift = np.nanmedian(direct_mpet - sensor_mpet)
+            st.caption(
+                "Median direct minus sensor-only MPET: "
+                f"{median_shift * 1000.0:.3g} ps. A large or time-varying "
+                "difference indicates that a flat offset materially affects MPET. "
+                "This fit does not remove shaped tissue autofluorescence."
+            )
+        else:
+            mpet_axis.plot(
+                sample_index,
+                preview.sensor_only_fitted_mpet,
+                color="#f58518",
+                label="Sensor-only fitted MPET",
+            )
+            mpet_axis.legend(frameon=False)
+        mpet_axis.set(
+            xlabel="Fitted temporal bin",
+            ylabel="MPET (ns)",
+        )
+        st.pyplot(comparison_figure, clear_figure=True)
+        plt.close(comparison_figure)
 
     if st.checkbox(
         "Overlay long count fraction and long pre-exponential amplitude fraction",

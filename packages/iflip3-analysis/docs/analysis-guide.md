@@ -8,8 +8,8 @@ contain animal data or measurements from a real recording.
 The short version is:
 
 1. iFLIP3 records a photon-delay histogram at each acquisition time point.
-2. Detector background and afterpulsing are corrected at the native sampling
-   rate.
+2. Measured detector background and afterpulsing are corrected at the native
+   sampling rate.
 3. Compatible sessions are used to calibrate the common decay shapes.
 4. Those shapes are fixed, and only their photon contributions are solved at
    each time point.
@@ -238,13 +238,38 @@ It is important not to confuse:
 
 1. **Measured detector background**, which is estimated from a separate file
    and subtracted before fitting.
-2. **Residual fit background** $b$, which is an optional constant term used by
-   a single aggregate fit to absorb a remaining baseline mismatch.
+2. **Residual fit background** $b_j$, which is a nonnegative constant term
+   fitted independently to each session-time histogram.
 
-The saved multi-session calibration excludes residual fit background, and
-saved-calibration preprocessing fixes it at zero. This prevents a flat
-background term from competing with the long-lifetime component at every time
-point.
+The measured background remains an instrumental correction: it removes the
+microtime pattern measured from the detector and patch cord. After that
+correction, target fitting uses
+
+$$
+\widehat C_{k,j}=N_{1,j}g_{1,k}+N_{2,j}g_{2,k}+b_j.
+$$
+
+The flat basis is normalized to unit area, just like the two sensor bases.
+Its fitted coefficient is therefore the total number of flat-background
+photons assigned across the lifetime window, and the saved background fraction
+is
+
+$$
+f_{bg,j}=\frac{N_{bg,j}}{N_{1,j}+N_{2,j}+N_{bg,j}}.
+$$
+
+This prevents a simple DC offset from being forced into the long-lifetime
+component. It is deliberately a narrow model: it does **not** claim to remove
+tissue autofluorescence, because autofluorescence can have its own shaped decay.
+A future correction based on otherwise matched animals implanted without the
+biosensor could add a measured autofluorescence basis without changing the
+role of this flat nuisance term.
+
+The GUI compares direct MPET with **sensor-only fitted MPET**. The latter is the
+photon centroid of the reconstructed short and long components after omitting
+the fitted flat background, using fitted $t_0$. If those traces differ strongly,
+the residual offset is materially influencing direct MPET. Agreement is
+reassuring, but it does not rule out shaped autofluorescence or model mismatch.
 
 ## 5. Multi-session calibration
 
@@ -263,7 +288,8 @@ sessions:
    dominate.
 4. Fit common $\tau_1$, $\tau_2$, and IRF $\sigma$.
 5. Fit a separate $t_0$ and component amplitudes for each recording.
-6. Exclude residual fit background from this calibration.
+6. Fit a nonnegative flat residual term so an aggregate DC offset is not forced
+   into the shared lifetime shapes.
 
 ![Shared calibration and fixed target analysis](images/analysis-guide/04-calibration-target-fit.png)
 
@@ -273,18 +299,20 @@ settings, and optical conditions should share a calibration.
 ## 6. Fixed-shape target analysis during preprocessing
 
 After calibration, the nonlinear shape parameters are fixed. For each temporal
-bin $j$, the program solves only the two nonnegative component contributions:
+bin $j$, the program solves the two nonnegative component contributions and a
+nonnegative flat nuisance contribution:
 
 $$
-[N_{1,j},N_{2,j}]
-=\underset{N_1,N_2\ge0}{\operatorname{argmin}}
+[N_{1,j},N_{2,j},N_{bg,j}]
+=\underset{N_1,N_2,N_{bg}\ge0}{\operatorname{argmin}}
 \left\|W_j(GN_j-C_j)\right\|_2^2.
 $$
 
-$G$ contains the fixed short and long decay shapes. Its columns are normalized
-to unit area, so $N_1$ and $N_2$ represent fitted photon contributions rather
-than peak heights. Nonnegative least squares prevents the fit from explaining
-noise using a negative biological component.
+$G$ contains the fixed short and long decay shapes plus a constant column. Its
+columns are normalized to unit area, so all three coefficients represent fitted
+photon contributions rather than peak heights. Nonnegative least squares
+prevents the fit from explaining noise using a negative biological component or
+a negative flat background.
 
 For a session included in the calibration, its saved session-specific $t_0$ is
 used. For a compatible new session, $t_0$ can be estimated from that session's
@@ -364,6 +392,8 @@ The main output channels answer related but different questions:
 | Long amplitude fraction | $A_2/(A_1+A_2)$ | fraction of the fitted pre-exponential amplitude assigned to the long state |
 | Amplitude-weighted fitted lifetime | $\sum A_i\tau_i/\sum A_i$ | lifetime summary emphasizing pre-exponential amplitudes |
 | Intensity-weighted fitted lifetime | $\sum N_i\tau_i/\sum N_i$ | lifetime summary emphasizing integrated fitted photons |
+| Sensor-only fitted MPET | centroid of $N_1g_1+N_2g_2$ minus fitted $t_0$ | MPET-like summary after omitting the fitted flat term |
+| Flat-background fraction | $N_{bg}/(N_1+N_2+N_{bg})$ | fraction assigned to a residual DC offset |
 | $N_1$, $N_2$ | nonnegative coefficients of area-normalized bases | fitted photon contribution of each state |
 | Raw intensity | sum of recorded counts | brightness and acquisition QC |
 
@@ -402,6 +432,8 @@ The Streamlit GUI supports this workflow under the iFLIP3 lifetime analysis:
   quality;
 - optionally overlay count fraction with pre-exponential amplitude fraction and
   plot amplitude- or intensity-weighted fitted lifetime traces;
+- inspect the fitted flat-background fraction and compare direct MPET with
+  sensor-only fitted MPET;
 - interactively move the MPET microtime-window endpoints, view their positions
   relative to the corrected decay and header $t_0$, and compare the resulting
   standardized MPET response with the fitted fraction and lifetime summaries;

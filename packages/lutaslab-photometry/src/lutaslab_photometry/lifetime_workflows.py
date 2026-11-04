@@ -68,12 +68,18 @@ LIFETIME_SIGNALS = {
         "long_preexponential_fraction",
         "amplitude_weighted_fitted_lifetime",
         "intensity_weighted_fitted_lifetime",
+        "sensor_only_fitted_mpet",
+        "fitted_flat_background_counts",
+        "fitted_flat_background_fraction",
         "short_component_counts",
         "long_component_counts",
         "long_lifetime_fraction_afterpulse_only",
         "long_preexponential_fraction_afterpulse_only",
         "amplitude_weighted_fitted_lifetime_afterpulse_only",
         "intensity_weighted_fitted_lifetime_afterpulse_only",
+        "sensor_only_fitted_mpet_afterpulse_only",
+        "fitted_flat_background_counts_afterpulse_only",
+        "fitted_flat_background_fraction_afterpulse_only",
         "short_component_counts_afterpulse_only",
         "long_component_counts_afterpulse_only",
         "raw_intensity",
@@ -88,8 +94,10 @@ LIFETIME_TIME_SIGNALS = (
     "mpet_uncorrected",
     "amplitude_weighted_fitted_lifetime",
     "intensity_weighted_fitted_lifetime",
+    "sensor_only_fitted_mpet",
     "amplitude_weighted_fitted_lifetime_afterpulse_only",
     "intensity_weighted_fitted_lifetime_afterpulse_only",
+    "sensor_only_fitted_mpet_afterpulse_only",
 )
 LIFETIME_EVENTS = (
     "ensure",
@@ -99,7 +107,7 @@ LIFETIME_EVENTS = (
     "lick_bout_offset",
     *DERIVED_ALIGNMENT_EVENTS,
 )
-LIFETIME_PROCESSED_SCHEMA_VERSION = "1.2"
+LIFETIME_PROCESSED_SCHEMA_VERSION = "1.3"
 IFLIP3_CALIBRATION_SCHEMA_VERSION = "2.0"
 # The header sync rate may be a measured rather than nominal value. Differences
 # below 0.1% are small relative to the 0.1 ns lifetime-bin grid used by current
@@ -139,6 +147,9 @@ class IFLIP3FitPreview:
     long_preexponential_fraction: np.ndarray
     amplitude_weighted_fitted_lifetime: np.ndarray
     intensity_weighted_fitted_lifetime: np.ndarray
+    sensor_only_fitted_mpet: np.ndarray
+    fitted_flat_background_counts: np.ndarray
+    fitted_flat_background_fraction: np.ndarray
     fit_rmse_by_sample: np.ndarray
     sampling_frequency: float
     mpet_lifetime_time: np.ndarray | None = None
@@ -360,9 +371,11 @@ class IFLIP3Calibration:
             "lifetimes_ns": self.lifetimes.tolist(),
             "irf_sigma_ns": self.irf_sigma,
             "residual_background_counts_per_bin": 0.0,
+            "fit_nonnegative_flat_background": True,
             "time_point_specific_parameters": [
                 "short_component_counts",
                 "long_component_counts",
+                "flat_background_counts",
             ],
         }
         if self.schema_version == "1.0":
@@ -1035,7 +1048,7 @@ def _iflip3_component_summaries(
     t0: float,
     irf_sigma: float,
     pulse_interval: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Derive pre-exponential and lifetime summaries from count coefficients.
 
     Target fitting uses unit-area decay bases, so ``component_counts`` are
@@ -1050,7 +1063,7 @@ def _iflip3_component_summaries(
     taus = np.asarray(lifetimes, dtype=float)
     if counts.ndim != 2 or counts.shape[1] != 2 or taus.shape != (2,):
         raise ValueError("iFLIP3 component summaries require exactly two components")
-    basis_areas = np.asarray(
+    raw_basis = np.column_stack(
         [
             periodic_exgaussian_basis(
                 time,
@@ -1059,11 +1072,11 @@ def _iflip3_component_summaries(
                 irf_sigma,
                 pulse_interval,
                 normalize=None,
-            ).sum()
+            )
             for tau in taus
-        ],
-        dtype=float,
+        ]
     )
+    basis_areas = raw_basis.sum(axis=0)
     if np.any(~np.isfinite(basis_areas)) or np.any(basis_areas <= 0):
         raise ValueError("Cannot derive amplitudes from a degenerate lifetime basis")
 
@@ -1088,11 +1101,21 @@ def _iflip3_component_summaries(
         out=np.full(counts.shape[0], np.nan),
         where=count_total > 0,
     )
+    component_centroids = (np.asarray(time, dtype=float)[:, None] * raw_basis).sum(
+        axis=0
+    ) / basis_areas
+    sensor_only_fitted_mpet = np.divide(
+        counts @ component_centroids,
+        count_total,
+        out=np.full(counts.shape[0], np.nan),
+        where=count_total > 0,
+    ) - t0
     return (
         long_amplitude_fraction,
         amplitude_weighted_lifetime,
         intensity_weighted_lifetime,
         basis_areas,
+        sensor_only_fitted_mpet,
     )
 
 
@@ -1143,7 +1166,6 @@ def _iflip3_preview_with_fixed_shape(
         time, reference.lifetime_time, rtol=0.0, atol=1e-9
     ):
         raise ValueError("Alternate iFLIP3 curves have a different lifetime-bin axis")
-    per_sample_background = reference.background / max(curves.shape[1], 1)
     target = fit_target(
         time,
         curves,
@@ -1151,7 +1173,8 @@ def _iflip3_preview_with_fixed_shape(
         t0=reference.t0,
         irf_sigma=reference.irf_sigma,
         pulse_interval=pulse_interval,
-        residual_background_per_bin=per_sample_background,
+        residual_background_per_bin=0.0,
+        fit_background=True,
         weighting="none" if np.any(curves < 0) else "poisson",
     )
     aggregate = curves.sum(axis=1)
@@ -1181,6 +1204,7 @@ def _iflip3_preview_with_fixed_shape(
         amplitude_weighted_fitted_lifetime,
         intensity_weighted_fitted_lifetime,
         _,
+        sensor_only_fitted_mpet,
     ) = _iflip3_component_summaries(
         time,
         target.component_counts,
@@ -1214,6 +1238,9 @@ def _iflip3_preview_with_fixed_shape(
         long_preexponential_fraction=long_preexponential_fraction,
         amplitude_weighted_fitted_lifetime=amplitude_weighted_fitted_lifetime,
         intensity_weighted_fitted_lifetime=intensity_weighted_fitted_lifetime,
+        sensor_only_fitted_mpet=sensor_only_fitted_mpet,
+        fitted_flat_background_counts=target.fitted_background_counts,
+        fitted_flat_background_fraction=target.background_fraction,
         fit_rmse_by_sample=np.sqrt(np.mean(target.residuals**2, axis=0)),
         sampling_frequency=reference.sampling_frequency,
     )
@@ -1330,7 +1357,7 @@ def calibrate_iflip3_sessions(
         initial_sigma=initial_sigma,
         shared_t0=False,
         shared_sigma=True,
-        include_background=False,
+        include_background=True,
         nonnegative=True,
         weighting="none",
         normalize="area",
@@ -1364,6 +1391,13 @@ def calibrate_iflip3_sessions(
                 ),
                 "short_fraction_aggregate": float(recording.component_fractions[0, 0]),
                 "long_fraction_aggregate": float(recording.component_fractions[0, 1]),
+                "flat_background_counts_normalized": float(
+                    recording.coefficients[0, 2]
+                ),
+                "flat_background_fraction_aggregate": float(
+                    recording.coefficients[0, 2]
+                    / np.sum(recording.coefficients[0])
+                ),
                 "normalized_decay": observed.tolist(),
                 "fitted_decay": fitted.tolist(),
                 "residuals": residuals.tolist(),
@@ -1460,7 +1494,6 @@ def preview_iflip3_fit(
         bounds=bounds,
         weighting=weighting,
     )
-    per_sample_background = fit.background / max(curves.shape[1], 1)
     target = fit_target(
         time,
         curves,
@@ -1468,7 +1501,8 @@ def preview_iflip3_fit(
         t0=fit.t0,
         irf_sigma=fit.irf_sigma,
         pulse_interval=pulse_interval,
-        residual_background_per_bin=per_sample_background,
+        residual_background_per_bin=0.0,
+        fit_background=True,
         weighting="none" if np.any(curves < 0) else "poisson",
     )
     short_basis = periodic_exgaussian_basis(
@@ -1500,6 +1534,7 @@ def preview_iflip3_fit(
         amplitude_weighted_fitted_lifetime,
         intensity_weighted_fitted_lifetime,
         _,
+        sensor_only_fitted_mpet,
     ) = _iflip3_component_summaries(
         time,
         counts,
@@ -1529,6 +1564,9 @@ def preview_iflip3_fit(
         long_preexponential_fraction=long_preexponential_fraction,
         amplitude_weighted_fitted_lifetime=amplitude_weighted_fitted_lifetime,
         intensity_weighted_fitted_lifetime=intensity_weighted_fitted_lifetime,
+        sensor_only_fitted_mpet=sensor_only_fitted_mpet,
+        fitted_flat_background_counts=target.fitted_background_counts,
+        fitted_flat_background_fraction=target.background_fraction,
         fit_rmse_by_sample=np.sqrt(np.mean(target.residuals**2, axis=0)),
         sampling_frequency=sampling_frequency,
         mpet_lifetime_time=mpet_lifetime_time,
@@ -1577,6 +1615,7 @@ def _session_t0_from_calibration(
             irf_sigma=calibration.irf_sigma,
             pulse_interval=calibration.pulse_interval,
             residual_background_per_bin=0.0,
+            fit_background=True,
             weighting="none",
         )
         return float(np.sum(result.residuals**2))
@@ -1649,6 +1688,7 @@ def apply_iflip3_calibration(
         irf_sigma=calibration.irf_sigma,
         pulse_interval=calibration.pulse_interval,
         residual_background_per_bin=0.0,
+        fit_background=True,
         weighting=weighting,
     )
     aggregate = curves.sum(axis=1)
@@ -1680,6 +1720,7 @@ def apply_iflip3_calibration(
         amplitude_weighted_fitted_lifetime,
         intensity_weighted_fitted_lifetime,
         _,
+        sensor_only_fitted_mpet,
     ) = _iflip3_component_summaries(
         time,
         target.component_counts,
@@ -1713,6 +1754,9 @@ def apply_iflip3_calibration(
         long_preexponential_fraction=long_preexponential_fraction,
         amplitude_weighted_fitted_lifetime=amplitude_weighted_fitted_lifetime,
         intensity_weighted_fitted_lifetime=intensity_weighted_fitted_lifetime,
+        sensor_only_fitted_mpet=sensor_only_fitted_mpet,
+        fitted_flat_background_counts=target.fitted_background_counts,
+        fitted_flat_background_fraction=target.background_fraction,
         fit_rmse_by_sample=np.sqrt(np.mean(target.residuals**2, axis=0)),
         sampling_frequency=sampling_frequency,
         mpet_lifetime_time=mpet_lifetime_time,
@@ -1824,6 +1868,21 @@ def _load_iflip3(
                     preview.intensity_weighted_fitted_lifetime,
                     "ns",
                 ),
+                "sensor_only_fitted_mpet": ContinuousSignal(
+                    timestamps,
+                    preview.sensor_only_fitted_mpet,
+                    "ns",
+                ),
+                "fitted_flat_background_counts": ContinuousSignal(
+                    timestamps,
+                    preview.fitted_flat_background_counts,
+                    "counts",
+                ),
+                "fitted_flat_background_fraction": ContinuousSignal(
+                    timestamps,
+                    preview.fitted_flat_background_fraction,
+                    "fraction",
+                ),
                 "lifetime_fit_rmse": ContinuousSignal(
                     timestamps, preview.fit_rmse_by_sample, "counts/bin"
                 ),
@@ -1861,6 +1920,21 @@ def _load_iflip3(
                         "ns",
                     )
                 ),
+                "sensor_only_fitted_mpet_afterpulse_only": ContinuousSignal(
+                    timestamps,
+                    alternate_preview.sensor_only_fitted_mpet,
+                    "ns",
+                ),
+                "fitted_flat_background_counts_afterpulse_only": ContinuousSignal(
+                    timestamps,
+                    alternate_preview.fitted_flat_background_counts,
+                    "counts",
+                ),
+                "fitted_flat_background_fraction_afterpulse_only": ContinuousSignal(
+                    timestamps,
+                    alternate_preview.fitted_flat_background_fraction,
+                    "fraction",
+                ),
                 "lifetime_fit_rmse_afterpulse_only": ContinuousSignal(
                     timestamps,
                     alternate_preview.fit_rmse_by_sample,
@@ -1889,6 +1963,29 @@ def _load_iflip3(
                     "sum(N_i * tau_i) / sum(N_i), where N_i are fitted "
                     "area/count coefficients"
                 ),
+                "sensor_only_fitted_mpet": (
+                    "photon centroid reconstructed from the two fitted sensor "
+                    "components only, minus fitted t0"
+                ),
+                "fitted_flat_background_counts": (
+                    "nonnegative constant-in-microtime nuisance counts fitted "
+                    "independently in each temporal bin"
+                ),
+                "fitted_flat_background_fraction": (
+                    "fitted flat-background counts divided by sensor plus "
+                    "flat-background fitted counts"
+                ),
+            },
+            "flat_background_fit": {
+                "enabled": True,
+                "nonnegative": True,
+                "median_fraction": float(
+                    np.nanmedian(preview.fitted_flat_background_fraction)
+                ),
+                "interpretation": (
+                    "Residual constant offset only; not a shaped tissue "
+                    "autofluorescence correction"
+                ),
             },
             "fit_settings": (
                 None
@@ -1913,6 +2010,7 @@ def _load_iflip3(
                         item.get("session_id") for item in calibration.session_qc
                     ],
                     "residual_background_counts_per_bin": 0.0,
+                    "flat_background_fitted_per_temporal_bin": True,
                     "session_t0_source": preview.message,
                 }
             ),

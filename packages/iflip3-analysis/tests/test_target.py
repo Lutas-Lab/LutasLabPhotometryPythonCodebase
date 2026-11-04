@@ -57,3 +57,37 @@ def test_target_poisson_weighting_rejects_negative_curves():
         assert "negative" in str(error)
     else:
         raise AssertionError("Expected negative Poisson input to be rejected")
+
+
+def test_target_analysis_recovers_independent_flat_background():
+    time = np.arange(4, 124) * 0.1
+    lifetimes = np.array([0.5, 1.8])
+    basis = design_matrix(
+        time,
+        lifetimes,
+        t0=1.0,
+        irf_sigma=0.15,
+        pulse_interval=12.5,
+        normalize="area",
+        include_background=True,
+    )
+    truth = np.array([[1_000.0, 3_000.0, 600.0], [2_500.0, 1_500.0, 240.0]])
+    curves = basis @ truth.T
+
+    result = fit_target(
+        time,
+        curves,
+        lifetimes=lifetimes,
+        t0=1.0,
+        irf_sigma=0.15,
+        fit_background=True,
+    )
+
+    np.testing.assert_allclose(result.component_counts, truth[:, :2], rtol=1e-10)
+    np.testing.assert_allclose(result.fitted_background_counts, truth[:, 2], rtol=1e-10)
+    np.testing.assert_allclose(result.fitted, curves, rtol=1e-10)
+    np.testing.assert_allclose(
+        result.background_fraction,
+        truth[:, 2] / truth.sum(axis=1),
+        rtol=1e-10,
+    )
