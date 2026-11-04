@@ -43,6 +43,7 @@ from lutaslab_photometry.heatmap_ordering import (
     default_heatmap_sort_window,
 )
 from lutaslab_photometry.lifetime_workflows import (
+    IFLIP3_CALIBRATION_SCHEMA_VERSION,
     IFLIP3_FIT_PARAMETER_DEFAULTS,
     LIFETIME_EVENTS,
     LIFETIME_SIGNALS,
@@ -471,7 +472,7 @@ def _iflip3_fit_controls() -> dict[str, dict[str, float | str]]:
         "tau2": "Long lifetime τ2 (ns)",
         "t0": "Decay start t0 (ns)",
         "sigma": "IRF width σ (ns)",
-        "background": "Residual background (counts/bin)",
+        "background": "Aggregate shape-fit offset (counts/bin)",
     }
     settings = {}
     headings = st.columns((1.8, 1, 1, 1))
@@ -523,7 +524,10 @@ def _iflip3_fit_controls() -> dict[str, dict[str, float | str]]:
         }
     st.caption(
         "Auto fits from the entered starting value. Fixed holds the value constant. "
-        "Bounded fits only within the entered minimum and maximum."
+        "Bounded fits only within the entered minimum and maximum. The aggregate "
+        "shape-fit offset is used only while estimating τ1, τ2, t0, and IRF σ in "
+        "this advanced single-session fit. The displayed target decomposition then "
+        "fits a separate nonnegative flat coefficient in every temporal bin."
     )
     return settings
 
@@ -543,15 +547,14 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
     )
     fit_axis.plot(preview.lifetime_time, preview.aggregate_decay, color="black", label="Data")
     fit_axis.plot(preview.lifetime_time, preview.fitted_decay, color="#d62728", label="Total fit")
+    fit_axis.plot(preview.lifetime_time, preview.short_component, label="Short component")
+    fit_axis.plot(preview.lifetime_time, preview.long_component, label="Long component")
     fit_axis.plot(
         preview.lifetime_time,
-        preview.short_component + preview.background,
-        label="Short component",
-    )
-    fit_axis.plot(
-        preview.lifetime_time,
-        preview.long_component + preview.background,
-        label="Long component",
+        np.full_like(preview.lifetime_time, preview.background),
+        label="Fitted flat background",
+        linestyle="--",
+        color="#b279a2",
     )
     fit_axis.set_ylabel("Aggregate counts")
     fit_axis.legend(frameon=False, ncols=2)
@@ -591,7 +594,11 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
     )
     for column, (name, value) in zip(residual_metrics, residual_values, strict=True):
         column.metric(name, value)
-    st.caption(f"Residual background: {preview.background:.5g} aggregate counts/bin")
+    st.caption(
+        f"Aggregate fitted flat-background level: {preview.background:.5g} "
+        "counts/lifetime bin. Its nonnegative coefficient is fitted independently "
+        "for every temporal bin; this displayed level is their aggregate."
+    )
 
     if st.checkbox(
         "Inspect fitted flat background and sensor-only MPET",
@@ -1043,15 +1050,27 @@ def _show_iflip3_calibration(calibration) -> None:
     )
     for column, (name, value) in zip(metrics, values, strict=True):
         column.metric(name, value)
-    if session_specific_t0:
+    if calibration.schema_version == IFLIP3_CALIBRATION_SCHEMA_VERSION:
         st.caption(
             "τ1, τ2, and IRF σ are shared. Each session has its own fixed t0; "
-            "residual fit background is fixed at zero."
+            "each session aggregate has its own nonnegative flat-background "
+            "coefficient during calibration. Preprocessing subsequently fits a "
+            "new nonnegative flat coefficient in every temporal bin."
+        )
+    elif session_specific_t0:
+        st.caption(
+            "Legacy schema 2.0 calibration: τ1, τ2, and IRF σ are shared and each "
+            "session has its own t0, but the original global calibration omitted "
+            "the flat term. Current preprocessing still fits a nonnegative flat "
+            "coefficient in every temporal bin. Recalibrate to use the current "
+            "global model."
         )
     else:
         st.caption(
-            "Legacy calibration: τ1, τ2, t0, and IRF σ are shared; residual fit "
-            "background is fixed at zero."
+            "Legacy schema 1.0 calibration: τ1, τ2, t0, and IRF σ are shared and "
+            "the original global calibration omitted the flat term. Current "
+            "preprocessing still fits a nonnegative flat coefficient in every "
+            "temporal bin. Recalibrate to use the current global model."
         )
     flagged_sessions = [
         item["session_id"] for item in calibration.session_qc if item.get("t0_offset_flag")
@@ -1117,6 +1136,9 @@ def _show_iflip3_calibration(calibration) -> None:
                 "t0 review": item.get("t0_offset_flag", False),
                 "short fraction": item["short_fraction_aggregate"],
                 "long fraction": item["long_fraction_aggregate"],
+                "flat-background fraction": item.get(
+                    "flat_background_fraction_aggregate"
+                ),
             }
         )
     st.dataframe(pd.DataFrame(table_rows), hide_index=True, width="stretch")
@@ -2499,7 +2521,9 @@ def _lifetime_gui(workflow: str) -> None:
             st.markdown("#### Multi-session calibration")
             st.write(
                 "Estimate shared τ1, τ2, and IRF σ plus one t0 per recording from "
-                "multiple compatible recordings. Residual fit background is fixed at zero."
+                "multiple compatible recordings. Each recording also gets an independent "
+                "nonnegative flat-background coefficient so a DC offset is not forced "
+                "into the shared decay shapes."
             )
             try:
                 preview_rows = normalize_lifetime_manifest_rows(workflow, rows)
@@ -2711,8 +2735,9 @@ def _lifetime_gui(workflow: str) -> None:
                         key_prefix="iflip3_calibrated_preview",
                     )
                     st.success(
-                        "This view uses fixed τ1, τ2, t0, and IRF σ with residual "
-                        "background fixed at zero."
+                        "This view fixes τ1, τ2, t0, and IRF σ, then independently "
+                        "fits nonnegative short, long, and flat-background "
+                        "coefficients in every temporal bin."
                     )
                     binning_sensitivity = st.session_state.get("iflip3_binning_sensitivity")
                     if binning_sensitivity is not None:

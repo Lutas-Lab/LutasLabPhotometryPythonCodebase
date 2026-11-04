@@ -372,8 +372,10 @@ The two lifetime modes share the sensor-independent session representation in
   For iFLIP3, the recommended decay workflow is to create and review a saved
   [multi-session calibration](iflip3-multisession-calibration.md). It shares
   lifetimes and IRF width across compatible recordings, estimates one fixed t0
-  per recording, fixes residual fit background to zero, and leaves only
-  component counts time-point-specific.
+  per recording, gives each calibration-session aggregate its own nonnegative
+  flat-background coefficient, and fits new short, long, and flat coefficients
+  independently in every temporal bin. The GUI exposes flat-background counts
+  and fraction plus sensor-only fitted MPET for comparison with direct MPET.
 - **Event-aligned PSTH** aligns a selected lifetime/QC signal to Ensure, visual
   cue, individual lick, lick-bout onset, or lick-bout offset events. Every
   acquisition system also supports derived alignment to the first lick or first

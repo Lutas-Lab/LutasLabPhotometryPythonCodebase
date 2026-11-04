@@ -16,16 +16,20 @@ quality-control channel rather than treated as the primary readout.
 3. Correct detector dead time, measured background, and afterpulsing.
 4. Restrict lifetime calculations to the artifact-free 0.4–12.3 ns window.
 5. Calculate MPET directly from each corrected photon-arrival histogram.
-6. Fit one high-count aggregate decay to estimate the two lifetimes, `t0`, IRF
-   width, and one recording-level residual background.
-7. Fix those parameters and solve only the two nonnegative component photon
-   contributions at each time point.
-8. Compare the long-lifetime photon fraction with MPET. Use intensity for QC.
+6. Globally fit compatible high-count session aggregates to estimate shared
+   lifetimes and IRF width, one `t0` per session, and one nonnegative flat
+   nuisance coefficient per session aggregate.
+7. Fix the calibrated decay shapes and solve nonnegative short-component,
+   long-component, and flat-background photon contributions independently at
+   each time point.
+8. Compare long-lifetime fraction, direct MPET, sensor-only fitted MPET, and the
+   fitted flat-background fraction. Use intensity for QC.
 
 This fixed-basis step is target analysis. It is globally constrained because
-all time points share the same lifetime basis, but it avoids fitting an
-independent background at every time point. The latter was found to be nearly
-non-identifiable with the long-lifetime component.
+all time points share the same sensor decay shapes. Each time point nevertheless
+gets its own nonnegative flat nuisance coefficient so a changing DC offset is
+not forced into the long component. This term models only a constant offset
+across photon microtime; it is not a shaped tissue-autofluorescence correction.
 
 For an illustrated, undergraduate-level explanation of the photon histograms,
 detector corrections, MPET equation, two-component decay model, calibration,
@@ -104,14 +108,15 @@ afterpulse ratio of 0.03, its matching high-power background file, one-second
 temporal bins, and the 0.4–12.3 ns lifetime window. No source data or
 animal/session identifier is included in the repository.
 
-The aggregate decay is fit once to establish the fixed two-state lifetime basis
-and recording-level residual background:
+The aggregate decay is fit to establish the two-state lifetime basis and an
+aggregate flat nuisance background:
 
 ![Aggregate double-exponential fit for example recording 004](docs/images/example_004_fit.png)
 
-Target analysis then estimates only the two component photon contributions at
-each time point. MPET independently reproduces the component-fraction dynamics,
-while intensity is retained as a QC channel and shows additional artifacts:
+Target analysis then estimates two sensor-component photon contributions plus a
+flat-background contribution at each time point. MPET independently reproduces
+the component-fraction dynamics, while intensity is retained as a QC channel
+and shows additional artifacts:
 
 ![Lifetime and intensity time courses for example recording 004](docs/images/example_004_time_series.png)
 
@@ -131,8 +136,13 @@ from iflip3 import (
 )
 ```
 
-`fit_target` never fits a separate local background. A known fixed residual
-background may be supplied with `residual_background_per_bin`.
+`fit_target(..., fit_background=True)` fits a separate nonnegative flat
+background coefficient for every input curve. Because the flat basis is
+unit-area normalized, `fitted_background_counts` is the total fitted nuisance
+count across the lifetime window. A separately known fixed background may still
+be supplied with `residual_background_per_bin`; the maintained GUI workflow
+leaves that known-fixed term at zero because measured detector-background
+subtraction has already occurred.
 
 ## Event-aligned analysis
 
@@ -163,8 +173,9 @@ whether a measured background was used.
 For experiment-wide component decomposition, use the GUI's saved
 [multi-session calibration](../../docs/iflip3-multisession-calibration.md)
 workflow. It estimates shared lifetimes and IRF width from compatible sessions,
-permits a separate t0 for each recording, and applies the calibrated shape with
-residual fit background fixed at zero.
+permits a separate t0 and aggregate flat-background coefficient for each
+recording, and applies the calibrated sensor shapes while fitting a new
+nonnegative flat coefficient in every temporal bin.
 
 Because a uniform 5 Hz train does not encode pulse identity, the default clock
 fit assumes that the first saved iFLiP marker and first saved NI-DAQ pulse are

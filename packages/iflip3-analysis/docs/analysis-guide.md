@@ -193,7 +193,7 @@ The variables are:
 | $t_0$ | timing offset between the modeled excitation and recorded microtime axis |
 | $\sigma$ | width of the Gaussian instrument response function (IRF) |
 | $T$ | laser-pulse interval |
-| $b$ | optional constant residual fit background |
+| $b_j$ | nonnegative constant residual level fitted for temporal bin $j$ |
 
 ![Effects of lifetime, IRF width, timing offset, and background](images/analysis-guide/03-model-parameters.png)
 
@@ -270,6 +270,15 @@ photon centroid of the reconstructed short and long components after omitting
 the fitted flat background, using fitted $t_0$. If those traces differ strongly,
 the residual offset is materially influencing direct MPET. Agreement is
 reassuring, but it does not rule out shaped autofluorescence or model mismatch.
+
+Photons arriving before the current pulse's fitted $t_0$ are not automatically
+treated as background. The periodic short and long bases include fluorescence
+carried over from earlier laser pulses. The flat term should capture only the
+part that is constant across photon microtime after those periodic shapes are
+accounted for. If a true lifetime approaches or exceeds the pulse interval, its
+periodic tail can become nearly flat and compete with the nuisance term; an
+unusually large flat fraction, a shifted $\tau_2$, or structured residuals should
+therefore trigger review.
 
 ## 5. Multi-session calibration
 

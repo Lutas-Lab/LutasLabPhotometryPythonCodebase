@@ -265,8 +265,12 @@ an optional `background_path`. Without a background, measured-background
 subtraction is skipped while the configured afterpulse correction is retained.
 Preprocessing saves corrected, afterpulse-only, and fully uncorrected MPET traces.
 With decay decomposition enabled, it additionally saves afterpulse-only component
-signals using the same decay-shape parameters as the corrected fit. Existing
-lifetime processed files must be regenerated to obtain these comparison signals.
+signals using the same decay-shape parameters as the corrected fit. Both the
+standard and afterpulse-only decompositions fit nonnegative short, long, and
+flat-background coefficients independently in every temporal bin. Saved outputs
+include flat-background counts and fraction plus sensor-only fitted MPET, which
+omits the fitted flat term. Existing lifetime processed files must be regenerated
+to obtain these comparison signals.
 
 The GUI's session path assistant can generate these path fields from mouse,
 date, and run. In Python or a notebook, the same candidate search is available

@@ -108,7 +108,7 @@ LIFETIME_EVENTS = (
     *DERIVED_ALIGNMENT_EVENTS,
 )
 LIFETIME_PROCESSED_SCHEMA_VERSION = "1.3"
-IFLIP3_CALIBRATION_SCHEMA_VERSION = "2.0"
+IFLIP3_CALIBRATION_SCHEMA_VERSION = "2.1"
 # The header sync rate may be a measured rather than nominal value. Differences
 # below 0.1% are small relative to the 0.1 ns lifetime-bin grid used by current
 # recordings, while material changes such as 80 MHz versus 40 MHz remain clear.
@@ -370,14 +370,30 @@ class IFLIP3Calibration:
             "n_components": 2,
             "lifetimes_ns": self.lifetimes.tolist(),
             "irf_sigma_ns": self.irf_sigma,
-            "residual_background_counts_per_bin": 0.0,
-            "fit_nonnegative_flat_background": True,
-            "time_point_specific_parameters": [
-                "short_component_counts",
-                "long_component_counts",
-                "flat_background_counts",
-            ],
         }
+        if self.schema_version == IFLIP3_CALIBRATION_SCHEMA_VERSION:
+            model.update(
+                {
+                    "known_fixed_background_counts_per_bin": 0.0,
+                    "fit_nonnegative_flat_background": True,
+                    "time_point_specific_parameters": [
+                        "short_component_counts",
+                        "long_component_counts",
+                        "flat_background_counts",
+                    ],
+                }
+            )
+        else:
+            model.update(
+                {
+                    "residual_background_counts_per_bin": 0.0,
+                    "fit_nonnegative_flat_background": False,
+                    "time_point_specific_parameters": [
+                        "short_component_counts",
+                        "long_component_counts",
+                    ],
+                }
+            )
         if self.schema_version == "1.0":
             model.update(
                 {
@@ -453,10 +469,11 @@ def _calibration_from_dict(payload: dict[str, Any]) -> IFLIP3Calibration:
     """Validate and reconstruct a saved iFLIP3 calibration."""
 
     schema = str(payload.get("calibration_schema_version", ""))
-    if schema not in {"1.0", IFLIP3_CALIBRATION_SCHEMA_VERSION}:
+    if schema not in {"1.0", "2.0", IFLIP3_CALIBRATION_SCHEMA_VERSION}:
         raise ValueError(
             f"Unsupported iFLIP3 calibration schema {schema!r}; "
-            f"expected '1.0' or {IFLIP3_CALIBRATION_SCHEMA_VERSION!r}"
+            "expected '1.0', '2.0', or "
+            f"{IFLIP3_CALIBRATION_SCHEMA_VERSION!r}"
         )
     model = payload.get("model") or {}
     acquisition = payload.get("acquisition") or {}
@@ -475,10 +492,21 @@ def _calibration_from_dict(payload: dict[str, Any]) -> IFLIP3Calibration:
         or np.any(~np.isfinite(lifetime_time))
     ):
         raise ValueError("Calibration lifetime-time axis is invalid")
-    background = float(model.get("residual_background_counts_per_bin", np.nan))
+    background = float(
+        model.get(
+            "known_fixed_background_counts_per_bin",
+            model.get("residual_background_counts_per_bin", np.nan),
+        )
+    )
     if background != 0.0:
         raise ValueError(
-            "This calibration schema requires residual background fixed at zero"
+            "This calibration schema requires known fixed background equal to zero"
+        )
+    if schema == IFLIP3_CALIBRATION_SCHEMA_VERSION and not bool(
+        model.get("fit_nonnegative_flat_background", False)
+    ):
+        raise ValueError(
+            "Current calibrations must fit a nonnegative flat-background term"
         )
     spc_range = tuple(map(float, acquisition.get("spc_range_ns", ())))
     if len(spc_range) != 2 or spc_range[0] >= spc_range[1]:
@@ -629,7 +657,12 @@ def lifetime_preprocessing_parameters(
                     ),
                     "reference_t0_ns": iflip3_calibration.t0,
                     "irf_sigma_ns": iflip3_calibration.irf_sigma,
-                    "residual_background_counts_per_bin": 0.0,
+                    "known_fixed_background_counts_per_bin": 0.0,
+                    "fit_nonnegative_flat_background_per_temporal_bin": True,
+                    "calibration_fit_nonnegative_flat_background": (
+                        iflip3_calibration.schema_version
+                        == IFLIP3_CALIBRATION_SCHEMA_VERSION
+                    ),
                     "calibration_created_utc": iflip3_calibration.created_utc,
                     "calibration_code_commit": iflip3_calibration.code_commit,
                     "calibration_session_ids": [
@@ -1223,7 +1256,7 @@ def _iflip3_preview_with_fixed_shape(
         lifetimes=reference.lifetimes.copy(),
         t0=reference.t0,
         irf_sigma=reference.irf_sigma,
-        background=reference.background,
+        background=float(target.fitted_background_counts.sum() / time.size),
         rmse=float(np.sqrt(np.mean(residuals**2))),
         r_squared=(
             1.0 - residual_sum_squares / total_sum_squares
@@ -1276,9 +1309,9 @@ def calibrate_iflip3_sessions(
     """Estimate shared lifetimes/IRF width and one t0 per session.
 
     Each selected session contributes one positive-area-normalized aggregate
-    decay. Residual fit background is deliberately excluded. This gives each
-    session comparable influence while allowing a separate pair of aggregate
-    component amplitudes for every recording. Each recording's aggregate decay
+    decay. This gives each session comparable influence while allowing separate
+    short-component, long-component, and nonnegative flat-background
+    coefficients for every recording. Each recording's aggregate decay also
     supplies its own bounded nonlinear t0 parameter.
     """
 
@@ -1505,12 +1538,14 @@ def preview_iflip3_fit(
         fit_background=True,
         weighting="none" if np.any(curves < 0) else "poisson",
     )
+    aggregate_coefficients = target.component_counts.sum(axis=0)
     short_basis = periodic_exgaussian_basis(
         time,
         fit.lifetimes[0],
         fit.t0,
         fit.irf_sigma,
         pulse_interval,
+        normalize="area",
     )
     long_basis = periodic_exgaussian_basis(
         time,
@@ -1518,10 +1553,13 @@ def preview_iflip3_fit(
         fit.t0,
         fit.irf_sigma,
         pulse_interval,
+        normalize="area",
     )
-    short_component = fit.amplitudes[0] * short_basis
-    long_component = fit.amplitudes[1] * long_basis
-    residual_sum_squares = float(np.sum(fit.residuals**2))
+    short_component = aggregate_coefficients[0] * short_basis
+    long_component = aggregate_coefficients[1] * long_basis
+    fitted = target.fitted.sum(axis=1)
+    residuals = aggregate - fitted
+    residual_sum_squares = float(np.sum(residuals**2))
     total_sum_squares = float(np.sum((aggregate - aggregate.mean()) ** 2))
     r_squared = (
         1.0 - residual_sum_squares / total_sum_squares
@@ -1546,15 +1584,15 @@ def preview_iflip3_fit(
     return IFLIP3FitPreview(
         lifetime_time=time,
         aggregate_decay=aggregate,
-        fitted_decay=fit.fitted,
+        fitted_decay=fitted,
         short_component=short_component,
         long_component=long_component,
-        residuals=fit.residuals,
+        residuals=residuals,
         lifetimes=fit.lifetimes,
         t0=fit.t0,
         irf_sigma=fit.irf_sigma,
-        background=fit.background,
-        rmse=float(np.sqrt(np.mean(fit.residuals**2))),
+        background=float(target.fitted_background_counts.sum() / time.size),
+        rmse=float(np.sqrt(np.mean(residuals**2))),
         r_squared=r_squared,
         success=fit.success,
         message=fit.message,
@@ -1739,7 +1777,7 @@ def apply_iflip3_calibration(
         lifetimes=calibration.lifetimes.copy(),
         t0=session_t0,
         irf_sigma=calibration.irf_sigma,
-        background=0.0,
+        background=float(target.fitted_background_counts.sum() / time.size),
         rmse=float(np.sqrt(np.mean(residuals**2))),
         r_squared=(
             1.0 - residual_sum_squares / total_sum_squares
@@ -2009,8 +2047,12 @@ def _load_iflip3(
                     "calibration_session_ids": [
                         item.get("session_id") for item in calibration.session_qc
                     ],
-                    "residual_background_counts_per_bin": 0.0,
+                    "known_fixed_background_counts_per_bin": 0.0,
                     "flat_background_fitted_per_temporal_bin": True,
+                    "flat_background_fitted_during_global_calibration": (
+                        calibration.schema_version
+                        == IFLIP3_CALIBRATION_SCHEMA_VERSION
+                    ),
                     "session_t0_source": preview.message,
                 }
             ),

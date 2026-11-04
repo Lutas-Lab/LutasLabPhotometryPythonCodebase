@@ -82,7 +82,7 @@ def test_iflip3_manifest_allows_missing_background():
     assert rows[0]["background_path"] == ""
 
 
-def test_multi_session_iflip3_calibration_roundtrips_and_fixes_background(
+def test_multi_session_iflip3_calibration_roundtrips_and_fits_flat_background(
     monkeypatch, tmp_path
 ):
     from iflip3 import periodic_exgaussian_basis
@@ -96,7 +96,11 @@ def test_multi_session_iflip3_calibration_roundtrips_and_fixes_background(
         session_t0 = {1: 1.0, 2: 1.05, 3: 3.0, 4: 1.4}[int(row["run"])]
         short = periodic_exgaussian_basis(time, tau[0], session_t0, 0.14, 12.5)
         long = periodic_exgaussian_basis(time, tau[1], session_t0, 0.14, 12.5)
-        aggregate = (1000.0 * scale) * short + (2500.0 / scale) * long
+        aggregate = (
+            (1000.0 * scale) * short
+            + (2500.0 / scale) * long
+            + 12.0 * scale
+        )
         curves = np.column_stack([aggregate * 0.45, aggregate * 0.55])
         return (
             time,
@@ -129,7 +133,9 @@ def test_multi_session_iflip3_calibration_roundtrips_and_fixes_background(
     np.testing.assert_allclose(loaded.lifetimes, tau, atol=0.25)
     assert loaded.t0 == pytest.approx(1.05, abs=0.2)
     assert loaded.irf_sigma == pytest.approx(0.14, abs=0.12)
-    assert loaded.to_dict()["model"]["residual_background_counts_per_bin"] == 0.0
+    assert loaded.schema_version == "2.1"
+    assert loaded.to_dict()["model"]["known_fixed_background_counts_per_bin"] == 0.0
+    assert loaded.to_dict()["model"]["fit_nonnegative_flat_background"] is True
     assert loaded.to_dict()["model"]["shared_parameters"] == [
         "tau1",
         "tau2",
@@ -140,17 +146,20 @@ def test_multi_session_iflip3_calibration_roundtrips_and_fixes_background(
     assert loaded.session_qc[1]["t0_ns"] == pytest.approx(1.05, abs=0.2)
     assert loaded.session_qc[2]["t0_ns"] == pytest.approx(3.0, abs=0.2)
     assert loaded.session_qc[0]["max_absolute_residual_percent_peak"] < 3.0
+    assert loaded.session_qc[0]["flat_background_fraction_aggregate"] > 0.0
     assert [item["t0_offset_flag"] for item in loaded.session_qc] == [
         False,
         False,
         True,
     ]
     decomposition = workflows.apply_iflip3_calibration(rows[0], tmp_path, loaded)
-    assert decomposition.background == 0.0
+    assert decomposition.background == pytest.approx(12.0, rel=0.05)
     assert decomposition.t0 == pytest.approx(loaded.session_qc[0]["t0_ns"])
     np.testing.assert_allclose(
         decomposition.fitted_decay,
-        decomposition.short_component + decomposition.long_component,
+        decomposition.short_component
+        + decomposition.long_component
+        + decomposition.background,
     )
     np.testing.assert_allclose(
         decomposition.fitted_decay,
@@ -166,6 +175,36 @@ def test_multi_session_iflip3_calibration_roundtrips_and_fixes_background(
     )
     assert new_session.t0 == pytest.approx(1.4, abs=0.2)
     assert "estimated from this session" in new_session.message
+
+    schema_2_payload = loaded.to_dict()
+    schema_2_payload["calibration_schema_version"] = "2.0"
+    schema_2_payload["model"]["residual_background_counts_per_bin"] = (
+        schema_2_payload["model"].pop("known_fixed_background_counts_per_bin")
+    )
+    schema_2_payload["model"].pop("fit_nonnegative_flat_background")
+    schema_2_path = tmp_path / "schema-2.0.json"
+    schema_2_path.write_text(json.dumps(schema_2_payload), encoding="utf-8")
+    schema_2 = workflows.load_iflip3_calibration(schema_2_path)
+    assert schema_2.schema_version == "2.0"
+    current_parameters = workflows.lifetime_preprocessing_parameters(
+        "iflip3", iflip3_calibration=loaded
+    )
+    legacy_parameters = workflows.lifetime_preprocessing_parameters(
+        "iflip3", iflip3_calibration=schema_2
+    )
+    assert current_parameters["lifetime_fit"][
+        "calibration_fit_nonnegative_flat_background"
+    ]
+    assert not legacy_parameters["lifetime_fit"][
+        "calibration_fit_nonnegative_flat_background"
+    ]
+
+    invalid_current = loaded.to_dict()
+    invalid_current["model"].pop("fit_nonnegative_flat_background")
+    invalid_current_path = tmp_path / "invalid-current.json"
+    invalid_current_path.write_text(json.dumps(invalid_current), encoding="utf-8")
+    with pytest.raises(ValueError, match="must fit a nonnegative flat-background"):
+        workflows.load_iflip3_calibration(invalid_current_path)
 
     legacy_payload = loaded.to_dict()
     legacy_payload["calibration_schema_version"] = "1.0"

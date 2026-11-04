@@ -270,6 +270,9 @@ def fit_global(
     Component coefficients are solved linearly for every photometry time point
     at each nonlinear iteration (variable projection / semi-linear fitting).
     With area-normalized bases, component coefficients represent fitted counts.
+    When ``include_background`` is true, the final unit-area column is flat in
+    photon microtime and its nonnegative coefficient is fitted independently for
+    every curve alongside the sensor-component coefficients.
 
     This is a custom variable-projection implementation of the global
     fluorescence-decay analysis concept introduced by Knutson, Beechem, and
