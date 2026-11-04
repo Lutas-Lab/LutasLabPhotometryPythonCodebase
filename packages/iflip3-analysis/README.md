@@ -27,6 +27,11 @@ all time points share the same lifetime basis, but it avoids fitting an
 independent background at every time point. The latter was found to be nearly
 non-identifiable with the long-lifetime component.
 
+For an illustrated, undergraduate-level explanation of the photon histograms,
+detector corrections, MPET equation, two-component decay model, calibration,
+IRF, `t0`, and count-versus-amplitude weighting, see
+**[How iFLIP3 lifetime data are analyzed](docs/analysis-guide.md)**.
+
 The package's `fit_global` method estimates shared nonlinear parameters across
 multiple decay matrices with local component amplitudes. This is a custom
 variable-projection implementation of the global-analysis concept introduced
@@ -157,8 +162,9 @@ whether a measured background was used.
 
 For experiment-wide component decomposition, use the GUI's saved
 [multi-session calibration](../../docs/iflip3-multisession-calibration.md)
-workflow. It estimates shared lifetimes, t0, and IRF width from compatible
-sessions and applies them with residual fit background fixed at zero.
+workflow. It estimates shared lifetimes and IRF width from compatible sessions,
+permits a separate t0 for each recording, and applies the calibrated shape with
+residual fit background fixed at zero.
 
 Because a uniform 5 Hz train does not encode pulse identity, the default clock
 fit assumes that the first saved iFLiP marker and first saved NI-DAQ pulse are
