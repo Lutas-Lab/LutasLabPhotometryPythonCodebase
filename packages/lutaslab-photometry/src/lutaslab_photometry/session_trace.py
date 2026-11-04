@@ -10,7 +10,10 @@ from pathlib import Path
 
 import numpy as np
 
-from .lifetime_workflows import load_processed_lifetime_session
+from .lifetime_workflows import (
+    LIFETIME_SIGNAL_DISPLAY_NAMES,
+    load_processed_lifetime_session,
+)
 from .save_sessiondata import load_session
 from .session_manifest import processed_session_path, resolve_session_channel
 from .update_check import local_git_commit
@@ -278,10 +281,11 @@ def plot_session_trace(
             show_ensures=show_ensures,
             show_licks=show_licks,
         )
+    signal_label = LIFETIME_SIGNAL_DISPLAY_NAMES.get(data.signal, data.signal)
     ylabel = {
-        "native": f"{data.signal} ({data.units or 'a.u.'})",
-        "subtract_mean": f"Δ{data.signal} ({data.units or 'a.u.'})",
-        "zscore": f"{data.signal} (full-session z-score)",
+        "native": f"{signal_label} ({data.units or 'a.u.'})",
+        "subtract_mean": f"Δ{signal_label} ({data.units or 'a.u.'})",
+        "zscore": f"{signal_label} (full-session z-score)",
     }[transform]
     axes[0].set_ylabel(ylabel)
     axes[1].set(xlabel="Session time (s)", ylabel=ylabel)
@@ -367,6 +371,9 @@ def save_session_trace(
                 "workflow": data.workflow,
                 "session_id": data.session_id,
                 "signal": data.signal,
+                "signal_display_name": LIFETIME_SIGNAL_DISPLAY_NAMES.get(
+                    data.signal, data.signal
+                ),
                 "native_units": data.units,
                 "source_path": data.source_path,
                 "overview_window": list(map(float, overview_window)),

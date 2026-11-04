@@ -156,7 +156,7 @@ for a contributing calibration session, or estimates one bounded `t0` from a
 new session's aggregate decay. That session-level `t0` is then fixed while only
 short-component, long-component, and nonnegative flat-background counts are
 solved at each time point. Direct MPET remains calculated from corrected photon
-histograms; sensor-only fitted MPET is reconstructed after omitting the flat
+histograms; fitted sensor MPET is reconstructed after omitting the flat
 term. The calibration identity, fitted session `t0`, flat-background policy,
 and parameters are embedded in each processed file's provenance.
 
@@ -172,7 +172,7 @@ the selected recording. It therefore displays the same fixed-basis model used
 during calibrated preprocessing: shared lifetimes and IRF width; one fixed
 recording-level `t0`; and independently varying nonnegative short, long, and
 flat-background coefficients. The inspector plots the flat-background fraction
-and compares direct MPET with sensor-only fitted MPET.
+and compares direct MPET with fitted sensor MPET.
 
 An **Advanced: unconstrained single-session fit** expander remains available to
 diagnose an outlier or support a legacy dataset without a multi-session

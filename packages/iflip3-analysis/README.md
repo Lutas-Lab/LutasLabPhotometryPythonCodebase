@@ -22,7 +22,7 @@ quality-control channel rather than treated as the primary readout.
 7. Fix the calibrated decay shapes and solve nonnegative short-component,
    long-component, and flat-background photon contributions independently at
    each time point.
-8. Compare long-lifetime fraction, direct MPET, sensor-only fitted MPET, and the
+8. Compare long-state fitted fractions, direct MPET, fitted sensor MPET, and the
    fitted flat-background fraction. Use intensity for QC.
 
 This fixed-basis step is target analysis. It is globally constrained because

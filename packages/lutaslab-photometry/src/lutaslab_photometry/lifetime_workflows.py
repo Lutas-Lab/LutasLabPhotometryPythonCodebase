@@ -85,6 +85,60 @@ LIFETIME_SIGNALS = {
         "raw_intensity",
     ),
 }
+IFLIP3_ROUTINE_SIGNALS = (
+    "mpet",
+    "sensor_only_fitted_mpet",
+    "long_lifetime_fraction",
+    "long_preexponential_fraction",
+    "fitted_flat_background_fraction",
+    "raw_intensity",
+)
+LIFETIME_SIGNAL_DISPLAY_NAMES = {
+    "tau": "Fluorescence lifetime",
+    "amplitude": "Fitted fluorescence amplitude",
+    "fit_r_square": "Fit quality (R²; QC)",
+    "mpet": "Direct MPET (corrected photons)",
+    "mpet_fitted_t0": "Direct MPET (corrected photons; fitted t0)",
+    "mpet_afterpulse_only": "Direct MPET (afterpulse correction only)",
+    "mpet_uncorrected": "Direct MPET (uncorrected)",
+    "sensor_only_fitted_mpet": "Fitted sensor MPET (flat background excluded)",
+    "long_lifetime_fraction": "Long-state fitted photon fraction",
+    "long_preexponential_fraction": "Long-state fitted amplitude fraction",
+    "amplitude_weighted_fitted_lifetime": "Fitted lifetime (amplitude weighted)",
+    "intensity_weighted_fitted_lifetime": "Fitted lifetime (photon weighted)",
+    "fitted_flat_background_counts": "Flat-background fitted photons (QC)",
+    "fitted_flat_background_fraction": "Flat-background fraction (QC)",
+    "short_component_counts": "Short-state fitted photons (QC)",
+    "long_component_counts": "Long-state fitted photons (QC)",
+    "long_lifetime_fraction_afterpulse_only": (
+        "Long-state fitted photon fraction (diagnostic: afterpulse only)"
+    ),
+    "long_preexponential_fraction_afterpulse_only": (
+        "Long-state fitted amplitude fraction (diagnostic: afterpulse only)"
+    ),
+    "amplitude_weighted_fitted_lifetime_afterpulse_only": (
+        "Fitted lifetime, amplitude weighted (diagnostic: afterpulse only)"
+    ),
+    "intensity_weighted_fitted_lifetime_afterpulse_only": (
+        "Fitted lifetime, photon weighted (diagnostic: afterpulse only)"
+    ),
+    "sensor_only_fitted_mpet_afterpulse_only": (
+        "Fitted sensor MPET (diagnostic: afterpulse only)"
+    ),
+    "fitted_flat_background_counts_afterpulse_only": (
+        "Flat-background fitted photons (diagnostic: afterpulse only)"
+    ),
+    "fitted_flat_background_fraction_afterpulse_only": (
+        "Flat-background fraction (diagnostic: afterpulse only)"
+    ),
+    "short_component_counts_afterpulse_only": (
+        "Short-state fitted photons (diagnostic: afterpulse only)"
+    ),
+    "long_component_counts_afterpulse_only": (
+        "Long-state fitted photons (diagnostic: afterpulse only)"
+    ),
+    "raw_intensity": "Raw photon intensity (QC)",
+}
 LIFETIME_BEHAVIOR_SIGNALS = ("licking", "running_speed")
 LIFETIME_TIME_SIGNALS = (
     "tau",
@@ -2428,12 +2482,10 @@ def _lifetime_psth_ylabel(signal: str, normalization: str, units: str) -> str:
         return "Lick rate (licks/s)"
     if signal == "running_speed":
         return "Running speed (cm/s)"
-    label = {
-        "tau": "τ",
-        "mpet": "MPET",
-        "mpet_afterpulse_only": "MPET (afterpulse only)",
-        "mpet_uncorrected": "MPET (uncorrected)",
-    }.get(signal, signal.replace("_", " "))
+    label = {"tau": "τ"}.get(
+        signal,
+        LIFETIME_SIGNAL_DISPLAY_NAMES.get(signal, signal.replace("_", " ")),
+    )
     prefix = "Δ" if normalization == "subtract" else ""
     return f"{prefix}{label} ({units})" if units else f"{prefix}{label}"
 
@@ -2654,7 +2706,10 @@ def run_lifetime_psth(
         "normalization": effective_normalization,
         "signal_type": signal_type,
         "event_key": event,
-        "description": f"{signal} aligned to {event}",
+        "description": (
+            f"{LIFETIME_SIGNAL_DISPLAY_NAMES.get(signal, signal)} aligned to {event}"
+        ),
+        "signal_display_name": LIFETIME_SIGNAL_DISPLAY_NAMES.get(signal, signal),
         "ylabel": ylabel,
         "units": units,
         "session_results": results,
@@ -2693,7 +2748,10 @@ def run_lifetime_psth(
     ax.set(
         xlabel=f"Time from {event} (s)",
         ylabel=ylabel,
-        title=f"{workflow}: {signal} aligned to {event} (mouse mean ± SEM)",
+        title=(
+            f"{workflow}: {LIFETIME_SIGNAL_DISPLAY_NAMES.get(signal, signal)} "
+            f"aligned to {event} (mouse mean ± SEM)"
+        ),
     )
     if y_limits is not None:
         ax.set_ylim(*y_limits)
@@ -2745,6 +2803,7 @@ def run_lifetime_psth(
         "code_commit": local_git_commit(Path(__file__).resolve().parents[4]),
         "workflow": workflow,
         "signal": signal,
+        "signal_display_name": LIFETIME_SIGNAL_DISPLAY_NAMES.get(signal, signal),
         "event": event,
         "window": list(window),
         "dt": dt,

@@ -340,6 +340,29 @@ def test_lifetime_plot_values_use_picoseconds_and_clear_labels():
     )
 
 
+def test_iflip3_routine_signals_use_clear_user_facing_names():
+    assert workflows.IFLIP3_ROUTINE_SIGNALS == (
+        "mpet",
+        "sensor_only_fitted_mpet",
+        "long_lifetime_fraction",
+        "long_preexponential_fraction",
+        "fitted_flat_background_fraction",
+        "raw_intensity",
+    )
+    assert (
+        workflows.LIFETIME_SIGNAL_DISPLAY_NAMES["long_preexponential_fraction"]
+        == "Long-state fitted amplitude fraction"
+    )
+    assert (
+        workflows._lifetime_psth_ylabel(
+            "sensor_only_fitted_mpet",
+            "subtract",
+            "ps",
+        )
+        == "ΔFitted sensor MPET (flat background excluded) (ps)"
+    )
+
+
 def test_iflip3_fit_preview_returns_quality_and_time_resolved_components(monkeypatch):
     from iflip3.models import periodic_exgaussian_basis
 

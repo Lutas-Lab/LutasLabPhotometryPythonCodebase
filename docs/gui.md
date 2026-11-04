@@ -375,7 +375,10 @@ The two lifetime modes share the sensor-independent session representation in
   per recording, gives each calibration-session aggregate its own nonnegative
   flat-background coefficient, and fits new short, long, and flat coefficients
   independently in every temporal bin. The GUI exposes flat-background counts
-  and fraction plus sensor-only fitted MPET for comparison with direct MPET.
+  and fraction plus fitted sensor MPET for comparison with direct MPET. Routine
+  signal menus show six plain-language responses; correction variants,
+  component counts, and alternative summaries are available through the
+  advanced/diagnostic toggle.
 - **Event-aligned PSTH** aligns a selected lifetime/QC signal to Ensure, visual
   cue, individual lick, lick-bout onset, or lick-bout offset events. Every
   acquisition system also supports derived alignment to the first lick or first

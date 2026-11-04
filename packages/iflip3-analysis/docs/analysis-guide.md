@@ -265,7 +265,8 @@ A future correction based on otherwise matched animals implanted without the
 biosensor could add a measured autofluorescence basis without changing the
 role of this flat nuisance term.
 
-The GUI compares direct MPET with **sensor-only fitted MPET**. The latter is the
+The GUI compares direct MPET with **fitted sensor MPET (flat background
+excluded)**. The latter is the
 photon centroid of the reconstructed short and long components after omitting
 the fitted flat background, using fitted $t_0$. If those traces differ strongly,
 the residual offset is materially influencing direct MPET. Agreement is
@@ -356,7 +357,8 @@ fraction obtained by comparing the peak heights of the short and long curves.
 The long component spreads its photons across more lifetime bins, so its peak
 can be lower even when it contains most of the fitted photons.
 
-The software also reports the **long pre-exponential amplitude fraction**. Let
+The GUI calls the long pre-exponential amplitude fraction the **long-state
+fitted amplitude fraction**. Let
 $S_i$ be the area of the unnormalized periodic, IRF-convolved basis for
 component $i$ over the fitted lifetime window. The fitted pre-exponential
 coefficient is
@@ -397,11 +399,11 @@ The main output channels answer related but different questions:
 | Output | Calculation | Interpretation |
 |---|---|---|
 | MPET | corrected photon-count centroid minus $t_0$ | model-independent shift in photon timing |
-| Long fraction | $N_2/(N_1+N_2)$ | fraction of fitted photons assigned to the long state |
-| Long amplitude fraction | $A_2/(A_1+A_2)$ | fraction of the fitted pre-exponential amplitude assigned to the long state |
-| Amplitude-weighted fitted lifetime | $\sum A_i\tau_i/\sum A_i$ | lifetime summary emphasizing pre-exponential amplitudes |
-| Intensity-weighted fitted lifetime | $\sum N_i\tau_i/\sum N_i$ | lifetime summary emphasizing integrated fitted photons |
-| Sensor-only fitted MPET | centroid of $N_1g_1+N_2g_2$ minus fitted $t_0$ | MPET-like summary after omitting the fitted flat term |
+| Long-state fitted photon fraction | $N_2/(N_1+N_2)$ | fraction of fitted sensor photons assigned to the long state |
+| Long-state fitted amplitude fraction | $A_2/(A_1+A_2)$ | fraction of fitted pre-exponential sensor amplitude assigned to the long state |
+| Fitted lifetime (amplitude weighted) | $\sum A_i\tau_i/\sum A_i$ | lifetime summary emphasizing pre-exponential amplitudes |
+| Fitted lifetime (photon weighted) | $\sum N_i\tau_i/\sum N_i$ | lifetime summary emphasizing integrated fitted photons |
+| Fitted sensor MPET | centroid of $N_1g_1+N_2g_2$ minus fitted $t_0$ | MPET-like summary after omitting the fitted flat term |
 | Flat-background fraction | $N_{bg}/(N_1+N_2+N_{bg})$ | fraction assigned to a residual DC offset |
 | $N_1$, $N_2$ | nonnegative coefficients of area-normalized bases | fitted photon contribution of each state |
 | Raw intensity | sum of recorded counts | brightness and acquisition QC |
@@ -439,10 +441,10 @@ The Streamlit GUI supports this workflow under the iFLIP3 lifetime analysis:
 - save the calibration and record preprocessing provenance;
 - inspect MPET, component fraction, intensity, fit residuals, and synchronization
   quality;
-- optionally overlay count fraction with pre-exponential amplitude fraction and
-  plot amplitude- or intensity-weighted fitted lifetime traces;
+- optionally compare long-state fitted photon and amplitude fractions and plot
+  amplitude- or photon-weighted fitted lifetime traces;
 - inspect the fitted flat-background fraction and compare direct MPET with
-  sensor-only fitted MPET;
+  fitted sensor MPET;
 - interactively move the MPET microtime-window endpoints, view their positions
   relative to the corrected decay and header $t_0$, and compare the resulting
   standardized MPET response with the fitted fraction and lifetime summaries;

@@ -45,7 +45,9 @@ from lutaslab_photometry.heatmap_ordering import (
 from lutaslab_photometry.lifetime_workflows import (
     IFLIP3_CALIBRATION_SCHEMA_VERSION,
     IFLIP3_FIT_PARAMETER_DEFAULTS,
+    IFLIP3_ROUTINE_SIGNALS,
     LIFETIME_EVENTS,
+    LIFETIME_SIGNAL_DISPLAY_NAMES,
     LIFETIME_SIGNALS,
     apply_iflip3_calibration,
     calibrate_iflip3_sessions,
@@ -98,56 +100,30 @@ CONVENTIONAL_PHOTOMETRY_SIGNAL_LABELS = {
     "raw405": "405 isosbestic fluorescence (QC)",
     "fitted405": "Fitted 405 control (QC)",
 }
-LIFETIME_SIGNAL_LABELS = {
-    "mpet": "MPET — standard correction (background if provided + afterpulse)",
-    "mpet_fitted_t0": "MPET — standard correction using fitted t0",
-    "mpet_afterpulse_only": "MPET — afterpulse corrected only",
-    "mpet_uncorrected": "MPET — uncorrected",
-    "long_lifetime_fraction": "Long count fraction — standard correction",
+LIFETIME_SIGNAL_LABELS = LIFETIME_SIGNAL_DISPLAY_NAMES
+IFLIP3_SIGNAL_EXPLANATIONS = {
+    "mpet": (
+        "Photon centroid calculated directly from the corrected decay; any "
+        "remaining flat offset still contributes."
+    ),
+    "sensor_only_fitted_mpet": (
+        "Photon centroid reconstructed from the fitted short and long sensor "
+        "components after excluding the fitted flat background."
+    ),
+    "long_lifetime_fraction": (
+        "Fraction of fitted sensor photons assigned to the long-lifetime state; "
+        "the flat-background coefficient is excluded."
+    ),
     "long_preexponential_fraction": (
-        "Long pre-exponential amplitude fraction — standard correction"
-    ),
-    "amplitude_weighted_fitted_lifetime": (
-        "Amplitude-weighted fitted lifetime — standard correction"
-    ),
-    "intensity_weighted_fitted_lifetime": (
-        "Intensity-weighted fitted lifetime — standard correction"
-    ),
-    "sensor_only_fitted_mpet": "Sensor-only fitted MPET — standard correction",
-    "fitted_flat_background_counts": (
-        "Fitted flat-background counts — standard correction"
+        "Fraction of fitted pre-exponential sensor amplitude assigned to the "
+        "long-lifetime state. It is not a literal bound-molecule percentage "
+        "without state-brightness calibration."
     ),
     "fitted_flat_background_fraction": (
-        "Fitted flat-background fraction — standard correction"
+        "Fraction of total fitted counts assigned to the constant-in-microtime "
+        "nuisance term; use primarily as QC."
     ),
-    "short_component_counts": "Short-component counts — standard correction",
-    "long_component_counts": "Long-component counts — standard correction",
-    "long_lifetime_fraction_afterpulse_only": (
-        "Long count fraction — afterpulse corrected only"
-    ),
-    "long_preexponential_fraction_afterpulse_only": (
-        "Long pre-exponential amplitude fraction — afterpulse corrected only"
-    ),
-    "amplitude_weighted_fitted_lifetime_afterpulse_only": (
-        "Amplitude-weighted fitted lifetime — afterpulse corrected only"
-    ),
-    "intensity_weighted_fitted_lifetime_afterpulse_only": (
-        "Intensity-weighted fitted lifetime — afterpulse corrected only"
-    ),
-    "sensor_only_fitted_mpet_afterpulse_only": (
-        "Sensor-only fitted MPET — afterpulse corrected only"
-    ),
-    "fitted_flat_background_counts_afterpulse_only": (
-        "Fitted flat-background counts — afterpulse corrected only"
-    ),
-    "fitted_flat_background_fraction_afterpulse_only": (
-        "Fitted flat-background fraction — afterpulse corrected only"
-    ),
-    "short_component_counts_afterpulse_only": (
-        "Short-component counts — afterpulse corrected only"
-    ),
-    "long_component_counts_afterpulse_only": ("Long-component counts — afterpulse corrected only"),
-    "raw_intensity": "Raw photon intensity",
+    "raw_intensity": "Uncorrected photon brightness; use primarily as acquisition QC.",
 }
 LIFETIME_GLM_RESPONSE_HELP = {
     "fluopulse": (
@@ -172,6 +148,18 @@ DEFAULT_ROWS = [
         "channel": 1,
     }
 ]
+
+
+def _lifetime_signal_options(workflow: str, show_advanced: bool) -> tuple[str, ...]:
+    """Return routine signals by default and the complete diagnostic set on request."""
+
+    if workflow != "iflip3" or show_advanced:
+        return tuple(LIFETIME_SIGNALS[workflow])
+    return tuple(
+        signal
+        for signal in IFLIP3_ROUTINE_SIGNALS
+        if signal in LIFETIME_SIGNALS[workflow]
+    )
 
 
 @st.cache_data(ttl=6 * 60 * 60, show_spinner=False)
@@ -601,11 +589,11 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
     )
 
     if st.checkbox(
-        "Inspect fitted flat background and sensor-only MPET",
+        "Inspect flat background and fitted sensor MPET",
         key=f"{key_prefix}_inspect_flat_background",
         help=(
             "Fits a separate nonnegative constant offset to every temporal bin. "
-            "Sensor-only MPET is reconstructed from the short and long fitted "
+            "Fitted sensor MPET is reconstructed from the short and long fitted "
             "components after leaving that offset out."
         ),
     ):
@@ -659,13 +647,13 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
             mpet_axis.plot(
                 sample_index,
                 sensor_mpet,
-                label="Sensor-only fitted MPET",
+                label="Fitted sensor MPET (flat background excluded)",
                 color="#f58518",
             )
             mpet_axis.legend(frameon=False)
             median_shift = np.nanmedian(direct_mpet - sensor_mpet)
             st.caption(
-                "Median direct minus sensor-only MPET: "
+                "Median direct minus fitted sensor MPET: "
                 f"{median_shift * 1000.0:.3g} ps. A large or time-varying "
                 "difference indicates that a flat offset materially affects MPET. "
                 "This fit does not remove shaped tissue autofluorescence."
@@ -675,7 +663,7 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
                 sample_index,
                 preview.sensor_only_fitted_mpet,
                 color="#f58518",
-                label="Sensor-only fitted MPET",
+                label="Fitted sensor MPET (flat background excluded)",
             )
             mpet_axis.legend(frameon=False)
         mpet_axis.set(
@@ -686,7 +674,7 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
         plt.close(comparison_figure)
 
     if st.checkbox(
-        "Overlay long count fraction and long pre-exponential amplitude fraction",
+        "Compare long-state fitted photon and amplitude fractions",
         key=f"{key_prefix}_overlay_component_fractions",
         help=(
             "Count fraction uses the areas assigned to the two fitted components. "
@@ -701,13 +689,13 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
         fraction_axis.plot(
             sample_index,
             preview.long_lifetime_fraction,
-            label="Long count fraction",
+            label="Long-state fitted photon fraction",
             color="#4c78a8",
         )
         fraction_axis.plot(
             sample_index,
             preview.long_preexponential_fraction,
-            label="Long pre-exponential amplitude fraction",
+            label="Long-state fitted amplitude fraction",
             color="#f58518",
         )
         fraction_axis.set(
@@ -721,11 +709,11 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
 
     lifetime_columns = st.columns(2)
     show_amplitude_weighted = lifetime_columns[0].checkbox(
-        "Plot amplitude-weighted fitted lifetime",
+        "Plot fitted lifetime (amplitude weighted)",
         key=f"{key_prefix}_plot_amplitude_weighted_lifetime",
     )
     show_intensity_weighted = lifetime_columns[1].checkbox(
-        "Plot intensity-weighted fitted lifetime",
+        "Plot fitted lifetime (photon weighted)",
         key=f"{key_prefix}_plot_intensity_weighted_lifetime",
     )
     if show_amplitude_weighted or show_intensity_weighted:
@@ -912,12 +900,12 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
             plt.close(window_figure)
 
             available_comparisons = {
-                "Long count fraction": preview.long_lifetime_fraction,
-                "Long amplitude fraction": preview.long_preexponential_fraction,
-                "Amplitude-weighted fitted lifetime": (
+                "Long-state fitted photon fraction": preview.long_lifetime_fraction,
+                "Long-state fitted amplitude fraction": preview.long_preexponential_fraction,
+                "Fitted lifetime (amplitude weighted)": (
                     preview.amplitude_weighted_fitted_lifetime
                 ),
-                "Intensity-weighted fitted lifetime": (
+                "Fitted lifetime (photon weighted)": (
                     preview.intensity_weighted_fitted_lifetime
                 ),
             }
@@ -1865,9 +1853,17 @@ def _psth_summary_controls(default_base_directory, key_prefix):
                 )
             ax.axvspan(response_start, response_end, color="C1", alpha=0.18)
             ax.axvline(0, color="black", linestyle="--", linewidth=0.8)
+            summary_signal_label = LIFETIME_SIGNAL_LABELS.get(
+                bundle["identity"]["signal"], bundle["identity"]["signal"]
+            )
+            summary_units = bundle["identity"]["units"]
             ax.set(
                 xlabel=f"Time from {bundle['identity']['event']} (s)",
-                ylabel=bundle["identity"]["units"],
+                ylabel=(
+                    f"{summary_signal_label} ({summary_units})"
+                    if summary_units
+                    else summary_signal_label
+                ),
                 title="Saved mouse-level PSTH preview",
             )
             ax.legend()
@@ -1876,7 +1872,9 @@ def _psth_summary_controls(default_base_directory, key_prefix):
             plt.close(fig)
             identity = bundle["identity"]
             st.caption(
-                f"{identity['workflow']} · {identity['signal']} aligned to "
+                f"{identity['workflow']} · "
+                f"{LIFETIME_SIGNAL_LABELS.get(identity['signal'], identity['signal'])} "
+                "aligned to "
                 f"{identity['event']} · {len(bundle['mouse_records'])} mouse rows · "
                 f"{len(bundle['session_records'])} sessions"
             )
@@ -1979,12 +1977,22 @@ def _session_trace_controls(
                 key="conventional_trace_signal",
             )
         else:
+            show_advanced_trace_signals = st.checkbox(
+                "Show advanced/diagnostic signals",
+                key="iflip3_trace_show_advanced_signals",
+                help=(
+                    "Adds alternative t0, uncorrected and afterpulse-only signals, "
+                    "component photon counts, and fitted lifetime summaries."
+                ),
+            ) if workflow == "iflip3" else False
             signal = st.selectbox(
                 "Signal",
-                LIFETIME_SIGNALS[workflow],
+                _lifetime_signal_options(workflow, show_advanced_trace_signals),
                 format_func=LIFETIME_SIGNAL_LABELS.get,
                 key=f"{workflow}_trace_signal",
             )
+            if workflow == "iflip3" and signal in IFLIP3_SIGNAL_EXPLANATIONS:
+                st.caption(IFLIP3_SIGNAL_EXPLANATIONS[signal])
     with third:
         channel = "manifest"
         if workflow == "conventional":
@@ -2060,7 +2068,9 @@ def _session_trace_controls(
     if ensure_durations.size:
         duration_caption.append(f"median Ensure duration {np.median(ensure_durations):g} s")
     st.caption(
-        f"Loaded {data.session_id} · {data.signal} · {len(data.lick_times)} licks"
+        f"Loaded {data.session_id} · "
+        f"{LIFETIME_SIGNAL_LABELS.get(data.signal, data.signal)} · "
+        f"{len(data.lick_times)} licks"
         + (f" · {' · '.join(duration_caption)}" if duration_caption else "")
     )
 
@@ -2888,9 +2898,17 @@ def _lifetime_gui(workflow: str) -> None:
         )
         first, second, third = st.columns(3)
         with first:
+            show_advanced_psth_signals = st.checkbox(
+                "Show advanced/diagnostic signals",
+                key="iflip3_psth_show_advanced_signals",
+                help=(
+                    "Adds alternative t0, uncorrected and afterpulse-only signals, "
+                    "component photon counts, and fitted lifetime summaries."
+                ),
+            ) if workflow == "iflip3" else False
             signal = st.selectbox(
                 "Lifetime/QC signal",
-                LIFETIME_SIGNALS[workflow],
+                _lifetime_signal_options(workflow, show_advanced_psth_signals),
                 format_func=lambda value: LIFETIME_SIGNAL_LABELS.get(value, value),
                 key=f"{workflow}_signal",
                 help=(
@@ -2904,6 +2922,8 @@ def _lifetime_gui(workflow: str) -> None:
                     )
                 ),
             )
+            if workflow == "iflip3" and signal in IFLIP3_SIGNAL_EXPLANATIONS:
+                st.caption(IFLIP3_SIGNAL_EXPLANATIONS[signal])
             event = st.selectbox(
                 "Alignment event",
                 LIFETIME_EVENTS,
@@ -3370,13 +3390,23 @@ def _lifetime_gui(workflow: str) -> None:
             "not causality."
         )
         glm_group_filter, glm_condition_filter = _analysis_subset_controls(rows, f"{workflow}_glm")
+        show_advanced_glm_signals = st.checkbox(
+            "Show advanced/diagnostic GLM responses",
+            key="iflip3_glm_show_advanced_signals",
+            help=(
+                "Adds alternative t0, uncorrected and afterpulse-only signals, "
+                "component photon counts, and fitted lifetime summaries."
+            ),
+        ) if workflow == "iflip3" else False
         glm_signal = st.selectbox(
             "GLM response",
-            LIFETIME_SIGNALS[workflow],
+            _lifetime_signal_options(workflow, show_advanced_glm_signals),
             format_func=lambda value: LIFETIME_SIGNAL_LABELS.get(value, value),
             key=f"{workflow}_glm_signal",
             help=LIFETIME_GLM_RESPONSE_HELP[workflow],
         )
+        if workflow == "iflip3" and glm_signal in IFLIP3_SIGNAL_EXPLANATIONS:
+            st.caption(IFLIP3_SIGNAL_EXPLANATIONS[glm_signal])
         glm_left, glm_middle, glm_right = st.columns(3)
         with glm_left:
             pre_event_kernel = st.number_input(

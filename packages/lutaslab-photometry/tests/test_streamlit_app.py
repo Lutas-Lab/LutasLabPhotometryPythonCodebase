@@ -118,6 +118,18 @@ def test_streamlit_lifetime_modes_load(workflow, expected_signal):
             "Load saved calibration",
         }
         assert app.selectbox(key="iflip3_temporal_bin_seconds").value is None
+        routine_labels = [
+            "Direct MPET (corrected photons)",
+            "Fitted sensor MPET (flat background excluded)",
+            "Long-state fitted photon fraction",
+            "Long-state fitted amplitude fraction",
+            "Flat-background fraction (QC)",
+            "Raw photon intensity (QC)",
+        ]
+        assert app.checkbox(key="iflip3_psth_show_advanced_signals").value is False
+        assert app.selectbox(key="iflip3_signal").options == routine_labels
+        assert app.checkbox(key="iflip3_glm_show_advanced_signals").value is False
+        assert app.selectbox(key="iflip3_glm_signal").options == routine_labels
     assert app.checkbox(key=f"{workflow}_include_licking_psth").value is False
     assert app.checkbox(key=f"{workflow}_include_running_psth").value is False
     assert app.checkbox(key=f"{workflow}_reuse_psth_output").value is False

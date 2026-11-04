@@ -268,7 +268,7 @@ With decay decomposition enabled, it additionally saves afterpulse-only componen
 signals using the same decay-shape parameters as the corrected fit. Both the
 standard and afterpulse-only decompositions fit nonnegative short, long, and
 flat-background coefficients independently in every temporal bin. Saved outputs
-include flat-background counts and fraction plus sensor-only fitted MPET, which
+include flat-background counts and fraction plus fitted sensor MPET, which
 omits the fitted flat term. Existing lifetime processed files must be regenerated
 to obtain these comparison signals.
 
