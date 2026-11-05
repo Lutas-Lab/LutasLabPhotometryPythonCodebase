@@ -83,16 +83,17 @@ def zero_split_raised_cosine_basis(
         return base
     if start < 0 and count < 2:
         raise ValueError("A zero-crossing basis requires at least two columns")
-    if start < 0 and pre_count is None:
-        fraction = abs(start) / (abs(start) + stop)
-        pre_count = int(np.clip(np.rint(count * fraction), 1, count - 1))
-    if start < 0 and (
-        not isinstance(pre_count, int) or isinstance(pre_count, bool)
-    ):
-        raise ValueError("pre_count must be an integer")
-    if start < 0 and not 1 <= pre_count < count:
-        raise ValueError("pre_count must be between one and count - 1")
-    post_count = count if start >= 0 else count - pre_count
+    if start < 0:
+        if pre_count is None:
+            fraction = abs(start) / (abs(start) + stop)
+            pre_count = int(np.clip(np.rint(count * fraction), 1, count - 1))
+        if not isinstance(pre_count, int) or isinstance(pre_count, bool):
+            raise ValueError("pre_count must be an integer")
+        if not 1 <= pre_count < count:
+            raise ValueError("pre_count must be between one and count - 1")
+        post_count = count - pre_count
+    else:
+        post_count = count
     lag_times = base.lag_times.copy()
     zero_tolerance = abs(dt) * 1e-8
     lag_times[np.abs(lag_times) <= zero_tolerance] = 0.0
