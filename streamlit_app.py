@@ -2517,7 +2517,7 @@ def _lifetime_gui(workflow: str) -> None:
             st.markdown("#### Lifetime temporal resolution")
             iflip3_temporal_bin_seconds = st.selectbox(
                 "Pool photon histograms before lifetime calculation",
-                (None, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0),
+                (None, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 60.0),
                 format_func=lambda value: (
                     "Native acquisition interval" if value is None else f"{value:g} seconds"
                 ),

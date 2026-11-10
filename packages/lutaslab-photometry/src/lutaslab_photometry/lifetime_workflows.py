@@ -246,7 +246,7 @@ def estimate_iflip3_binning_sensitivity(
         raise ValueError("n_bootstrap must be at least 20")
     native_duration = 1.0 / preview.sampling_frequency
     if bin_durations_seconds is None:
-        candidates = (native_duration, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0)
+        candidates = (native_duration, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 60.0)
         default_group_sizes = []
         for duration in candidates:
             group_size = int(round(duration * preview.sampling_frequency))

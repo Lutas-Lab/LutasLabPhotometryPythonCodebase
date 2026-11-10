@@ -118,6 +118,16 @@ def test_streamlit_lifetime_modes_load(workflow, expected_signal):
             "Load saved calibration",
         }
         assert app.selectbox(key="iflip3_temporal_bin_seconds").value is None
+        assert app.selectbox(key="iflip3_temporal_bin_seconds").options == [
+            "Native acquisition interval",
+            "0.2 seconds",
+            "0.5 seconds",
+            "1 seconds",
+            "2 seconds",
+            "5 seconds",
+            "10 seconds",
+            "60 seconds",
+        ]
         routine_labels = [
             "Direct MPET (corrected photons)",
             "Fitted sensor MPET (flat background excluded)",

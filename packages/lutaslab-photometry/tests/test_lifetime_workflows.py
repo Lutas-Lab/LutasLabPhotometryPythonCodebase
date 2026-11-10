@@ -446,7 +446,7 @@ def test_iflip3_binning_sensitivity_reports_improving_poisson_precision():
         time, 0.7, 1.0, 0.14, 12.5, normalize="area"
     )
     long_shape = periodic_exgaussian_basis(time, 2.6, 1.0, 0.14, 12.5, normalize="area")
-    n_samples = 200
+    n_samples = 600
     short_counts = np.full(n_samples, 3000.0)
     long_counts = np.full(n_samples, 6000.0)
     preview = workflows.IFLIP3FitPreview(
@@ -482,11 +482,20 @@ def test_iflip3_binning_sensitivity_reports_improving_poisson_precision():
     )
 
     np.testing.assert_allclose(
-        sensitivity.bin_durations_seconds, [0.1, 0.2, 0.5, 1, 2, 5, 10]
+        sensitivity.bin_durations_seconds, [0.1, 0.2, 0.5, 1, 2, 5, 10, 60]
     )
     np.testing.assert_allclose(
         sensitivity.median_sensor_photons,
-        [9_000, 18_000, 45_000, 90_000, 180_000, 450_000, 900_000],
+        [
+            9_000,
+            18_000,
+            45_000,
+            90_000,
+            180_000,
+            450_000,
+            900_000,
+            5_400_000,
+        ],
     )
     assert sensitivity.mpet_95_half_width_ps[-1] < sensitivity.mpet_95_half_width_ps[0]
     assert (
