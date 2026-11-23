@@ -614,6 +614,7 @@ def build_lifetime_command(
     iflip3_fit_settings=None,
     iflip3_calibration=None,
     iflip3_temporal_bin_seconds=None,
+    iflip3_window_mode="digiflim",
 ):
     """Build a FluoPulse or iFLiP3 workflow command."""
 
@@ -658,6 +659,8 @@ def build_lifetime_command(
         command.extend(
             ["--iflip3-temporal-bin-seconds", str(float(iflip3_temporal_bin_seconds))]
         )
+    if action == "preprocess" and workflow == "iflip3":
+        command.extend(["--iflip3-window-mode", str(iflip3_window_mode)])
     if signal is not None:
         command.extend(["--signal", str(signal)])
     if action == "psth":

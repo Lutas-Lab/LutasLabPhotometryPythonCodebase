@@ -369,6 +369,12 @@ The two lifetime modes share the sensor-independent session representation in
   runs feed the same signals into Summary Statistics. Source paths,
   processing metadata, and behavior events are retained in the processed file.
   Existing processed files are reused unless overwrite is selected.
+  The current iFLIP3 default applies both MPET and biexponential fitting to the
+  digiFLIM-compatible −0.3 to +8.0 ns window relative to fitted t0. A legacy
+  0.4–12.3 ns mode remains available for reproducibility, and newly processed
+  files retain explicitly labeled legacy MPET comparison signals. Files made
+  before processed schema 1.4 must be regenerated with overwrite to adopt the
+  new window.
   For iFLIP3, the recommended decay workflow is to create and review a saved
   [multi-session calibration](iflip3-multisession-calibration.md). It shares
   lifetimes and IRF width across compatible recordings, estimates one fixed t0

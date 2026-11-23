@@ -94,8 +94,10 @@ def test_process_session_without_nidaq_uses_iflip_clock(monkeypatch):
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("background loaded")),
     )
     observed = []
+    observed_ranges = []
 
     def fake_calculate_mpet(*args, **kwargs):
+        observed_ranges.append(args[1])
         observed.append(
             (kwargs["measured_background"], kwargs["afterpulse_ratio"])
         )
@@ -123,6 +125,7 @@ def test_process_session_without_nidaq_uses_iflip_clock(monkeypatch):
     assert common.metadata["nidaq_aligned"] is False
     assert common.metadata["measured_background_applied"] is False
     assert observed == [(None, 0.03), (None, 0.0)]
+    assert observed_ranges == [(0.7, 9.0), (0.7, 9.0)]
     np.testing.assert_allclose(
         common.continuous["mpet_afterpulse_only"].values,
         [1.1, 1.2, 1.3],

@@ -61,6 +61,8 @@ class AlignedSession:
     running_quality: RunningQuality | None = None
     native_sampling_frequency: float | None = None
     temporal_bin_seconds: float | None = None
+    mpet_legacy_ns: np.ndarray | None = None
+    mpet_window_mode: str = "digiflim"
 
     def to_core_session(self, session_id: str = "iflip3-session") -> CoreAlignedSession:
         """Return the sensor-independent representation used by shared analyses."""
@@ -89,6 +91,12 @@ class AlignedSession:
                 self.mpet_uncorrected_ns,
                 "ns",
             )
+        if self.mpet_legacy_ns is not None:
+            continuous["mpet_legacy"] = ContinuousSignal(
+                self.lifetime_time_nidaq,
+                self.mpet_legacy_ns,
+                "ns",
+            )
         if self.running_time_nidaq is not None and self.running_speed is not None:
             continuous["running_speed"] = ContinuousSignal(
                 self.running_time_nidaq,
@@ -102,6 +110,7 @@ class AlignedSession:
             "measured_background_applied": self.measured_background_applied,
             "native_sampling_frequency_hz": self.native_sampling_frequency,
             "temporal_bin_seconds": self.temporal_bin_seconds,
+            "mpet_window_mode": self.mpet_window_mode,
             "clock_drift_ppm": (
                 self.alignment.drift_ppm if self.alignment is not None else None
             ),
@@ -253,10 +262,21 @@ def process_aligned_session(
     iflip_sync_start_index: int = 0,
     nidaq_sync_start_index: int = 0,
     temporal_bin_seconds: float | None = None,
+    mpet_window_mode: str = "digiflim",
+    mpet_relative_range: tuple[float, float] = (-0.3, 8.0),
 ) -> AlignedSession:
     """Process MPET and optionally align it with NI-DAQ behavior events."""
 
     iflip = read_iflip3(iflip_path)
+    if mpet_window_mode not in {"digiflim", "legacy"}:
+        raise ValueError("mpet_window_mode must be 'digiflim' or 'legacy'")
+    header_t0 = float(iflip.header.get_path("state.t0.Value"))
+    legacy_range = (0.4, 12.3)
+    primary_range = (
+        (header_t0 + mpet_relative_range[0], header_t0 + mpet_relative_range[1])
+        if mpet_window_mode == "digiflim"
+        else spc_range
+    )
     measured_background = None
     if background_path is not None:
         background = read_iflip3(background_path)
@@ -299,26 +319,45 @@ def process_aligned_session(
         result = mpet_from_corrected(
             corrected,
             iflip.lifetime_time,
-            spc_range,
-            float(iflip.header.get_path("state.t0.Value")),
+            primary_range,
+            header_t0,
         )
         return np.asarray(result[:, 0] if result.ndim == 2 else result, dtype=float)
 
     mpet, correction = calculate_mpet(
         iflip,
-        spc_range,
-        t0=float(iflip.header.get_path("state.t0.Value")),
+        primary_range,
+        t0=header_t0,
         measured_background=measured_background,
         afterpulse_ratio=afterpulse_ratio,
     )
     mpet_values = binned_mpet(mpet, correction)
+    if correction is None:  # Compatibility with lightweight test doubles.
+        mpet_legacy_values = mpet_values.copy()
+    else:
+        legacy_corrected = (
+            correction.corrected
+            if group_size == 1
+            else bin_curves(correction.corrected, group_size, reducer="sum")
+        )
+        mpet_legacy_values = np.asarray(
+            mpet_from_corrected(
+                legacy_corrected,
+                iflip.lifetime_time,
+                legacy_range,
+                header_t0,
+            ),
+            dtype=float,
+        )
+        if mpet_legacy_values.ndim == 2:
+            mpet_legacy_values = mpet_legacy_values[:, 0]
     if measured_background is None:
         mpet_afterpulse_only_values = mpet_values.copy()
     else:
         mpet_afterpulse_only, afterpulse_only_correction = calculate_mpet(
             iflip,
-            spc_range,
-            t0=float(iflip.header.get_path("state.t0.Value")),
+            primary_range,
+            t0=header_t0,
             measured_background=None,
             afterpulse_ratio=afterpulse_ratio,
         )
@@ -330,8 +369,8 @@ def process_aligned_session(
     else:
         mpet_uncorrected, uncorrected_correction = calculate_mpet(
             iflip,
-            spc_range,
-            t0=float(iflip.header.get_path("state.t0.Value")),
+            primary_range,
+            t0=header_t0,
             measured_background=None,
             afterpulse_ratio=0.0,
         )
@@ -376,6 +415,8 @@ def process_aligned_session(
             mpet_uncorrected_ns=mpet_uncorrected_values,
             native_sampling_frequency=sampling_frequency,
             temporal_bin_seconds=effective_bin_seconds,
+            mpet_legacy_ns=mpet_legacy_values,
+            mpet_window_mode=mpet_window_mode,
         )
 
     nidaq: NIDAQRecording = read_nidaq(nidaq_path)
@@ -442,4 +483,6 @@ def process_aligned_session(
         running_quality=running_quality,
         native_sampling_frequency=sampling_frequency,
         temporal_bin_seconds=effective_bin_seconds,
+        mpet_legacy_ns=mpet_legacy_values,
+        mpet_window_mode=mpet_window_mode,
     )

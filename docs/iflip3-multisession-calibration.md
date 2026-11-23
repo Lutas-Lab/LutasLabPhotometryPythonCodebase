@@ -51,13 +51,18 @@ pulse frequency, session count, and UTC timestamp. A custom stem such as
 the same repetition rate. Replacing an exact existing JSON requires disabling
 versioned saving and confirming the replacement warning.
 
-Current calibrations use schema 2.1, which records that the global fit included
-independent nonnegative flat coefficients. Schema 2.0 and 1.0 files remain
-loadable for reproducibility, but their global lifetimes were estimated without
-that term. The GUI labels them as legacy. Current preprocessing still fits a
-flat coefficient in every temporal bin when one of those older calibrations is
-applied; rerun calibration to make the global lifetime/IRF estimation use the
-current model as well.
+Current calibrations use schema 2.2. In addition to the independent
+nonnegative flat coefficients introduced in schema 2.1, schema 2.2 records the
+histogram-window mode. The recommended mode is the digiFLIM-compatible −0.3 to
++8.0 ns interval relative to each session's fitted `t0`. The calibration uses
+a header-`t0` slice for an initial fit, re-slices every full corrected
+histogram around its fitted `t0`, and refits the shared lifetimes and IRF.
+
+Schemas 2.1, 2.0, and 1.0 remain loadable for reproducibility and are assigned
+the legacy 0.4–12.3 ns acquisition-time window. Schema 2.0 and 1.0 global fits
+also omitted the flat term. Create a new schema-2.2 calibration before
+migrating an experiment; an old calibration cannot be silently reinterpreted
+with the new window.
 
 ## How the fit is performed
 
@@ -65,11 +70,13 @@ For each selected session, the software:
 
 1. loads the iFLIP3 recording and its optional measured-background recording;
 2. applies measured-background and afterpulse corrections;
-3. restricts the data to the configured single-photon-counting window;
-4. sums corrected decay curves across photometry time points;
-5. divides the aggregate decay by its positive area so each session has
+3. performs an initial fit in the configured window around header `t0`;
+4. in digiFLIM mode, re-slices the full corrected histogram from −0.3 to
+   +8.0 ns around each fitted `t0` and refits;
+5. sums corrected decay curves across photometry time points;
+6. divides the aggregate decay by its positive area so each session has
    comparable influence; and
-6. contributes that normalized decay to a joint two-component-plus-flat fit.
+7. contributes that normalized decay to a joint two-component-plus-flat fit.
 
 The joint fit shares `tau1`, `tau2`, and IRF `sigma`. Each calibration session
 receives its own `t0`, two aggregate sensor-component coefficients, and one
@@ -79,9 +86,10 @@ the global lifetime and IRF estimates. Unweighted residuals are used because
 corrected decays may contain negative bins and the session normalization is
 intended to balance session influence.
 
-The calibration records its acquisition time axis and excitation pulse
-interval. Preprocessing rejects a recording that does not match either value,
-rather than silently applying an incompatible basis.
+The calibration records the relative fit-window axis, window mode, and
+excitation pulse interval. Preprocessing rejects a recording with an
+incompatible bin spacing, bin count, or pulse interval rather than silently
+applying an incompatible basis.
 
 The sync rate stored in an iFLIP3 header can be a measured value, so nominally
 identical hardware may report very small differences. Pulse intervals within
@@ -155,8 +163,8 @@ lifetimes/IRF fit. It fixes `tau1`, `tau2`, and IRF `sigma`, uses the saved `t0`
 for a contributing calibration session, or estimates one bounded `t0` from a
 new session's aggregate decay. That session-level `t0` is then fixed while only
 short-component, long-component, and nonnegative flat-background counts are
-solved at each time point. Direct MPET remains calculated from corrected photon
-histograms; fitted sensor MPET is reconstructed after omitting the flat
+solved at each time point. Direct MPET uses the same fitted-`t0` histogram
+window as the decay fit; fitted sensor MPET is reconstructed after omitting the flat
 term. The calibration identity, fitted session `t0`, flat-background policy,
 and parameters are embedded in each processed file's provenance.
 
@@ -164,6 +172,14 @@ Existing processed files are not changed unless **Overwrite existing processed
 files** is enabled. This permits incremental batch processing, but sessions
 processed with an older fitting policy must be selectively overwritten if they
 should use the new calibration.
+
+Processed schema 1.4 marks the new window policy. In the GUI, create a new
+schema-2.2 calibration, select it, enable **Overwrite existing processed
+files**, and run preprocessing for the previously analyzed sessions. The new
+direct MPET and fitted signals use the digiFLIM window. `mpet_legacy` and
+`mpet_legacy_fitted_t0` preserve the former 0.4–12.3 ns calculation for an
+explicit before/after comparison; downstream PSTH and GLM runs are not changed
+until you select the newly processed signals.
 
 ## Single-session preview
 

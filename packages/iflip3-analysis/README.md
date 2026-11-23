@@ -14,7 +14,9 @@ quality-control channel rather than treated as the primary readout.
 2. Select the background recorded at the matching laser power. Pool background
    files only when their acquisition conditions are identical.
 3. Correct detector dead time, measured background, and afterpulsing.
-4. Restrict lifetime calculations to the artifact-free 0.4–12.3 ns window.
+4. Estimate each recording's decay start (`t0`), then restrict both MPET and
+   fitting to the digiFLIM-compatible −0.3 to +8.0 ns window relative to that
+   fitted `t0`.
 5. Calculate MPET directly from each corrected photon-arrival histogram.
 6. Globally fit compatible high-count session aggregates to estimate shared
    lifetimes and IRF width, one `t0` per session, and one nonnegative flat
@@ -103,9 +105,11 @@ preserved analysis draft rather than a validated example.
 
 ## Example results
 
-The figures below were generated from local example recording 004 with an
-afterpulse ratio of 0.03, its matching high-power background file, one-second
-temporal bins, and the 0.4–12.3 ns lifetime window. No source data or
+The figures below are historical examples generated from local example
+recording 004 with an afterpulse ratio of 0.03, its matching high-power
+background file, one-second temporal bins, and the former 0.4–12.3 ns absolute
+window. New GUI analyses use the −0.3 to +8.0 ns fitted-`t0` window and retain
+the old MPET only as a labeled comparison signal. No source data or
 animal/session identifier is included in the repository.
 
 The aggregate decay is fit to establish the two-state lifetime basis and an

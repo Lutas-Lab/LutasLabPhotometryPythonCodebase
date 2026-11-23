@@ -90,8 +90,8 @@ def test_multi_session_iflip3_calibration_roundtrips_and_fits_flat_background(
     time = np.arange(0.4, 12.31, 0.1)
     tau = (0.7, 2.6)
 
-    def corrected(row, root, *, spc_range, afterpulse_ratio):
-        del root, spc_range, afterpulse_ratio
+    def corrected(row, root, *, spc_range, afterpulse_ratio, **kwargs):
+        del root, spc_range, afterpulse_ratio, kwargs
         scale = float(row["run"])
         session_t0 = {1: 1.0, 2: 1.05, 3: 3.0, 4: 1.4}[int(row["run"])]
         short = periodic_exgaussian_basis(time, tau[0], session_t0, 0.14, 12.5)
@@ -133,7 +133,9 @@ def test_multi_session_iflip3_calibration_roundtrips_and_fits_flat_background(
     np.testing.assert_allclose(loaded.lifetimes, tau, atol=0.25)
     assert loaded.t0 == pytest.approx(1.05, abs=0.2)
     assert loaded.irf_sigma == pytest.approx(0.14, abs=0.12)
-    assert loaded.schema_version == "2.1"
+    assert loaded.schema_version == "2.2"
+    assert loaded.window_mode == "digiflim"
+    assert loaded.spc_range == (-0.3, 8.0)
     assert loaded.to_dict()["model"]["known_fixed_background_counts_per_bin"] == 0.0
     assert loaded.to_dict()["model"]["fit_nonnegative_flat_background"] is True
     assert loaded.to_dict()["model"]["shared_parameters"] == [
@@ -182,6 +184,10 @@ def test_multi_session_iflip3_calibration_roundtrips_and_fits_flat_background(
         schema_2_payload["model"].pop("known_fixed_background_counts_per_bin")
     )
     schema_2_payload["model"].pop("fit_nonnegative_flat_background")
+    schema_2_payload["acquisition"].pop("window_mode")
+    schema_2_payload["acquisition"].pop("window_reference")
+    schema_2_payload["acquisition"]["spc_range_ns"] = [0.4, 12.3]
+    schema_2_payload["acquisition"]["lifetime_time_ns"] = time.tolist()
     schema_2_path = tmp_path / "schema-2.0.json"
     schema_2_path.write_text(json.dumps(schema_2_payload), encoding="utf-8")
     schema_2 = workflows.load_iflip3_calibration(schema_2_path)
@@ -217,6 +223,10 @@ def test_multi_session_iflip3_calibration_roundtrips_and_fits_flat_background(
         "t0",
         "irf_sigma",
     ]
+    legacy_payload["acquisition"].pop("window_mode")
+    legacy_payload["acquisition"].pop("window_reference")
+    legacy_payload["acquisition"]["spc_range_ns"] = [0.4, 12.3]
+    legacy_payload["acquisition"]["lifetime_time_ns"] = time.tolist()
     for item in legacy_payload["fit"]["session_qc"]:
         item.pop("t0_ns")
         item.pop("t0_offset_from_median_ns")
@@ -237,8 +247,8 @@ def test_iflip3_pulse_interval_comparison_accepts_small_sync_rate_variation():
 def test_iflip3_calibration_reports_material_pulse_rate_difference(monkeypatch):
     time = np.arange(0.4, 12.31, 0.1)
 
-    def corrected(row, root, *, spc_range, afterpulse_ratio):
-        del root, spc_range, afterpulse_ratio
+    def corrected(row, root, *, spc_range, afterpulse_ratio, **kwargs):
+        del root, spc_range, afterpulse_ratio, kwargs
         interval = 12.5 if int(row["run"]) == 1 else 25.0
         return (
             time,
@@ -342,7 +352,7 @@ def test_lifetime_plot_values_use_picoseconds_and_clear_labels():
 
 def test_iflip3_routine_signals_use_clear_user_facing_names():
     assert workflows.IFLIP3_ROUTINE_SIGNALS == (
-        "mpet",
+        "mpet_fitted_t0",
         "sensor_only_fitted_mpet",
         "long_lifetime_fraction",
         "long_preexponential_fraction",
@@ -868,6 +878,7 @@ def test_iflip3_preprocessing_applies_saved_calibration(monkeypatch, tmp_path):
         cost=0.0,
         nfev=1,
         created_utc="2026-10-27T12:00:00+00:00",
+        window_mode="legacy",
     )
     time = np.arange(0.0, 3.0, 0.1)
     fraction = np.linspace(0.2, 0.8, time.size)
@@ -889,6 +900,7 @@ def test_iflip3_preprocessing_applies_saved_calibration(monkeypatch, tmp_path):
         iflip3_fit_settings=None,
         iflip3_calibration=None,
         iflip3_temporal_bin_seconds=None,
+        iflip3_window_mode="digiflim",
     ):
         del manifest_row, data_root
         received.update(
@@ -896,6 +908,7 @@ def test_iflip3_preprocessing_applies_saved_calibration(monkeypatch, tmp_path):
             fit_settings=iflip3_fit_settings,
             calibration=iflip3_calibration,
             temporal_bin_seconds=iflip3_temporal_bin_seconds,
+            window_mode=iflip3_window_mode,
         )
         return session, {"source_path": str(raw)}
 
@@ -918,6 +931,7 @@ def test_iflip3_preprocessing_applies_saved_calibration(monkeypatch, tmp_path):
         "fit_settings": None,
         "calibration": calibration,
         "temporal_bin_seconds": 1.0,
+        "window_mode": "digiflim",
     }
     loaded, _ = load_processed_lifetime_session("iflip3", row, tmp_path)
     np.testing.assert_allclose(

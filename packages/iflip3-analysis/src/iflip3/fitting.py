@@ -263,6 +263,7 @@ def fit_global(
     weighting: str = "poisson",
     normalize: str | None = "area",
     max_nfev: int = 100,
+    recording_times: Sequence[np.ndarray] | None = None,
 ) -> GlobalFitResult:
     """Experimentally fit shared nonlinear parameters across decay matrices.
 
@@ -283,17 +284,27 @@ def fit_global(
     if n_components not in (1, 2):
         raise ValueError("n_components must be 1 or 2")
     time = np.asarray(time, dtype=float)
+    if time.ndim != 1:
+        raise ValueError("time must be one-dimensional")
     if isinstance(decays, np.ndarray):
         decay_list = [np.asarray(decays, dtype=float)]
     else:
         decay_list = [np.asarray(item, dtype=float) for item in decays]
     if not decay_list:
         raise ValueError("At least one decay matrix is required")
-    for item in decay_list:
+    if recording_times is None:
+        time_axes = [time] * len(decay_list)
+    else:
+        time_axes = [np.asarray(item, dtype=float) for item in recording_times]
+        if len(time_axes) != len(decay_list):
+            raise ValueError("recording_times must contain one axis per decay matrix")
+    for item, time_axis in zip(decay_list, time_axes, strict=True):
         if item.ndim == 1:
             item.shape = (item.size, 1)
-        if item.ndim != 2 or item.shape[0] != time.size:
+        if time_axis.ndim != 1 or item.ndim != 2 or item.shape[0] != time_axis.size:
             raise ValueError("Each decay matrix must have shape (bins, curves)")
+        if time_axis.size < 3 or np.any(~np.isfinite(time_axis)):
+            raise ValueError("Each recording time axis must be finite and contain 3+ bins")
         if not np.all(np.isfinite(item)):
             raise ValueError("Decay matrices must contain only finite values")
         if weighting == "poisson" and np.any(item < 0):
@@ -320,21 +331,34 @@ def fit_global(
             raise ValueError("Recording-level initial values have the wrong length")
         return values
 
-    aggregate = sum(item.sum(axis=1) for item in decay_list)
-    estimated_t0 = float(time[int(np.argmax(aggregate))] - 0.5)
+    peak_estimates = [
+        float(axis[int(np.argmax(curves.sum(axis=1)))] - 0.5)
+        for axis, curves in zip(time_axes, decay_list, strict=True)
+    ]
+    estimated_t0 = float(np.median(peak_estimates))
     t0_values = expand(initial_t0, estimated_t0)
     sigma_values = expand(initial_sigma, 0.15)
     t0_params = t0_values[:1] if shared_t0 else t0_values
     sigma_params = sigma_values[:1] if shared_sigma else sigma_values
     x0 = np.r_[lifetime_params, t0_params, sigma_params]
+    t0_lower = (
+        np.asarray([min(axis.min() for axis in time_axes) - 1.0])
+        if shared_t0
+        else np.asarray([axis.min() - 1.0 for axis in time_axes])
+    )
+    t0_upper = (
+        np.asarray([max(axis.max() for axis in time_axes)])
+        if shared_t0
+        else np.asarray([axis.max() for axis in time_axes])
+    )
     lower = np.r_[
         np.full(n_components, 0.03),
-        np.full(t0_params.size, time.min() - 1.0),
+        t0_lower,
         np.full(sigma_params.size, 0.01),
     ]
     upper = np.r_[
         np.full(n_components, pulse_interval * 4.0),
-        np.full(t0_params.size, time.max()),
+        t0_upper,
         np.full(sigma_params.size, 2.0),
     ]
 
@@ -355,7 +379,7 @@ def fit_global(
         results: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
         for index, curves in enumerate(decay_list):
             basis = design_matrix(
-                time,
+                time_axes[index],
                 lifetimes,
                 t0s[index],
                 sigmas[index],

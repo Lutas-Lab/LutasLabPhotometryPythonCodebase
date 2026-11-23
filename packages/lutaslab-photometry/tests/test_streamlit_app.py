@@ -83,7 +83,7 @@ def test_gui_source_renders_persistent_glm_results_and_timestamped_runs():
 
 @pytest.mark.parametrize(
     ("workflow", "expected_signal"),
-    [("fluopulse", "tau"), ("iflip3", "mpet")],
+    [("fluopulse", "tau"), ("iflip3", "mpet_fitted_t0")],
 )
 def test_streamlit_lifetime_modes_load(workflow, expected_signal):
     project_root = Path(__file__).resolve().parents[3]
@@ -129,7 +129,7 @@ def test_streamlit_lifetime_modes_load(workflow, expected_signal):
             "60 seconds",
         ]
         routine_labels = [
-            "Direct MPET (corrected photons)",
+                "Direct MPET (analysis window; fitted t0)",
             "Fitted sensor MPET (flat background excluded)",
             "Long-state fitted photon fraction",
             "Long-state fitted amplitude fraction",

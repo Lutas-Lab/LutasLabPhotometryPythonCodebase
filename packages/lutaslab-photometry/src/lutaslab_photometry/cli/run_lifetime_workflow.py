@@ -39,6 +39,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         help="Pool corrected iFLIP3 photon histograms to this duration before analysis.",
     )
+    parser.add_argument(
+        "--iflip3-window-mode",
+        choices=("digiflim", "legacy"),
+        default="digiflim",
+        help=(
+            "Use the digiFLIM -0.3 to +8.0 ns window relative to t0, or the "
+            "legacy 0.4 to 12.3 ns acquisition-time window."
+        ),
+    )
     parser.add_argument("--signal")
     parser.add_argument(
         "--event",
@@ -110,6 +119,7 @@ def main(argv=None) -> int:
                 ),
                 iflip3_calibration=args.iflip3_calibration,
                 iflip3_temporal_bin_seconds=args.iflip3_temporal_bin_seconds,
+                iflip3_window_mode=args.iflip3_window_mode,
                 progress_callback=lambda current, total, label: print(
                     f"PROGRESS\t{current}\t{total}\t{label}",
                     flush=True,

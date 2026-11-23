@@ -80,3 +80,44 @@ def test_global_fit_recovers_shared_lifetimes():
     assert result.success
     np.testing.assert_allclose(result.lifetimes, lifetimes, atol=0.35)
     assert result.recordings[0].component_fractions.shape == (18, 2)
+
+
+def test_global_fit_supports_session_specific_fitted_t0_windows():
+    lifetimes = np.array([0.7, 2.6])
+    t0s = (1.0, 1.45)
+    time_axes = [
+        np.arange(t0 - 0.3, t0 + 8.01, 0.1)
+        for t0 in t0s
+    ]
+    decays = []
+    for index, (time, t0) in enumerate(zip(time_axes, t0s, strict=True)):
+        basis = design_matrix(
+            time,
+            lifetimes,
+            t0,
+            0.14,
+            12.5,
+            normalize="area",
+            include_background=True,
+        )
+        decays.append((basis @ np.array([1200.0 + 200 * index, 2600.0, 100.0]))[:, None])
+
+    result = fit_global(
+        time_axes[0],
+        decays,
+        recording_times=time_axes,
+        initial_lifetimes=[0.6, 2.4],
+        initial_t0=[0.95, 1.4],
+        initial_sigma=0.13,
+        shared_t0=False,
+        shared_sigma=True,
+        include_background=True,
+        weighting="none",
+        max_nfev=100,
+    )
+
+    assert result.success
+    np.testing.assert_allclose(result.lifetimes, lifetimes, atol=0.03)
+    np.testing.assert_allclose(
+        [recording.t0 for recording in result.recordings], t0s, atol=0.03
+    )

@@ -152,21 +152,24 @@ $$
 
 Here:
 
-- $W$ is the artifact-free lifetime window, normally 0.4–12.3 ns;
+- $W$ is the artifact-limited lifetime window, normally −0.3 to +8.0 ns
+  relative to fitted $t_0$;
 - $t_k$ is the photon microtime represented by lifetime bin $k$;
 - $C_{k,j}$ is the corrected photon count;
 - $t_0$ is the instrument timing offset.
 
-The window limits use the acquisition's absolute microtime coordinates; they
-are not expressed relative to $t_0$. MPET subtracts $t_0$ only after calculating
-the centroid. Consequently, the usual 0.4 ns start can precede the nominal
-laser timing near 1 ns and retain the IRF-broadened leading edge.
+Current processing first estimates the session-specific $t_0$, converts the
+relative digiFLIM limits to absolute microtime coordinates, and uses that same
+slice for MPET and biexponential fitting. MPET subtracts the fitted $t_0$ after
+calculating the centroid. Because changing $t_0$ now moves both the window and
+the final subtraction, header- and fitted-$t_0$ results need not differ by only
+a constant when photons enter or leave an endpoint.
 
-The standard MPET channel uses `state.t0.Value` from the acquisition header. A
-second `mpet_fitted_t0` channel uses the session-specific $t_0$ obtained from
-the calibrated decay fit. These traces differ only by the constant
-$t_{0,header}-t_{0,fitted}$, so they have identical within-session response
-shape but can differ in absolute baseline between animals or acquisition days.
+`mpet_fitted_t0` is the recommended direct-MPET output. The `mpet` channel
+retains the header-$t_0$ calculation for timing QC. `mpet_legacy` and
+`mpet_legacy_fitted_t0` retain the former absolute 0.4–12.3 ns calculation so
+previously analyzed datasets can be compared during migration. These channels
+must be named explicitly in figures; they are not interchangeable methods.
 
 MPET is therefore **photon-count weighted**, which is also reasonably called
 intensity weighted. A bin containing twice as many corrected photons contributes
@@ -445,6 +448,8 @@ The Streamlit GUI supports this workflow under the iFLIP3 lifetime analysis:
   amplitude- or photon-weighted fitted lifetime traces;
 - inspect the fitted flat-background fraction and compare direct MPET with
   fitted sensor MPET;
+- select the recommended digiFLIM-compatible −0.3 to +8.0 ns fitted-$t_0$
+  window or reproduce the legacy 0.4–12.3 ns absolute window;
 - interactively move the MPET microtime-window endpoints, view their positions
   relative to the corrected decay and header $t_0$, and compare the resulting
   standardized MPET response with the fitted fraction and lifetime summaries;

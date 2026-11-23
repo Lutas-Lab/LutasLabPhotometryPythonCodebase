@@ -64,6 +64,8 @@ LIFETIME_SIGNALS = {
         "mpet_fitted_t0",
         "mpet_afterpulse_only",
         "mpet_uncorrected",
+        "mpet_legacy",
+        "mpet_legacy_fitted_t0",
         "long_lifetime_fraction",
         "long_preexponential_fraction",
         "amplitude_weighted_fitted_lifetime",
@@ -86,7 +88,7 @@ LIFETIME_SIGNALS = {
     ),
 }
 IFLIP3_ROUTINE_SIGNALS = (
-    "mpet",
+    "mpet_fitted_t0",
     "sensor_only_fitted_mpet",
     "long_lifetime_fraction",
     "long_preexponential_fraction",
@@ -97,10 +99,12 @@ LIFETIME_SIGNAL_DISPLAY_NAMES = {
     "tau": "Fluorescence lifetime",
     "amplitude": "Fitted fluorescence amplitude",
     "fit_r_square": "Fit quality (R²; QC)",
-    "mpet": "Direct MPET (corrected photons)",
-    "mpet_fitted_t0": "Direct MPET (corrected photons; fitted t0)",
+    "mpet": "Direct MPET (analysis window; header t0)",
+    "mpet_fitted_t0": "Direct MPET (analysis window; fitted t0)",
     "mpet_afterpulse_only": "Direct MPET (afterpulse correction only)",
     "mpet_uncorrected": "Direct MPET (uncorrected)",
+    "mpet_legacy": "Legacy MPET (0.4–12.3 ns; header t0)",
+    "mpet_legacy_fitted_t0": "Legacy MPET (0.4–12.3 ns; fitted t0)",
     "sensor_only_fitted_mpet": "Fitted sensor MPET (flat background excluded)",
     "long_lifetime_fraction": "Long-state fitted photon fraction",
     "long_preexponential_fraction": "Long-state fitted amplitude fraction",
@@ -146,6 +150,8 @@ LIFETIME_TIME_SIGNALS = (
     "mpet_fitted_t0",
     "mpet_afterpulse_only",
     "mpet_uncorrected",
+    "mpet_legacy",
+    "mpet_legacy_fitted_t0",
     "amplitude_weighted_fitted_lifetime",
     "intensity_weighted_fitted_lifetime",
     "sensor_only_fitted_mpet",
@@ -161,8 +167,11 @@ LIFETIME_EVENTS = (
     "lick_bout_offset",
     *DERIVED_ALIGNMENT_EVENTS,
 )
-LIFETIME_PROCESSED_SCHEMA_VERSION = "1.3"
-IFLIP3_CALIBRATION_SCHEMA_VERSION = "2.1"
+LIFETIME_PROCESSED_SCHEMA_VERSION = "1.4"
+IFLIP3_CALIBRATION_SCHEMA_VERSION = "2.2"
+IFLIP3_DIGIFLIM_WINDOW = (-0.3, 8.0)
+IFLIP3_LEGACY_WINDOW = (0.4, 12.3)
+IFLIP3_WINDOW_MODES = ("digiflim", "legacy")
 # The header sync rate may be a measured rather than nominal value. Differences
 # below 0.1% are small relative to the 0.1 ns lifetime-bin grid used by current
 # recordings, while material changes such as 80 MHz versus 40 MHz remain clear.
@@ -210,6 +219,8 @@ class IFLIP3FitPreview:
     mpet_corrected_curves: np.ndarray | None = None
     mpet_t0: float | None = None
     mpet_default_range: tuple[float, float] = (0.4, 12.3)
+    mpet_window_mode: str = "legacy"
+    mpet_window_range: tuple[float, float] = (0.4, 12.3)
 
 
 @dataclass(frozen=True)
@@ -418,6 +429,7 @@ class IFLIP3Calibration:
     created_utc: str
     code_commit: str | None = None
     schema_version: str = IFLIP3_CALIBRATION_SCHEMA_VERSION
+    window_mode: str = "digiflim"
 
     def to_dict(self) -> dict[str, Any]:
         model = {
@@ -425,7 +437,7 @@ class IFLIP3Calibration:
             "lifetimes_ns": self.lifetimes.tolist(),
             "irf_sigma_ns": self.irf_sigma,
         }
-        if self.schema_version == IFLIP3_CALIBRATION_SCHEMA_VERSION:
+        if self.schema_version in {"2.1", IFLIP3_CALIBRATION_SCHEMA_VERSION}:
             model.update(
                 {
                     "known_fixed_background_counts_per_bin": 0.0,
@@ -472,6 +484,12 @@ class IFLIP3Calibration:
                 "lifetime_time_ns": self.lifetime_time.tolist(),
                 "pulse_interval_ns": self.pulse_interval,
                 "spc_range_ns": list(self.spc_range),
+                "window_mode": self.window_mode,
+                "window_reference": (
+                    "session_fitted_t0"
+                    if self.window_mode == "digiflim"
+                    else "acquisition_microtime"
+                ),
                 "afterpulse_ratio": self.afterpulse_ratio,
             },
             "fit": {
@@ -523,10 +541,10 @@ def _calibration_from_dict(payload: dict[str, Any]) -> IFLIP3Calibration:
     """Validate and reconstruct a saved iFLIP3 calibration."""
 
     schema = str(payload.get("calibration_schema_version", ""))
-    if schema not in {"1.0", "2.0", IFLIP3_CALIBRATION_SCHEMA_VERSION}:
+    if schema not in {"1.0", "2.0", "2.1", IFLIP3_CALIBRATION_SCHEMA_VERSION}:
         raise ValueError(
             f"Unsupported iFLIP3 calibration schema {schema!r}; "
-            "expected '1.0', '2.0', or "
+            "expected '1.0', '2.0', '2.1', or "
             f"{IFLIP3_CALIBRATION_SCHEMA_VERSION!r}"
         )
     model = payload.get("model") or {}
@@ -565,6 +583,11 @@ def _calibration_from_dict(payload: dict[str, Any]) -> IFLIP3Calibration:
     spc_range = tuple(map(float, acquisition.get("spc_range_ns", ())))
     if len(spc_range) != 2 or spc_range[0] >= spc_range[1]:
         raise ValueError("Calibration SPC range is invalid")
+    window_mode = str(acquisition.get("window_mode", "legacy"))
+    if window_mode not in IFLIP3_WINDOW_MODES:
+        raise ValueError("Calibration window mode is invalid")
+    if schema != IFLIP3_CALIBRATION_SCHEMA_VERSION and window_mode != "legacy":
+        raise ValueError("Older calibrations must use the legacy acquisition-time window")
     calibration = IFLIP3Calibration(
         lifetimes=np.sort(lifetimes),
         t0=float(model.get("reference_t0_ns", model.get("t0_ns"))),
@@ -585,6 +608,7 @@ def _calibration_from_dict(payload: dict[str, Any]) -> IFLIP3Calibration:
             else str(payload["code_commit"])
         ),
         schema_version=schema,
+        window_mode=window_mode,
     )
     scalar_values = (
         calibration.t0,
@@ -598,7 +622,7 @@ def _calibration_from_dict(payload: dict[str, Any]) -> IFLIP3Calibration:
         raise ValueError("Calibration IRF width and pulse interval must be positive")
     if not calibration.success:
         raise ValueError("Calibration does not record a successful global fit")
-    if schema == IFLIP3_CALIBRATION_SCHEMA_VERSION:
+    if schema in {"2.1", IFLIP3_CALIBRATION_SCHEMA_VERSION}:
         session_t0s = np.asarray(
             [item.get("t0_ns", np.nan) for item in calibration.session_qc],
             dtype=float,
@@ -682,6 +706,7 @@ def lifetime_preprocessing_parameters(
     iflip3_fit_settings: dict | None = None,
     iflip3_calibration: IFLIP3Calibration | None = None,
     iflip3_temporal_bin_seconds: float | None = None,
+    iflip3_window_mode: str = "digiflim",
 ) -> dict[str, Any]:
     """Return the effective defaults recorded with a lifetime processed file."""
 
@@ -692,8 +717,31 @@ def lifetime_preprocessing_parameters(
             "nidaq_sync_start_index": 0,
         }
     if workflow == "iflip3":
+        window_mode = (
+            iflip3_calibration.window_mode
+            if iflip3_calibration is not None
+            else iflip3_window_mode
+        )
+        if window_mode not in IFLIP3_WINDOW_MODES:
+            raise ValueError(f"iflip3_window_mode must be one of {IFLIP3_WINDOW_MODES}")
+        fit_window = (
+            iflip3_calibration.spc_range
+            if iflip3_calibration is not None
+            else (
+                IFLIP3_DIGIFLIM_WINDOW
+                if window_mode == "digiflim"
+                else IFLIP3_LEGACY_WINDOW
+            )
+        )
         return {
-            "spc_range_ns": [0.4, 12.3],
+            "spc_range_ns": list(fit_window),
+            "window_mode": window_mode,
+            "window_reference": (
+                "session_fitted_t0"
+                if window_mode == "digiflim"
+                else "acquisition_microtime"
+            ),
+            "legacy_mpet_retained": True,
             "afterpulse_ratio": 0.03,
             "temporal_bin_seconds": iflip3_temporal_bin_seconds,
             "sync_threshold": 1.5,
@@ -715,7 +763,7 @@ def lifetime_preprocessing_parameters(
                     "fit_nonnegative_flat_background_per_temporal_bin": True,
                     "calibration_fit_nonnegative_flat_background": (
                         iflip3_calibration.schema_version
-                        == IFLIP3_CALIBRATION_SCHEMA_VERSION
+                        in {"2.1", IFLIP3_CALIBRATION_SCHEMA_VERSION}
                     ),
                     "calibration_created_utc": iflip3_calibration.created_utc,
                     "calibration_code_commit": iflip3_calibration.code_commit,
@@ -1053,6 +1101,8 @@ def _load_corrected_iflip3_curves(
     spc_range: tuple[float, float],
     afterpulse_ratio: float,
     apply_measured_background: bool = True,
+    window_mode: str = "legacy",
+    window_t0: float | None = None,
 ) -> tuple[
     np.ndarray,
     np.ndarray,
@@ -1066,7 +1116,10 @@ def _load_corrected_iflip3_curves(
 ]:
     """Load one recording and return its corrected curves inside the fit window."""
 
-    from iflip3 import average_background, calculate_mpet, lifetime_window, read_iflip3
+    from iflip3 import average_background, calculate_mpet, read_iflip3
+
+    if window_mode not in IFLIP3_WINDOW_MODES:
+        raise ValueError(f"window_mode must be one of {IFLIP3_WINDOW_MODES}")
 
     resolved = _iflip3_paths(row, data_root)
     recording = read_iflip3(resolved["source_path"])
@@ -1075,19 +1128,31 @@ def _load_corrected_iflip3_curves(
         measured_background = average_background(
             [read_iflip3(resolved["background_path"])]
         )
+    header_t0 = float(recording.header.get_path("state.t0.Value"))
+    if window_mode == "digiflim":
+        reference_t0 = header_t0 if window_t0 is None else float(window_t0)
+        absolute_range = (
+            reference_t0 + float(spc_range[0]),
+            reference_t0 + float(spc_range[1]),
+        )
+    else:
+        absolute_range = tuple(map(float, spc_range))
     _, correction = calculate_mpet(
         recording,
-        spc_range,
-        t0=float(recording.header.get_path("state.t0.Value")),
+        absolute_range,
+        t0=header_t0,
         measured_background=measured_background,
         afterpulse_ratio=afterpulse_ratio,
     )
     corrected = np.asarray(correction.corrected, dtype=float)
     if corrected.ndim == 3:
         corrected = corrected[:, :, 0]
-    use = lifetime_window(recording.lifetime_time, spc_range)
     full_time = np.asarray(recording.lifetime_time, dtype=float)
-    mpet_t0 = float(recording.header.get_path("state.t0.Value"))
+    use = (full_time >= absolute_range[0]) & (full_time <= absolute_range[1])
+    if np.count_nonzero(use) < 3:
+        raise ValueError(
+            f"iFLIP3 fit window {absolute_range} ns contains fewer than three bins"
+        )
     return (
         full_time[use],
         corrected[use],
@@ -1097,7 +1162,7 @@ def _load_corrected_iflip3_curves(
         resolved,
         full_time,
         corrected,
-        mpet_t0,
+        header_t0,
     )
 
 
@@ -1210,7 +1275,7 @@ def iflip3_mpet_for_window(
     preview: IFLIP3FitPreview,
     limits: tuple[float, float],
     *,
-    t0_source: str = "header",
+    t0_source: str = "fitted",
 ) -> np.ndarray:
     """Recalculate MPET for an inspected session using selected microtime bounds."""
 
@@ -1354,7 +1419,8 @@ def calibrate_iflip3_sessions(
     rows: list[dict] | tuple[dict, ...],
     data_root: str | Path,
     *,
-    spc_range: tuple[float, float] = (0.4, 12.3),
+    spc_range: tuple[float, float] | None = None,
+    window_mode: str = "digiflim",
     afterpulse_ratio: float = 0.03,
     initial_lifetimes: tuple[float, float] = (0.6, 2.5),
     initial_t0: float | tuple[float, ...] | None = None,
@@ -1373,31 +1439,60 @@ def calibrate_iflip3_sessions(
 
     if len(rows) < 2:
         raise ValueError("Multi-session calibration requires at least two sessions")
+    if window_mode not in IFLIP3_WINDOW_MODES:
+        raise ValueError(f"window_mode must be one of {IFLIP3_WINDOW_MODES}")
+    effective_range = tuple(
+        map(
+            float,
+            spc_range
+            if spc_range is not None
+            else (
+                IFLIP3_DIGIFLIM_WINDOW
+                if window_mode == "digiflim"
+                else IFLIP3_LEGACY_WINDOW
+            ),
+        )
+    )
     root = Path(data_root).expanduser()
     normalized_decays: list[np.ndarray] = []
+    time_axes: list[np.ndarray] = []
     estimated_t0s: list[float] = []
     loaded: list[dict[str, Any]] = []
     reference_time = None
     reference_pulse_interval = None
     reference_session_id = None
     for row in rows:
-        time_axis, curves, pulse_interval, _, has_background, resolved, _, _, _ = (
+        (
+            time_axis,
+            curves,
+            pulse_interval,
+            _,
+            has_background,
+            resolved,
+            full_time,
+            full_curves,
+            header_t0,
+        ) = (
             _load_corrected_iflip3_curves(
                 row,
                 root,
-                spc_range=spc_range,
+                spc_range=effective_range,
                 afterpulse_ratio=afterpulse_ratio,
+                window_mode=window_mode,
             )
         )
         if reference_time is None:
             reference_time = time_axis
             reference_pulse_interval = pulse_interval
             reference_session_id = _session_id(row)
-        elif time_axis.shape != reference_time.shape or not np.allclose(
-            time_axis, reference_time, rtol=0.0, atol=1e-9
+        elif not np.isclose(
+            np.median(np.diff(time_axis)),
+            np.median(np.diff(reference_time)),
+            rtol=0.0,
+            atol=1e-9,
         ):
             raise ValueError(
-                f"Session {_session_id(row)} has a different lifetime-bin axis; "
+                f"Session {_session_id(row)} has a different lifetime-bin width; "
                 "create a separate calibration for that acquisition configuration"
             )
         elif not _pulse_intervals_compatible(pulse_interval, reference_pulse_interval):
@@ -1416,6 +1511,7 @@ def calibrate_iflip3_sessions(
             )
         normalized = aggregate / positive_area
         normalized_decays.append(normalized[:, None])
+        time_axes.append(time_axis)
         estimated_t0s.append(float(time_axis[int(np.argmax(normalized))] - 0.5))
         loaded.append(
             {
@@ -1431,6 +1527,9 @@ def calibrate_iflip3_sessions(
                 ),
                 "measured_background_applied": has_background,
                 "positive_aggregate_area": positive_area,
+                "full_time": full_time,
+                "full_curves": full_curves,
+                "header_t0_ns": header_t0,
             }
         )
     assert reference_time is not None and reference_pulse_interval is not None
@@ -1449,14 +1548,66 @@ def calibrate_iflip3_sessions(
         weighting="none",
         normalize="area",
         max_nfev=250,
+        recording_times=time_axes,
     )
     if not result.success:
         raise RuntimeError(
             f"Multi-session calibration did not converge: {result.message}"
         )
+    if window_mode == "digiflim":
+        time_axes = []
+        normalized_decays = []
+        for info, recording in zip(loaded, result.recordings, strict=True):
+            full_time = np.asarray(info.pop("full_time"), dtype=float)
+            full_curves = np.asarray(info.pop("full_curves"), dtype=float)
+            absolute_range = (
+                recording.t0 + effective_range[0],
+                recording.t0 + effective_range[1],
+            )
+            use = (full_time >= absolute_range[0]) & (full_time <= absolute_range[1])
+            time_axis = full_time[use]
+            curves = full_curves[use]
+            aggregate = np.sum(curves, axis=1)
+            positive_area = float(np.sum(np.clip(aggregate, 0.0, None)))
+            if time_axis.size < 3 or not np.isfinite(positive_area) or positive_area <= 0:
+                raise ValueError(
+                    f"Session {info['session_id']} has no usable fitted-t0 window"
+                )
+            info["positive_aggregate_area"] = positive_area
+            info["fit_window_absolute_ns"] = list(map(float, absolute_range))
+            info["fit_window_relative_ns"] = list(effective_range)
+            time_axes.append(time_axis)
+            normalized_decays.append((aggregate / positive_area)[:, None])
+        result = fit_global(
+            time_axes[0],
+            normalized_decays,
+            n_components=2,
+            pulse_interval=reference_pulse_interval,
+            initial_lifetimes=result.lifetimes,
+            initial_t0=[recording.t0 for recording in result.recordings],
+            initial_sigma=result.recordings[0].irf_sigma,
+            shared_t0=False,
+            shared_sigma=True,
+            include_background=True,
+            nonnegative=True,
+            weighting="none",
+            normalize="area",
+            max_nfev=250,
+            recording_times=time_axes,
+        )
+        if not result.success:
+            raise RuntimeError(
+                f"Fitted-t0 window calibration did not converge: {result.message}"
+            )
+    else:
+        for info in loaded:
+            info.pop("full_time", None)
+            info.pop("full_curves", None)
+            info["fit_window_absolute_ns"] = list(effective_range)
+
     session_qc = []
-    for info, recording, normalized in zip(
-        loaded, result.recordings, normalized_decays, strict=True
+    for info, recording, normalized, time_axis in zip(
+        loaded, result.recordings, normalized_decays, time_axes, strict=True
     ):
         observed = normalized[:, 0]
         fitted = recording.fitted[:, 0]
@@ -1469,7 +1620,7 @@ def calibrate_iflip3_sessions(
                 **info,
                 "rmse_normalized": float(np.sqrt(np.mean(residuals**2))),
                 **residual_summary,
-                "peak_time_ns": float(reference_time[int(np.argmax(observed))]),
+                "peak_time_ns": float(time_axis[int(np.argmax(observed))]),
                 "t0_ns": recording.t0,
                 "r_squared": (
                     1.0 - residual_sum_squares / total_sum_squares
@@ -1491,7 +1642,7 @@ def calibrate_iflip3_sessions(
             }
         )
     reference_t0 = float(np.median([item["t0_ns"] for item in session_qc]))
-    bin_width = float(np.median(np.diff(reference_time)))
+    bin_width = float(np.median(np.diff(time_axes[0])))
     offset_warning_threshold = max(2.0 * abs(bin_width), 0.25)
     for item in session_qc:
         item["t0_offset_from_median_ns"] = float(item["t0_ns"] - reference_t0)
@@ -1505,9 +1656,13 @@ def calibrate_iflip3_sessions(
         lifetimes=np.asarray(result.lifetimes, dtype=float),
         t0=reference_t0,
         irf_sigma=result.recordings[0].irf_sigma,
-        lifetime_time=reference_time,
+        lifetime_time=(
+            time_axes[0] - result.recordings[0].t0
+            if window_mode == "digiflim"
+            else time_axes[0]
+        ),
         pulse_interval=reference_pulse_interval,
-        spc_range=tuple(map(float, spc_range)),
+        spc_range=effective_range,
         afterpulse_ratio=float(afterpulse_ratio),
         session_qc=tuple(session_qc),
         success=result.success,
@@ -1516,6 +1671,7 @@ def calibrate_iflip3_sessions(
         nfev=result.nfev,
         created_utc=datetime.now(UTC).isoformat(),
         code_commit=local_git_commit(project_root),
+        window_mode=window_mode,
     )
 
 
@@ -1524,7 +1680,8 @@ def preview_iflip3_fit(
     data_root: str | Path,
     settings: dict | None = None,
     *,
-    spc_range: tuple[float, float] = (0.4, 12.3),
+    spc_range: tuple[float, float] | None = None,
+    window_mode: str = "digiflim",
     afterpulse_ratio: float = 0.03,
     temporal_bin_seconds: float | None = None,
 ) -> IFLIP3FitPreview:
@@ -1532,6 +1689,20 @@ def preview_iflip3_fit(
 
     from iflip3 import fit_decay, fit_target, periodic_exgaussian_basis
 
+    if window_mode not in IFLIP3_WINDOW_MODES:
+        raise ValueError(f"window_mode must be one of {IFLIP3_WINDOW_MODES}")
+    effective_range = tuple(
+        map(
+            float,
+            spc_range
+            if spc_range is not None
+            else (
+                IFLIP3_DIGIFLIM_WINDOW
+                if window_mode == "digiflim"
+                else IFLIP3_LEGACY_WINDOW
+            ),
+        )
+    )
     root = Path(data_root).expanduser()
     (
         time,
@@ -1547,10 +1718,12 @@ def preview_iflip3_fit(
         _load_corrected_iflip3_curves(
             row,
             root,
-            spc_range=spc_range,
+            spc_range=effective_range,
             afterpulse_ratio=afterpulse_ratio,
+            window_mode=window_mode,
         )
     )
+    full_corrected_curves = mpet_corrected_curves
     curves = _temporally_bin_iflip3_curves(
         curves, sampling_frequency, temporal_bin_seconds
     )
@@ -1581,6 +1754,39 @@ def preview_iflip3_fit(
         bounds=bounds,
         weighting=weighting,
     )
+    if window_mode == "digiflim":
+        absolute_range = (
+            fit.t0 + effective_range[0],
+            fit.t0 + effective_range[1],
+        )
+        use = (mpet_lifetime_time >= absolute_range[0]) & (
+            mpet_lifetime_time <= absolute_range[1]
+        )
+        time = mpet_lifetime_time[use]
+        curves = _temporally_bin_iflip3_curves(
+            full_corrected_curves[use], sampling_frequency, temporal_bin_seconds
+        )
+        aggregate = curves.sum(axis=1)
+        weighting = "none" if np.any(aggregate < 0) else "poisson"
+        refined_initial = dict(initial)
+        refined_initial.update(
+            {
+                "tau1": float(fit.lifetimes[0]),
+                "tau2": float(fit.lifetimes[1]),
+                "t0": float(fit.t0),
+                "irf_sigma": float(fit.irf_sigma),
+            }
+        )
+        fit = fit_decay(
+            time,
+            aggregate,
+            n_components=2,
+            pulse_interval=pulse_interval,
+            initial=refined_initial,
+            fixed=fixed,
+            bounds=bounds,
+            weighting=weighting,
+        )
     target = fit_target(
         time,
         curves,
@@ -1664,6 +1870,13 @@ def preview_iflip3_fit(
         mpet_lifetime_time=mpet_lifetime_time,
         mpet_corrected_curves=mpet_corrected_curves,
         mpet_t0=mpet_t0,
+        mpet_default_range=(
+            (fit.t0 + effective_range[0], fit.t0 + effective_range[1])
+            if window_mode == "digiflim"
+            else effective_range
+        ),
+        mpet_window_mode=window_mode,
+        mpet_window_range=effective_range,
     )
 
 
@@ -1750,16 +1963,49 @@ def apply_iflip3_calibration(
             root,
             spc_range=calibration.spc_range,
             afterpulse_ratio=calibration.afterpulse_ratio,
+            window_mode=calibration.window_mode,
         )
     )
+    session_t0, t0_source = _session_t0_from_calibration(
+        row, time, curves, calibration
+    )
+    if calibration.window_mode == "digiflim":
+        absolute_range = (
+            session_t0 + calibration.spc_range[0],
+            session_t0 + calibration.spc_range[1],
+        )
+        use = (mpet_lifetime_time >= absolute_range[0]) & (
+            mpet_lifetime_time <= absolute_range[1]
+        )
+        time = mpet_lifetime_time[use]
+        curves = mpet_corrected_curves[use]
+        if t0_source.startswith("estimated"):
+            session_t0, t0_source = _session_t0_from_calibration(
+                row, time, curves, calibration
+            )
+            absolute_range = (
+                session_t0 + calibration.spc_range[0],
+                session_t0 + calibration.spc_range[1],
+            )
+            use = (mpet_lifetime_time >= absolute_range[0]) & (
+                mpet_lifetime_time <= absolute_range[1]
+            )
+            time = mpet_lifetime_time[use]
+            curves = mpet_corrected_curves[use]
     curves = _temporally_bin_iflip3_curves(
         curves, sampling_frequency, temporal_bin_seconds
     )
     mpet_corrected_curves = _temporally_bin_iflip3_curves(
         mpet_corrected_curves, sampling_frequency, temporal_bin_seconds
     )
-    if time.shape != calibration.lifetime_time.shape or not np.allclose(
-        time, calibration.lifetime_time, rtol=0.0, atol=1e-9
+    comparison_time = (
+        time - session_t0 if calibration.window_mode == "digiflim" else time
+    )
+    if comparison_time.shape != calibration.lifetime_time.shape or not np.allclose(
+        np.diff(comparison_time),
+        np.diff(calibration.lifetime_time),
+        rtol=0.0,
+        atol=1e-9,
     ):
         raise ValueError(
             f"Session {_session_id(row)} does not match the calibration lifetime-bin axis"
@@ -1770,7 +2016,6 @@ def apply_iflip3_calibration(
             f"{_pulse_interval_description(pulse_interval)}, but the calibration uses "
             f"{_pulse_interval_description(calibration.pulse_interval)}"
         )
-    session_t0, t0_source = _session_t0_from_calibration(row, time, curves, calibration)
     weighting = "none" if np.any(curves < 0) else "poisson"
     target = fit_target(
         time,
@@ -1854,6 +2099,16 @@ def apply_iflip3_calibration(
         mpet_lifetime_time=mpet_lifetime_time,
         mpet_corrected_curves=mpet_corrected_curves,
         mpet_t0=mpet_t0,
+        mpet_default_range=(
+            (
+                session_t0 + calibration.spc_range[0],
+                session_t0 + calibration.spc_range[1],
+            )
+            if calibration.window_mode == "digiflim"
+            else calibration.spc_range
+        ),
+        mpet_window_mode=calibration.window_mode,
+        mpet_window_range=calibration.spc_range,
     )
 
 
@@ -1863,8 +2118,9 @@ def _load_iflip3(
     fit_settings: dict | None = None,
     calibration: IFLIP3Calibration | None = None,
     temporal_bin_seconds: float | None = None,
+    window_mode: str = "digiflim",
 ):
-    from iflip3 import process_aligned_session
+    from iflip3 import mpet_from_corrected, process_aligned_session
 
     resolved = _iflip3_paths(row, data_root)
     iflip = resolved["source_path"]
@@ -1872,6 +2128,9 @@ def _load_iflip3(
     running = resolved["running_path"]
     background = resolved["background_path"]
     afterpulse_ratio = 0.03 if calibration is None else calibration.afterpulse_ratio
+    effective_window_mode = (
+        calibration.window_mode if calibration is not None else window_mode
+    )
     session = process_aligned_session(
         iflip,
         nidaq,
@@ -1879,6 +2138,8 @@ def _load_iflip3(
         running_path=running,
         afterpulse_ratio=afterpulse_ratio,
         temporal_bin_seconds=temporal_bin_seconds,
+        mpet_window_mode=effective_window_mode,
+        mpet_relative_range=IFLIP3_DIGIFLIM_WINDOW,
     )
     core = session.to_core_session(_session_id(row))
     if fit_settings is not None or calibration is not None:
@@ -1892,6 +2153,7 @@ def _load_iflip3(
                 data_root,
                 fit_settings,
                 temporal_bin_seconds=temporal_bin_seconds,
+                window_mode=effective_window_mode,
             )
         )
         (
@@ -1909,10 +2171,18 @@ def _load_iflip3(
                 row,
                 data_root,
                 spc_range=(
-                    (0.4, 12.3) if calibration is None else calibration.spc_range
+                    (
+                        IFLIP3_DIGIFLIM_WINDOW
+                        if effective_window_mode == "digiflim"
+                        else IFLIP3_LEGACY_WINDOW
+                    )
+                    if calibration is None
+                    else calibration.spc_range
                 ),
                 afterpulse_ratio=afterpulse_ratio,
                 apply_measured_background=False,
+                window_mode=effective_window_mode,
+                window_t0=preview.t0,
             )
         )
         alternate_preview = _iflip3_preview_with_fixed_shape(
@@ -1926,16 +2196,36 @@ def _load_iflip3(
             alternate_pulse_interval,
         )
         timestamps = core.continuous["mpet"].timestamps
-        mpet_fitted_t0 = (
-            np.asarray(core.continuous["mpet"].values, dtype=float)
-            + float(preview.mpet_t0)
-            - preview.t0
+        primary_absolute_range = (
+            (
+                preview.t0 + IFLIP3_DIGIFLIM_WINDOW[0],
+                preview.t0 + IFLIP3_DIGIFLIM_WINDOW[1],
+            )
+            if effective_window_mode == "digiflim"
+            else IFLIP3_LEGACY_WINDOW
+        )
+        mpet_fitted_t0 = mpet_from_corrected(
+            preview.mpet_corrected_curves,
+            preview.mpet_lifetime_time,
+            primary_absolute_range,
+            preview.t0,
+        )
+        mpet_legacy_fitted_t0 = mpet_from_corrected(
+            preview.mpet_corrected_curves,
+            preview.mpet_lifetime_time,
+            IFLIP3_LEGACY_WINDOW,
+            preview.t0,
         )
         core.continuous.update(
             {
                 "mpet_fitted_t0": ContinuousSignal(
                     timestamps,
                     mpet_fitted_t0,
+                    "ns",
+                ),
+                "mpet_legacy_fitted_t0": ContinuousSignal(
+                    timestamps,
+                    mpet_legacy_fitted_t0,
                     "ns",
                 ),
                 "short_component_counts": ContinuousSignal(
@@ -2039,6 +2329,12 @@ def _load_iflip3(
             "t0_ns": preview.t0,
             "mpet_header_t0_ns": preview.mpet_t0,
             "fitted_minus_header_t0_ns": preview.t0 - float(preview.mpet_t0),
+            "window_mode": effective_window_mode,
+            "fit_window_ns": list(
+                IFLIP3_DIGIFLIM_WINDOW
+                if effective_window_mode == "digiflim"
+                else IFLIP3_LEGACY_WINDOW
+            ),
             "irf_sigma_ns": preview.irf_sigma,
             "aggregate_background_counts_per_bin": preview.background,
             "aggregate_rmse": preview.rmse,
@@ -2105,7 +2401,7 @@ def _load_iflip3(
                     "flat_background_fitted_per_temporal_bin": True,
                     "flat_background_fitted_during_global_calibration": (
                         calibration.schema_version
-                        == IFLIP3_CALIBRATION_SCHEMA_VERSION
+                        in {"2.1", IFLIP3_CALIBRATION_SCHEMA_VERSION}
                     ),
                     "session_t0_source": preview.message,
                 }
@@ -2143,6 +2439,7 @@ def load_lifetime_session(
     iflip3_fit_settings: dict | None = None,
     iflip3_calibration: IFLIP3Calibration | None = None,
     iflip3_temporal_bin_seconds: float | None = None,
+    iflip3_window_mode: str = "digiflim",
 ):
     """Load and align one lifetime session into the shared core representation."""
 
@@ -2156,6 +2453,7 @@ def load_lifetime_session(
             iflip3_fit_settings,
             iflip3_calibration,
             iflip3_temporal_bin_seconds,
+            iflip3_window_mode,
         )
     raise ValueError("workflow must be 'fluopulse' or 'iflip3'")
 
@@ -2264,6 +2562,7 @@ def preprocess_lifetime_sessions(
     iflip3_fit_settings: dict | None = None,
     iflip3_calibration: IFLIP3Calibration | str | Path | None = None,
     iflip3_temporal_bin_seconds: float | None = None,
+    iflip3_window_mode: str = "digiflim",
     progress_callback=None,
 ) -> list[Path]:
     """Process raw lifetime sessions and save each result beside its recording."""
@@ -2284,6 +2583,7 @@ def preprocess_lifetime_sessions(
         iflip3_fit_settings,
         calibration,
         iflip3_temporal_bin_seconds,
+        iflip3_window_mode,
     )
     total = len(rows)
     if progress_callback is not None:
@@ -2303,9 +2603,7 @@ def preprocess_lifetime_sessions(
             continue
         source_column = "iflip_path" if workflow == "iflip3" else "doric_path"
         try:
-            if workflow == "iflip3" and (
-                iflip3_fit_settings is not None or calibration is not None
-            ):
+            if workflow == "iflip3":
                 session, paths = load_lifetime_session(
                     workflow,
                     row,
@@ -2313,6 +2611,7 @@ def preprocess_lifetime_sessions(
                     iflip3_fit_settings=iflip3_fit_settings,
                     iflip3_calibration=calibration,
                     iflip3_temporal_bin_seconds=iflip3_temporal_bin_seconds,
+                    iflip3_window_mode=iflip3_window_mode,
                 )
             else:
                 session, paths = load_lifetime_session(workflow, row, data_root)

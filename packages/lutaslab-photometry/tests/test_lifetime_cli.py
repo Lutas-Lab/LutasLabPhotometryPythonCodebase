@@ -84,6 +84,7 @@ def test_lifetime_cli_dispatches_preprocess(workflow_stubs, capsys):
         "iflip3_fit_settings": None,
         "iflip3_calibration": None,
         "iflip3_temporal_bin_seconds": 2.0,
+        "iflip3_window_mode": "digiflim",
     }
     progress_callback(1, 2, "Processed M1")
     console = capsys.readouterr().out

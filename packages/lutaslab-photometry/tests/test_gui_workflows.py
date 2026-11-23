@@ -425,6 +425,7 @@ def test_build_iflip3_preprocess_command_includes_fit_controls():
     )
     encoded = command[command.index("--iflip3-fit-settings") + 1]
     assert json.loads(encoded) == settings
+    assert command[command.index("--iflip3-window-mode") + 1] == "digiflim"
 
 
 def test_build_iflip3_preprocess_command_accepts_saved_calibration():
@@ -436,11 +437,13 @@ def test_build_iflip3_preprocess_command_accepts_saved_calibration():
         "Z:/",
         iflip3_calibration="analysis/iflip3/calibrations/shared.json",
         iflip3_temporal_bin_seconds=2.0,
+        iflip3_window_mode="legacy",
     )
     assert command[command.index("--iflip3-calibration") + 1] == str(
         Path("analysis/iflip3/calibrations/shared.json")
     )
     assert command[command.index("--iflip3-temporal-bin-seconds") + 1] == "2.0"
+    assert command[command.index("--iflip3-window-mode") + 1] == "legacy"
 
 
 def test_run_command_streams_and_captures_output(tmp_path):

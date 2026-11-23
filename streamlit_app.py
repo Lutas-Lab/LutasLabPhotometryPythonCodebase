@@ -47,6 +47,7 @@ from lutaslab_photometry.lifetime_workflows import (
     IFLIP3_FIT_PARAMETER_DEFAULTS,
     IFLIP3_ROUTINE_SIGNALS,
     LIFETIME_EVENTS,
+    LIFETIME_PROCESSED_SCHEMA_VERSION,
     LIFETIME_SIGNAL_DISPLAY_NAMES,
     LIFETIME_SIGNALS,
     apply_iflip3_calibration,
@@ -753,9 +754,17 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
         )
     ):
         default_range = preview.mpet_default_range
+        header_range = (
+            (
+                preview.mpet_t0 + preview.mpet_window_range[0],
+                preview.mpet_t0 + preview.mpet_window_range[1],
+            )
+            if preview.mpet_window_mode == "digiflim"
+            else default_range
+        )
         header_mpet = iflip3_mpet_for_window(
             preview,
-            default_range,
+            header_range,
             t0_source="header",
         )
         fitted_mpet = iflip3_mpet_for_window(
@@ -772,9 +781,14 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
             f"{t0_difference * 1000.0:.3g} ps",
         )
         st.caption(
-            "Changing t0 shifts the complete MPET trace by a constant and does not "
-            "change within-session response shape. A variable shift across mice can, "
-            "however, contribute directly to absolute MPET differences."
+            "In digiFLIM mode, changing t0 moves the -0.3 to +8.0 ns window and "
+            "changes the subtracted offset. The difference is therefore not forced "
+            "to be a constant if photons enter or leave a window endpoint."
+            if preview.mpet_window_mode == "digiflim"
+            else (
+                "With the legacy fixed absolute window, changing t0 shifts the MPET "
+                "trace by a constant and does not change within-session response shape."
+            )
         )
         t0_figure, t0_axis = plt.subplots(
             figsize=(8.5, 3.2), constrained_layout=True
@@ -826,7 +840,7 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
             key=f"{key_prefix}_mpet_window",
         )
         st.caption(
-            f"MPET subtracts the acquisition-header t0 ({preview.mpet_t0:.4g} ns) "
+            f"MPET subtracts the fitted t0 ({preview.t0:.4g} ns) "
             "after calculating the photon-count centroid. Window limits remain in "
             "absolute acquisition microtime."
         )
@@ -890,6 +904,12 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
                 color="#54a24b",
                 linestyle="--",
                 label="Header t0",
+            )
+            window_axis.axvline(
+                preview.t0,
+                color="#e45756",
+                linestyle=":",
+                label="Fitted t0",
             )
             window_axis.set(
                 xlabel="Time after acquisition-cycle origin (ns)",
@@ -1038,13 +1058,22 @@ def _show_iflip3_calibration(calibration) -> None:
     )
     for column, (name, value) in zip(metrics, values, strict=True):
         column.metric(name, value)
-    if calibration.schema_version == IFLIP3_CALIBRATION_SCHEMA_VERSION:
+    if calibration.schema_version in {"2.1", IFLIP3_CALIBRATION_SCHEMA_VERSION}:
         st.caption(
             "τ1, τ2, and IRF σ are shared. Each session has its own fixed t0; "
             "each session aggregate has its own nonnegative flat-background "
             "coefficient during calibration. Preprocessing subsequently fits a "
             "new nonnegative flat coefficient in every temporal bin."
         )
+        if calibration.window_mode == "digiflim":
+            st.caption(
+                "Fit and MPET window: -0.3 to +8.0 ns relative to each session's fitted t0."
+            )
+        else:
+            st.warning(
+                "Legacy fit window: 0.4 to 12.3 ns on the acquisition clock. "
+                "Recalibrate in digiFLIM mode for the current analysis."
+            )
     elif session_specific_t0:
         st.caption(
             "Legacy schema 2.0 calibration: τ1, τ2, and IRF σ are shared and each "
@@ -1175,7 +1204,11 @@ def _processed_provenance_panel(
             status = classify_processed_provenance(
                 path,
                 current_commit=local_git_commit(PROJECT_ROOT),
-                expected_schema_version="1.0",
+                expected_schema_version=(
+                    "1.0"
+                    if workflow == "conventional"
+                    else LIFETIME_PROCESSED_SCHEMA_VERSION
+                ),
                 expected_parameters=expected_parameters,
             )
         except (OSError, ValueError) as error:
@@ -2513,7 +2546,30 @@ def _lifetime_gui(workflow: str) -> None:
         iflip3_calibration_path = None
         active_iflip3_calibration = None
         iflip3_temporal_bin_seconds = None
+        iflip3_window_mode = "digiflim"
         if workflow == "iflip3":
+            st.warning(
+                "The current analysis uses the digiFLIM histogram window (-0.3 to "
+                "+8.0 ns relative to each session's fitted t0). Processed files made "
+                "with earlier versions used the legacy 0.4 to 12.3 ns acquisition-time "
+                "window. Enable overwrite and preprocess them again to migrate; the "
+                "legacy MPET is retained as a comparison signal."
+            )
+            iflip3_window_mode = st.selectbox(
+                "Lifetime histogram window",
+                ("digiflim", "legacy"),
+                format_func=lambda value: (
+                    "digiFLIM-compatible: -0.3 to +8.0 ns relative to fitted t0"
+                    if value == "digiflim"
+                    else "Legacy: 0.4 to 12.3 ns on the acquisition clock"
+                ),
+                key="iflip3_window_mode",
+                help=(
+                    "The selected window is used for both MPET and biexponential fitting. "
+                    "digiFLIM mode first estimates t0, then refits on the exact relative "
+                    "window."
+                ),
+            )
             st.markdown("#### Lifetime temporal resolution")
             iflip3_temporal_bin_seconds = st.selectbox(
                 "Pool photon histograms before lifetime calculation",
@@ -2581,6 +2637,7 @@ def _lifetime_gui(workflow: str) -> None:
                             calibration = calibrate_iflip3_sessions(
                                 [preview_rows[index] for index in selected_calibration_indices],
                                 data_root,
+                                window_mode=iflip3_window_mode,
                             )
                     except (OSError, ValueError, RuntimeError) as error:
                         st.error(f"Multi-session calibration failed: {error}")
@@ -2665,6 +2722,12 @@ def _lifetime_gui(workflow: str) -> None:
                     st.error(f"Calibration cannot be used: {error}")
                 else:
                     iflip3_calibration_path = calibration_path
+                    if active_iflip3_calibration.window_mode == "legacy":
+                        st.warning(
+                            "This is a legacy-window calibration. It can be reproduced, "
+                            "but create and save a new digiFLIM-window calibration before "
+                            "migrating these sessions."
+                        )
                     st.success(
                         "Preprocessing will use shared τ1, τ2, and IRF σ, estimate or "
                         "reuse one fixed t0 per session, and vary only component counts "
@@ -2787,6 +2850,7 @@ def _lifetime_gui(workflow: str) -> None:
                                     preview_rows[preview_index],
                                     data_root,
                                     iflip3_fit_settings,
+                                    window_mode=iflip3_window_mode,
                                 )
                         except (OSError, ValueError, RuntimeError) as error:
                             st.error(f"The unconstrained fit could not be generated: {error}")
@@ -2836,6 +2900,7 @@ def _lifetime_gui(workflow: str) -> None:
                 None if active_iflip3_calibration is not None else iflip3_fit_settings,
                 active_iflip3_calibration,
                 iflip3_temporal_bin_seconds,
+                iflip3_window_mode,
             ),
         )
         overwrite_processed = st.checkbox(
@@ -2860,6 +2925,7 @@ def _lifetime_gui(workflow: str) -> None:
             ),
             iflip3_calibration=iflip3_calibration_path,
             iflip3_temporal_bin_seconds=iflip3_temporal_bin_seconds,
+            iflip3_window_mode=iflip3_window_mode,
         )
         if st.button(
             "Run preprocessing",

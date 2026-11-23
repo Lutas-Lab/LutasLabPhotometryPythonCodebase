@@ -264,6 +264,10 @@ columns; iFLIP3 accepts `iflip_path`, optional `nidaq_path` and `running_path`, 
 an optional `background_path`. Without a background, measured-background
 subtraction is skipped while the configured afterpulse correction is retained.
 Preprocessing saves corrected, afterpulse-only, and fully uncorrected MPET traces.
+The default `--iflip3-window-mode digiflim` uses −0.3 to +8.0 ns relative to
+the fitted session `t0` for both MPET and biexponential fitting. Use
+`--iflip3-window-mode legacy` only to reproduce the former absolute 0.4–12.3 ns
+analysis. Current outputs also retain labeled legacy MPET comparison traces.
 With decay decomposition enabled, it additionally saves afterpulse-only component
 signals using the same decay-shape parameters as the corrected fit. Both the
 standard and afterpulse-only decompositions fit nonnegative short, long, and
