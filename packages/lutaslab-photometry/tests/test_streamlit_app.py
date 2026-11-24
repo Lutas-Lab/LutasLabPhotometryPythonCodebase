@@ -129,8 +129,9 @@ def test_streamlit_lifetime_modes_load(workflow, expected_signal):
             "60 seconds",
         ]
         routine_labels = [
-                "Direct MPET (analysis window; fitted t0)",
-            "Fitted sensor MPET (flat background excluded)",
+            "Model-free MPET (default −0.3 to +8.0 ns)",
+            "Model-assisted prepulse-corrected MPET",
+            "Fitted sensor-reconstruction MPET",
             "Long-state fitted photon fraction",
             "Long-state fitted amplitude fraction",
             "Flat-background fraction (QC)",

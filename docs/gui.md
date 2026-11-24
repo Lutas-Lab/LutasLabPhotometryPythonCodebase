@@ -360,8 +360,9 @@ The two lifetime modes share the sensor-independent session representation in
   NI-DAQ file is available; otherwise it retains the native sensor clock. It saves
   an analysis-ready compressed `-processed.npz` file beside the primary raw
   lifetime recording. FluoPulse stores vendor tau, amplitude, and fit R-square;
-  iFLIP3 stores background-corrected MPET, afterpulse-only MPET, fully uncorrected
-  MPET, and raw intensity for QC. When lifetime decomposition is enabled, it also
+  iFLIP3 stores the original end-user-function MPET, a separate model-assisted
+  prepulse-corrected comparison, afterpulse-only MPET, fully
+  uncorrected MPET, and raw intensity for QC. When lifetime decomposition is enabled, it also
   stores an afterpulse-only component decomposition that reuses the corrected
   fit's lifetimes, IRF width, and session-specific t0. This isolates the effect of
   measured-background subtraction without changing the decay-shape calibration.
@@ -373,16 +374,17 @@ The two lifetime modes share the sensor-independent session representation in
   digiFLIM-compatible −0.3 to +8.0 ns window relative to fitted t0. A legacy
   0.4–12.3 ns mode remains available for reproducibility, and newly processed
   files retain explicitly labeled legacy MPET comparison signals. Files made
-  before processed schema 1.4 must be regenerated with overwrite to adopt the
-  new window.
+  before processed schema 1.5 must be regenerated with overwrite to obtain the
+  new model-assisted prepulse-corrected comparison signal.
   For iFLIP3, the recommended decay workflow is to create and review a saved
   [multi-session calibration](iflip3-multisession-calibration.md). It shares
   lifetimes and IRF width across compatible recordings, estimates one fixed t0
   per recording, gives each calibration-session aggregate its own nonnegative
   flat-background coefficient, and fits new short, long, and flat coefficients
   independently in every temporal bin. The GUI exposes flat-background counts
-  and fraction plus fitted sensor MPET for comparison with direct MPET. Routine
-  signal menus show six plain-language responses; correction variants,
+  and fraction, the original iFLIP3 centroid, and fitted sensor MPET for
+  comparison with the model-assisted prepulse-corrected centroid. Routine signal menus show
+  seven plain-language responses; correction variants,
   component counts, and alternative summaries are available through the
   advanced/diagnostic toggle.
 - **Event-aligned PSTH** aligns a selected lifetime/QC signal to Ensure, visual

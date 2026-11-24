@@ -54,6 +54,7 @@ from lutaslab_photometry.lifetime_workflows import (
     calibrate_iflip3_sessions,
     discover_lifetime_paths,
     estimate_iflip3_binning_sensitivity,
+    iflip3_background_corrected_mpet,
     iflip3_mpet_for_window,
     iflip3_residual_summary,
     lifetime_manifest_columns,
@@ -107,9 +108,19 @@ IFLIP3_SIGNAL_EXPLANATIONS = {
         "Photon centroid calculated directly from the corrected decay; any "
         "remaining flat offset still contributes."
     ),
+    "background_corrected_mpet": (
+        "Comparison method: photon centroid of the observed decay after "
+        "subtracting the nonnegative prepulse residual. The periodic fit predicts "
+        "prior-pulse tail photons before that constant offset is estimated. This "
+        "is not part of the original iFLIP3 end-user MPET function."
+    ),
+    "mpet_fitted_t0": (
+        "Original iFLIP3 end-user calculation: photon centroid in the selected "
+        "window minus fitted t0, without fitted flat-background subtraction."
+    ),
     "sensor_only_fitted_mpet": (
-        "Photon centroid reconstructed from the fitted short and long sensor "
-        "components after excluding the fitted flat background."
+        "Photon centroid reconstructed entirely from the fitted short and long "
+        "sensor components after excluding the fitted flat background."
     ),
     "long_lifetime_fraction": (
         "Fraction of fitted sensor photons assigned to the long-lifetime state; "
@@ -590,12 +601,12 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
     )
 
     if st.checkbox(
-        "Inspect flat background and fitted sensor MPET",
+        "Inspect flat background and fitted sensor-reconstruction MPET",
         key=f"{key_prefix}_inspect_flat_background",
         help=(
             "Fits a separate nonnegative constant offset to every temporal bin. "
-            "Fitted sensor MPET is reconstructed from the short and long fitted "
-            "components after leaving that offset out."
+            "Fitted sensor-reconstruction MPET is reconstructed from the short "
+            "and long fitted components after leaving that offset out."
         ),
     ):
         background_fraction = np.asarray(
@@ -638,33 +649,49 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
                 preview.mpet_default_range,
                 t0_source="fitted",
             )
+            background_corrected_mpet = iflip3_background_corrected_mpet(preview)
             sensor_mpet = np.asarray(preview.sensor_only_fitted_mpet, dtype=float)
             mpet_axis.plot(
                 sample_index,
-                direct_mpet,
-                label="Direct corrected MPET (fitted t0)",
+                background_corrected_mpet,
+                label="Model-assisted prepulse-corrected MPET",
                 color="#4c78a8",
             )
             mpet_axis.plot(
                 sample_index,
+                direct_mpet,
+                label="Model-free MPET (default −0.3 to +8.0 ns)",
+                color="#54a24b",
+                alpha=0.85,
+            )
+            mpet_axis.plot(
+                sample_index,
                 sensor_mpet,
-                label="Fitted sensor MPET (flat background excluded)",
+                label="Fitted sensor-reconstruction MPET",
                 color="#f58518",
             )
             mpet_axis.legend(frameon=False)
-            median_shift = np.nanmedian(direct_mpet - sensor_mpet)
+            median_background_shift = np.nanmedian(
+                direct_mpet - background_corrected_mpet
+            )
+            median_model_shift = np.nanmedian(
+                background_corrected_mpet - sensor_mpet
+            )
             st.caption(
-                "Median direct minus fitted sensor MPET: "
-                f"{median_shift * 1000.0:.3g} ps. A large or time-varying "
-                "difference indicates that a flat offset materially affects MPET. "
-                "This fit does not remove shaped tissue autofluorescence."
+                "Median original minus model-assisted prepulse-corrected MPET: "
+                f"{median_background_shift * 1000.0:.3g} ps; median corrected "
+                "empirical minus fitted sensor MPET: "
+                f"{median_model_shift * 1000.0:.3g} ps. The first comparison "
+                "isolates the flat-offset effect; the second shows remaining "
+                "data-versus-model differences. This does not remove shaped "
+                "tissue autofluorescence."
             )
         else:
             mpet_axis.plot(
                 sample_index,
                 preview.sensor_only_fitted_mpet,
                 color="#f58518",
-                label="Fitted sensor MPET (flat background excluded)",
+                label="Fitted sensor-reconstruction MPET",
             )
             mpet_axis.legend(frameon=False)
         mpet_axis.set(
@@ -749,7 +776,7 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
         and preview.mpet_corrected_curves is not None
         and preview.mpet_t0 is not None
         and st.checkbox(
-            "Compare acquisition-header and fitted t0 for MPET",
+            "Compare header and fitted t0 for model-free MPET",
             key=f"{key_prefix}_compare_mpet_t0",
         )
     ):
@@ -840,17 +867,19 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
             key=f"{key_prefix}_mpet_window",
         )
         st.caption(
-            f"MPET subtracts the fitted t0 ({preview.t0:.4g} ns) "
-            "after calculating the photon-count centroid. Window limits remain in "
-            "absolute acquisition microtime."
+            "Model-assisted prepulse-corrected MPET subtracts the fitted "
+            f"t0 ({preview.t0:.4g} ns) after calculating the photon-count "
+            "centroid. Window limits remain in absolute acquisition microtime; "
+            "the prepulse background estimate remains anchored to the fitted "
+            "default window."
         )
         if selected_start >= selected_end:
             st.warning("Choose an MPET window containing at least two distinct bounds.")
         else:
-            default_mpet = iflip3_mpet_for_window(
+            default_mpet = iflip3_background_corrected_mpet(
                 preview, (default_start, default_end)
             )
-            selected_mpet = iflip3_mpet_for_window(
+            selected_mpet = iflip3_background_corrected_mpet(
                 preview, (selected_start, selected_end)
             )
             finite = np.isfinite(default_mpet) & np.isfinite(selected_mpet)

@@ -163,9 +163,15 @@ lifetimes/IRF fit. It fixes `tau1`, `tau2`, and IRF `sigma`, uses the saved `t0`
 for a contributing calibration session, or estimates one bounded `t0` from a
 new session's aggregate decay. That session-level `t0` is then fixed while only
 short-component, long-component, and nonnegative flat-background counts are
-solved at each time point. Direct MPET uses the same fitted-`t0` histogram
-window as the decay fit; fitted sensor MPET is reconstructed after omitting the flat
-term. The calibration identity, fitted session `t0`, flat-background policy,
+solved at each time point. Model-assisted prepulse-corrected MPET uses the
+periodic sensor fit to predict prior-pulse carryover, estimates the remaining
+nonnegative constant from the prepulse residual, and subtracts that value from
+the observed histogram before taking its centroid. This is a comparison method,
+not part of the original iFLIP3 end-user MPET function. Model-free MPET is
+retained without that subtraction, while fitted sensor-reconstruction MPET is
+reconstructed
+from the two sensor components. The calibration
+identity, fitted session `t0`, flat-background policy,
 and parameters are embedded in each processed file's provenance.
 
 Existing processed files are not changed unless **Overwrite existing processed
@@ -173,7 +179,8 @@ files** is enabled. This permits incremental batch processing, but sessions
 processed with an older fitting policy must be selectively overwritten if they
 should use the new calibration.
 
-Processed schema 1.4 marks the new window policy. In the GUI, create a new
+Processed schema 1.5 adds model-assisted prepulse-corrected MPET; schema 1.4
+introduced the new window policy. In the GUI, create a new
 schema-2.2 calibration, select it, enable **Overwrite existing processed
 files**, and run preprocessing for the previously analyzed sessions. The new
 direct MPET and fitted signals use the digiFLIM window. `mpet_legacy` and
@@ -188,7 +195,8 @@ the selected recording. It therefore displays the same fixed-basis model used
 during calibrated preprocessing: shared lifetimes and IRF width; one fixed
 recording-level `t0`; and independently varying nonnegative short, long, and
 flat-background coefficients. The inspector plots the flat-background fraction
-and compares direct MPET with fitted sensor MPET.
+and compares the model-assisted prepulse-corrected, original iFLIP3, and reconstructed
+fitted-sensor MPET traces.
 
 An **Advanced: unconstrained single-session fit** expander remains available to
 diagnose an outlier or support a legacy dataset without a multi-session

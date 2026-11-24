@@ -1,6 +1,7 @@
 import csv
 import json
 import types
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -353,11 +354,16 @@ def test_lifetime_plot_values_use_picoseconds_and_clear_labels():
 def test_iflip3_routine_signals_use_clear_user_facing_names():
     assert workflows.IFLIP3_ROUTINE_SIGNALS == (
         "mpet_fitted_t0",
+        "background_corrected_mpet",
         "sensor_only_fitted_mpet",
         "long_lifetime_fraction",
         "long_preexponential_fraction",
         "fitted_flat_background_fraction",
         "raw_intensity",
+    )
+    assert (
+        workflows.LIFETIME_SIGNAL_DISPLAY_NAMES["mpet_fitted_t0"]
+        == "Model-free MPET (default −0.3 to +8.0 ns)"
     )
     assert (
         workflows.LIFETIME_SIGNAL_DISPLAY_NAMES["long_preexponential_fraction"]
@@ -369,7 +375,7 @@ def test_iflip3_routine_signals_use_clear_user_facing_names():
             "subtract",
             "ps",
         )
-        == "ΔFitted sensor MPET (flat background excluded) (ps)"
+        == "ΔFitted sensor-reconstruction MPET (ps)"
     )
 
 
@@ -647,6 +653,7 @@ def test_iflip3_afterpulse_only_fit_reuses_corrected_decay_shape():
 
 def test_iflip3_comparison_signals_are_available_to_downstream_workflows():
     assert {
+        "background_corrected_mpet",
         "mpet_afterpulse_only",
         "mpet_uncorrected",
         "mpet_fitted_t0",
@@ -666,12 +673,76 @@ def test_iflip3_comparison_signals_are_available_to_downstream_workflows():
         "short_component_counts_afterpulse_only",
         "long_component_counts_afterpulse_only",
     }.issubset(workflows.LIFETIME_SIGNALS["iflip3"])
+    assert "background_corrected_mpet" in workflows.LIFETIME_TIME_SIGNALS
     assert "mpet_afterpulse_only" in workflows.LIFETIME_TIME_SIGNALS
     assert "mpet_uncorrected" in workflows.LIFETIME_TIME_SIGNALS
     assert "mpet_fitted_t0" in workflows.LIFETIME_TIME_SIGNALS
     assert "amplitude_weighted_fitted_lifetime" in workflows.LIFETIME_TIME_SIGNALS
     assert "intensity_weighted_fitted_lifetime" in workflows.LIFETIME_TIME_SIGNALS
     assert "sensor_only_fitted_mpet" in workflows.LIFETIME_TIME_SIGNALS
+
+
+def test_background_corrected_empirical_mpet_subtracts_prepulse_residual():
+    time = np.array([0.0, 1.0, 2.0])
+    sensor = np.array([[6.0], [2.0], [0.0]])
+    flat_per_bin = 2.0
+    observed = sensor + flat_per_bin
+    preview = workflows.IFLIP3FitPreview(
+        lifetime_time=time,
+        aggregate_decay=observed[:, 0],
+        fitted_decay=observed[:, 0],
+        short_component=sensor[:, 0],
+        long_component=np.zeros(3),
+        residuals=np.zeros(3),
+        lifetimes=np.array([0.5, 2.0]),
+        t0=1.0,
+        irf_sigma=0.1,
+        background=flat_per_bin,
+        rmse=0.0,
+        r_squared=1.0,
+        success=True,
+        message="test",
+        short_component_counts=np.array([8.0]),
+        long_component_counts=np.array([0.0]),
+        long_lifetime_fraction=np.array([0.0]),
+        long_preexponential_fraction=np.array([0.0]),
+        amplitude_weighted_fitted_lifetime=np.array([0.5]),
+        intensity_weighted_fitted_lifetime=np.array([0.5]),
+        sensor_only_fitted_mpet=np.array([-0.75]),
+        fitted_flat_background_counts=np.array([6.0]),
+        fitted_flat_background_fraction=np.array([6.0 / 14.0]),
+        fit_rmse_by_sample=np.array([0.0]),
+        sampling_frequency=1.0,
+        mpet_lifetime_time=time,
+        mpet_corrected_curves=observed,
+        mpet_t0=1.0,
+        mpet_default_range=(0.0, 2.0),
+        mpet_sensor_fitted_curves=sensor,
+    )
+
+    original = workflows.iflip3_mpet_for_window(
+        preview, (0.0, 2.0), t0_source="fitted"
+    )
+    corrected = workflows.iflip3_background_corrected_mpet(preview)
+
+    np.testing.assert_allclose(original, [-0.4285714286])
+    np.testing.assert_allclose(corrected, [-0.75])
+
+    no_background = replace(
+        preview,
+        aggregate_decay=sensor[:, 0],
+        fitted_decay=sensor[:, 0],
+        fitted_flat_background_counts=np.array([0.0]),
+        fitted_flat_background_fraction=np.array([0.0]),
+        mpet_corrected_curves=sensor,
+        mpet_sensor_fitted_curves=sensor,
+    )
+    np.testing.assert_allclose(
+        workflows.iflip3_background_corrected_mpet(no_background),
+        workflows.iflip3_mpet_for_window(
+            no_background, (0.0, 2.0), t0_source="fitted"
+        ),
+    )
 
 
 def test_write_iflip3_manifest_preserves_background_provenance(tmp_path):

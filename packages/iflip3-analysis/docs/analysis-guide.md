@@ -165,9 +165,27 @@ calculating the centroid. Because changing $t_0$ now moves both the window and
 the final subtraction, header- and fitted-$t_0$ results need not differ by only
 a constant when photons enter or leave an endpoint.
 
-`mpet_fitted_t0` is the recommended direct-MPET output. The `mpet` channel
-retains the header-$t_0$ calculation for timing QC. `mpet_legacy` and
-`mpet_legacy_fitted_t0` retain the former absolute 0.4–12.3 ns calculation so
+`mpet_fitted_t0`, labeled **Model-free MPET (default −0.3 to +8.0 ns)** in the
+GUI, preserves the original `iFLiP3_calculateMPET.m` photon-moment method while
+using the current ThorDigiFLIM-style window. That
+end-user function optionally subtracts a separately measured background decay
+with dead-time scaling, subtracts the configured uniform afterpulse estimate,
+selects `SPCRange`, and then evaluates the photon centroid above. The supplied
+$t_0$ can come from a fit, but the MPET calculation itself does not fit the
+histogram, estimate background from prepulse bins, or model prior-pulse tails.
+
+`background_corrected_mpet` is a separate comparison method added here, not an
+original iFLIP3 end-user output. The periodic
+short- and long-lifetime model first predicts the prior-pulse tail in the
+prepulse bins. The nonnegative mean of observed minus predicted prepulse counts
+is treated as a constant background, subtracted from the observed histogram,
+and then the same photon centroid is taken. This is still an empirical centroid,
+not the centroid of a reconstructed fitted decay.
+
+The `mpet` channel retains the header-$t_0$ version for timing QC.
+`mpet_legacy_fitted_t0`, labeled **Model-free MPET (legacy 0.4–12.3 ns)**,
+and its header-$t_0$ QC counterpart `mpet_legacy` retain the former absolute
+0.4–12.3 ns calculation so
 previously analyzed datasets can be compared during migration. These channels
 must be named explicitly in figures; they are not interchangeable methods.
 
@@ -268,11 +286,12 @@ A future correction based on otherwise matched animals implanted without the
 biosensor could add a measured autofluorescence basis without changing the
 role of this flat nuisance term.
 
-The GUI compares direct MPET with **fitted sensor MPET (flat background
-excluded)**. The latter is the
+The GUI compares **model-assisted prepulse-corrected MPET**, **model-free MPET**,
+and **fitted sensor-reconstruction MPET**. The latter is the
 photon centroid of the reconstructed short and long components after omitting
-the fitted flat background, using fitted $t_0$. If those traces differ strongly,
-the residual offset is materially influencing direct MPET. Agreement is
+the fitted flat background, using fitted $t_0$. The first comparison isolates
+the flat-offset effect; the second checks how closely the corrected observed
+histogram follows the two-component model. Agreement is
 reassuring, but it does not rule out shaped autofluorescence or model mismatch.
 
 Photons arriving before the current pulse's fitted $t_0$ are not automatically
@@ -406,7 +425,7 @@ The main output channels answer related but different questions:
 | Long-state fitted amplitude fraction | $A_2/(A_1+A_2)$ | fraction of fitted pre-exponential sensor amplitude assigned to the long state |
 | Fitted lifetime (amplitude weighted) | $\sum A_i\tau_i/\sum A_i$ | lifetime summary emphasizing pre-exponential amplitudes |
 | Fitted lifetime (photon weighted) | $\sum N_i\tau_i/\sum N_i$ | lifetime summary emphasizing integrated fitted photons |
-| Fitted sensor MPET | centroid of $N_1g_1+N_2g_2$ minus fitted $t_0$ | MPET-like summary after omitting the fitted flat term |
+| Fitted sensor-reconstruction MPET | centroid of $N_1g_1+N_2g_2$ minus fitted $t_0$ | MPET-like summary after omitting the fitted flat term |
 | Flat-background fraction | $N_{bg}/(N_1+N_2+N_{bg})$ | fraction assigned to a residual DC offset |
 | $N_1$, $N_2$ | nonnegative coefficients of area-normalized bases | fitted photon contribution of each state |
 | Raw intensity | sum of recorded counts | brightness and acquisition QC |

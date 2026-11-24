@@ -61,6 +61,7 @@ LIFETIME_SIGNALS = {
     "fluopulse": ("tau", "amplitude", "fit_r_square"),
     "iflip3": (
         "mpet",
+        "background_corrected_mpet",
         "mpet_fitted_t0",
         "mpet_afterpulse_only",
         "mpet_uncorrected",
@@ -89,6 +90,7 @@ LIFETIME_SIGNALS = {
 }
 IFLIP3_ROUTINE_SIGNALS = (
     "mpet_fitted_t0",
+    "background_corrected_mpet",
     "sensor_only_fitted_mpet",
     "long_lifetime_fraction",
     "long_preexponential_fraction",
@@ -99,13 +101,14 @@ LIFETIME_SIGNAL_DISPLAY_NAMES = {
     "tau": "Fluorescence lifetime",
     "amplitude": "Fitted fluorescence amplitude",
     "fit_r_square": "Fit quality (R²; QC)",
-    "mpet": "Direct MPET (analysis window; header t0)",
-    "mpet_fitted_t0": "Direct MPET (analysis window; fitted t0)",
+    "mpet": "Model-free MPET (default window; header t0 QC)",
+    "background_corrected_mpet": "Model-assisted prepulse-corrected MPET",
+    "mpet_fitted_t0": "Model-free MPET (default −0.3 to +8.0 ns)",
     "mpet_afterpulse_only": "Direct MPET (afterpulse correction only)",
     "mpet_uncorrected": "Direct MPET (uncorrected)",
-    "mpet_legacy": "Legacy MPET (0.4–12.3 ns; header t0)",
-    "mpet_legacy_fitted_t0": "Legacy MPET (0.4–12.3 ns; fitted t0)",
-    "sensor_only_fitted_mpet": "Fitted sensor MPET (flat background excluded)",
+    "mpet_legacy": "Model-free MPET (legacy 0.4–12.3 ns; header t0 QC)",
+    "mpet_legacy_fitted_t0": "Model-free MPET (legacy 0.4–12.3 ns)",
+    "sensor_only_fitted_mpet": "Fitted sensor-reconstruction MPET",
     "long_lifetime_fraction": "Long-state fitted photon fraction",
     "long_preexponential_fraction": "Long-state fitted amplitude fraction",
     "amplitude_weighted_fitted_lifetime": "Fitted lifetime (amplitude weighted)",
@@ -127,7 +130,7 @@ LIFETIME_SIGNAL_DISPLAY_NAMES = {
         "Fitted lifetime, photon weighted (diagnostic: afterpulse only)"
     ),
     "sensor_only_fitted_mpet_afterpulse_only": (
-        "Fitted sensor MPET (diagnostic: afterpulse only)"
+        "Fitted sensor-reconstruction MPET (diagnostic: afterpulse only)"
     ),
     "fitted_flat_background_counts_afterpulse_only": (
         "Flat-background fitted photons (diagnostic: afterpulse only)"
@@ -147,6 +150,7 @@ LIFETIME_BEHAVIOR_SIGNALS = ("licking", "running_speed")
 LIFETIME_TIME_SIGNALS = (
     "tau",
     "mpet",
+    "background_corrected_mpet",
     "mpet_fitted_t0",
     "mpet_afterpulse_only",
     "mpet_uncorrected",
@@ -167,7 +171,7 @@ LIFETIME_EVENTS = (
     "lick_bout_offset",
     *DERIVED_ALIGNMENT_EVENTS,
 )
-LIFETIME_PROCESSED_SCHEMA_VERSION = "1.4"
+LIFETIME_PROCESSED_SCHEMA_VERSION = "1.5"
 IFLIP3_CALIBRATION_SCHEMA_VERSION = "2.2"
 IFLIP3_DIGIFLIM_WINDOW = (-0.3, 8.0)
 IFLIP3_LEGACY_WINDOW = (0.4, 12.3)
@@ -221,6 +225,7 @@ class IFLIP3FitPreview:
     mpet_default_range: tuple[float, float] = (0.4, 12.3)
     mpet_window_mode: str = "legacy"
     mpet_window_range: tuple[float, float] = (0.4, 12.3)
+    mpet_sensor_fitted_curves: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -1304,6 +1309,64 @@ def iflip3_mpet_for_window(
     return np.asarray(values, dtype=float)
 
 
+def iflip3_background_corrected_mpet(
+    preview: IFLIP3FitPreview,
+    limits: tuple[float, float] | None = None,
+) -> np.ndarray:
+    """Calculate empirical MPET after prepulse residual-background correction.
+
+    The fixed periodic decay model predicts sensor photons left from prior laser
+    pulses. In the prepulse bins, the mean observed-minus-predicted residual is
+    constrained to be nonnegative and treated as a constant background. That
+    offset is subtracted from the observed histogram before taking its photon
+    centroid. The centroid therefore remains empirical; it is not calculated
+    from the reconstructed short- and long-lifetime curves.
+    """
+
+    from iflip3 import mpet_from_corrected
+
+    if (
+        preview.mpet_lifetime_time is None
+        or preview.mpet_corrected_curves is None
+        or preview.mpet_sensor_fitted_curves is None
+    ):
+        raise ValueError("This preview does not contain empirical MPET data")
+    selected_limits = preview.mpet_default_range if limits is None else limits
+    if selected_limits[0] >= selected_limits[1]:
+        raise ValueError("MPET lifetime-window limits must be increasing")
+    time = np.asarray(preview.mpet_lifetime_time, dtype=float)
+    use = (time >= selected_limits[0]) & (time <= selected_limits[1])
+    if np.count_nonzero(use) < 1:
+        raise ValueError("MPET lifetime window contains no microtime bins")
+    all_curves = np.asarray(preview.mpet_corrected_curves, dtype=float)
+    curves = all_curves[use]
+    fit_time = np.asarray(preview.lifetime_time, dtype=float)
+    fit_use = (time >= fit_time[0]) & (time <= fit_time[-1])
+    observed_fit_window = all_curves[fit_use]
+    sensor_fit = np.asarray(preview.mpet_sensor_fitted_curves, dtype=float)
+    if (
+        observed_fit_window.shape != sensor_fit.shape
+        or observed_fit_window.shape[0] != fit_time.size
+        or not np.allclose(time[fit_use], fit_time, rtol=0.0, atol=1e-9)
+    ):
+        raise ValueError("Fitted sensor curves do not match the empirical fit window")
+    prepulse = fit_time < preview.t0
+    if not np.any(prepulse):
+        raise ValueError("MPET correction requires at least one prepulse bin")
+    background_per_bin = np.maximum(
+        np.mean(observed_fit_window[prepulse] - sensor_fit[prepulse], axis=0),
+        0.0,
+    )
+    empirical = curves - background_per_bin[None, ...]
+    values = mpet_from_corrected(
+        empirical,
+        time[use],
+        selected_limits,
+        preview.t0,
+    )
+    return np.asarray(values, dtype=float)
+
+
 def _iflip3_preview_with_fixed_shape(
     reference: IFLIP3FitPreview,
     time: np.ndarray,
@@ -1395,6 +1458,10 @@ def _iflip3_preview_with_fixed_shape(
         fitted_flat_background_fraction=target.background_fraction,
         fit_rmse_by_sample=np.sqrt(np.mean(target.residuals**2, axis=0)),
         sampling_frequency=reference.sampling_frequency,
+        mpet_sensor_fitted_curves=(
+            target.fitted
+            - target.fitted_background_counts[None, :] / float(time.size)
+        ),
     )
 
 
@@ -1877,6 +1944,10 @@ def preview_iflip3_fit(
         ),
         mpet_window_mode=window_mode,
         mpet_window_range=effective_range,
+        mpet_sensor_fitted_curves=(
+            target.fitted
+            - target.fitted_background_counts[None, :] / float(time.size)
+        ),
     )
 
 
@@ -2109,6 +2180,10 @@ def apply_iflip3_calibration(
         ),
         mpet_window_mode=calibration.window_mode,
         mpet_window_range=calibration.spc_range,
+        mpet_sensor_fitted_curves=(
+            target.fitted
+            - target.fitted_background_counts[None, :] / float(time.size)
+        ),
     )
 
 
@@ -2216,8 +2291,14 @@ def _load_iflip3(
             IFLIP3_LEGACY_WINDOW,
             preview.t0,
         )
+        background_corrected_mpet = iflip3_background_corrected_mpet(preview)
         core.continuous.update(
             {
+                "background_corrected_mpet": ContinuousSignal(
+                    timestamps,
+                    background_corrected_mpet,
+                    "ns",
+                ),
                 "mpet_fitted_t0": ContinuousSignal(
                     timestamps,
                     mpet_fitted_t0,
@@ -2354,6 +2435,16 @@ def _load_iflip3(
                 "sensor_only_fitted_mpet": (
                     "photon centroid reconstructed from the two fitted sensor "
                     "components only, minus fitted t0"
+                ),
+                "background_corrected_mpet": (
+                    "photon centroid of the observed decay after subtracting "
+                    "the nonnegative mean prepulse residual; the periodic "
+                    "sensor model accounts for prior-pulse carryover before "
+                    "that residual background is estimated"
+                ),
+                "mpet_fitted_t0": (
+                    "original iFLIP3-style photon centroid of the observed "
+                    "decay with no fitted flat-background subtraction"
                 ),
                 "fitted_flat_background_counts": (
                     "nonnegative constant-in-microtime nuisance counts fitted "
