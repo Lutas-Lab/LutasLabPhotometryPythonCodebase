@@ -165,9 +165,10 @@ calculating the centroid. Because changing $t_0$ now moves both the window and
 the final subtraction, header- and fitted-$t_0$ results need not differ by only
 a constant when photons enter or leave an endpoint.
 
-`mpet_fitted_t0`, labeled **Model-free MPET (default −0.3 to +8.0 ns)** in the
-GUI, preserves the original `iFLiP3_calculateMPET.m` photon-moment method while
-using the current ThorDigiFLIM-style window. That
+`mpet_fitted_t0`, labeled **Empirical MPET (fitted session t0; −0.3 to +8.0
+ns)** in the GUI, preserves the original `iFLiP3_calculateMPET.m` photon-moment
+method while using the current ThorDigiFLIM-style window. The photon moment is
+fit-free, but the session timing origin is obtained from calibration/fitting. That
 end-user function optionally subtracts a separately measured background decay
 with dead-time scaling, subtracts the configured uniform afterpulse estimate,
 selects `SPCRange`, and then evaluates the photon centroid above. The supplied
@@ -183,7 +184,8 @@ and then the same photon centroid is taken. This is still an empirical centroid,
 not the centroid of a reconstructed fitted decay.
 
 The `mpet` channel retains the header-$t_0$ version for timing QC.
-`mpet_legacy_fitted_t0`, labeled **Model-free MPET (legacy 0.4–12.3 ns)**,
+`mpet_legacy_fitted_t0`, labeled **Empirical MPET (fitted session t0; legacy
+0.4–12.3 ns)**,
 and its header-$t_0$ QC counterpart `mpet_legacy` retain the former absolute
 0.4–12.3 ns calculation so
 previously analyzed datasets can be compared during migration. These channels
@@ -286,8 +288,9 @@ A future correction based on otherwise matched animals implanted without the
 biosensor could add a measured autofluorescence basis without changing the
 role of this flat nuisance term.
 
-The GUI compares **model-assisted prepulse-corrected MPET**, **model-free MPET**,
-and **fitted sensor-reconstruction MPET**. The latter is the
+The GUI compares **model-assisted prepulse-corrected empirical MPET**,
+**empirical MPET with fitted session t0**, and **fitted sensor-reconstruction
+MPET**. The latter is the
 photon centroid of the reconstructed short and long components after omitting
 the fitted flat background, using fitted $t_0$. The first comparison isolates
 the flat-offset effect; the second checks how closely the corrected observed

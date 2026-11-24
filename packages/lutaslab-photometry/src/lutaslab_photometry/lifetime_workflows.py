@@ -101,13 +101,17 @@ LIFETIME_SIGNAL_DISPLAY_NAMES = {
     "tau": "Fluorescence lifetime",
     "amplitude": "Fitted fluorescence amplitude",
     "fit_r_square": "Fit quality (R²; QC)",
-    "mpet": "Model-free MPET (default window; header t0 QC)",
-    "background_corrected_mpet": "Model-assisted prepulse-corrected MPET",
-    "mpet_fitted_t0": "Model-free MPET (default −0.3 to +8.0 ns)",
+    "mpet": "Empirical MPET (header t0; default window QC)",
+    "background_corrected_mpet": (
+        "Model-assisted prepulse-corrected empirical MPET"
+    ),
+    "mpet_fitted_t0": "Empirical MPET (fitted session t0; −0.3 to +8.0 ns)",
     "mpet_afterpulse_only": "Direct MPET (afterpulse correction only)",
     "mpet_uncorrected": "Direct MPET (uncorrected)",
-    "mpet_legacy": "Model-free MPET (legacy 0.4–12.3 ns; header t0 QC)",
-    "mpet_legacy_fitted_t0": "Model-free MPET (legacy 0.4–12.3 ns)",
+    "mpet_legacy": "Empirical MPET (header t0; legacy 0.4–12.3 ns QC)",
+    "mpet_legacy_fitted_t0": (
+        "Empirical MPET (fitted session t0; legacy 0.4–12.3 ns)"
+    ),
     "sensor_only_fitted_mpet": "Fitted sensor-reconstruction MPET",
     "long_lifetime_fraction": "Long-state fitted photon fraction",
     "long_preexponential_fraction": "Long-state fitted amplitude fraction",

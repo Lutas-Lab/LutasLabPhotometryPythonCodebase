@@ -654,13 +654,13 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
             mpet_axis.plot(
                 sample_index,
                 background_corrected_mpet,
-                label="Model-assisted prepulse-corrected MPET",
+                label="Model-assisted prepulse-corrected empirical MPET",
                 color="#4c78a8",
             )
             mpet_axis.plot(
                 sample_index,
                 direct_mpet,
-                label="Model-free MPET (default −0.3 to +8.0 ns)",
+                label="Empirical MPET (fitted session t0; −0.3 to +8.0 ns)",
                 color="#54a24b",
                 alpha=0.85,
             )
@@ -776,7 +776,7 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
         and preview.mpet_corrected_curves is not None
         and preview.mpet_t0 is not None
         and st.checkbox(
-            "Compare header and fitted t0 for model-free MPET",
+            "Compare header and fitted session t0 for empirical MPET",
             key=f"{key_prefix}_compare_mpet_t0",
         )
     ):
@@ -867,7 +867,7 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
             key=f"{key_prefix}_mpet_window",
         )
         st.caption(
-            "Model-assisted prepulse-corrected MPET subtracts the fitted "
+            "Model-assisted prepulse-corrected empirical MPET subtracts the fitted "
             f"t0 ({preview.t0:.4g} ns) after calculating the photon-count "
             "centroid. Window limits remain in absolute acquisition microtime; "
             "the prepulse background estimate remains anchored to the fitted "

@@ -363,7 +363,7 @@ def test_iflip3_routine_signals_use_clear_user_facing_names():
     )
     assert (
         workflows.LIFETIME_SIGNAL_DISPLAY_NAMES["mpet_fitted_t0"]
-        == "Model-free MPET (default −0.3 to +8.0 ns)"
+        == "Empirical MPET (fitted session t0; −0.3 to +8.0 ns)"
     )
     assert (
         workflows.LIFETIME_SIGNAL_DISPLAY_NAMES["long_preexponential_fraction"]

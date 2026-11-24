@@ -163,11 +163,12 @@ lifetimes/IRF fit. It fixes `tau1`, `tau2`, and IRF `sigma`, uses the saved `t0`
 for a contributing calibration session, or estimates one bounded `t0` from a
 new session's aggregate decay. That session-level `t0` is then fixed while only
 short-component, long-component, and nonnegative flat-background counts are
-solved at each time point. Model-assisted prepulse-corrected MPET uses the
+solved at each time point. Model-assisted prepulse-corrected empirical MPET uses the
 periodic sensor fit to predict prior-pulse carryover, estimates the remaining
 nonnegative constant from the prepulse residual, and subtracts that value from
 the observed histogram before taking its centroid. This is a comparison method,
-not part of the original iFLIP3 end-user MPET function. Model-free MPET is
+not part of the original iFLIP3 end-user MPET function. Empirical MPET with a
+fixed fitted session `t0` is
 retained without that subtraction, while fitted sensor-reconstruction MPET is
 reconstructed
 from the two sensor components. The calibration

@@ -360,8 +360,8 @@ The two lifetime modes share the sensor-independent session representation in
   NI-DAQ file is available; otherwise it retains the native sensor clock. It saves
   an analysis-ready compressed `-processed.npz` file beside the primary raw
   lifetime recording. FluoPulse stores vendor tau, amplitude, and fit R-square;
-  iFLIP3 stores the original end-user-function MPET, a separate model-assisted
-  prepulse-corrected comparison, afterpulse-only MPET, fully
+  iFLIP3 stores empirical end-user-function MPET with fitted session `t0`, a
+  separate model-assisted prepulse-corrected empirical comparison, afterpulse-only MPET, fully
   uncorrected MPET, and raw intensity for QC. When lifetime decomposition is enabled, it also
   stores an afterpulse-only component decomposition that reuses the corrected
   fit's lifetimes, IRF width, and session-specific t0. This isolates the effect of
