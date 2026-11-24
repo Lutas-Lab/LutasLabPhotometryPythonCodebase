@@ -448,7 +448,6 @@ def test_iflip3_fit_preview_returns_quality_and_time_resolved_components(monkeyp
     fitted_t0_mpet = workflows.iflip3_mpet_for_window(
         fitted_t0_preview,
         (0.4, 12.3),
-        t0_source="fitted",
     )
     np.testing.assert_allclose(fitted_t0_mpet, default_mpet - 0.2)
     assert 0.4 < preview.mpet_t0
@@ -654,8 +653,6 @@ def test_iflip3_afterpulse_only_fit_reuses_corrected_decay_shape():
 def test_iflip3_comparison_signals_are_available_to_downstream_workflows():
     assert {
         "background_corrected_mpet",
-        "mpet_afterpulse_only",
-        "mpet_uncorrected",
         "mpet_fitted_t0",
         "long_preexponential_fraction",
         "amplitude_weighted_fitted_lifetime",
@@ -673,6 +670,10 @@ def test_iflip3_comparison_signals_are_available_to_downstream_workflows():
         "short_component_counts_afterpulse_only",
         "long_component_counts_afterpulse_only",
     }.issubset(workflows.LIFETIME_SIGNALS["iflip3"])
+    assert "mpet" not in workflows.LIFETIME_SIGNALS["iflip3"]
+    assert "mpet_legacy" not in workflows.LIFETIME_SIGNALS["iflip3"]
+    assert "mpet_afterpulse_only" not in workflows.LIFETIME_SIGNALS["iflip3"]
+    assert "mpet_uncorrected" not in workflows.LIFETIME_SIGNALS["iflip3"]
     assert "background_corrected_mpet" in workflows.LIFETIME_TIME_SIGNALS
     assert "mpet_afterpulse_only" in workflows.LIFETIME_TIME_SIGNALS
     assert "mpet_uncorrected" in workflows.LIFETIME_TIME_SIGNALS
@@ -720,9 +721,7 @@ def test_background_corrected_empirical_mpet_subtracts_prepulse_residual():
         mpet_sensor_fitted_curves=sensor,
     )
 
-    original = workflows.iflip3_mpet_for_window(
-        preview, (0.0, 2.0), t0_source="fitted"
-    )
+    original = workflows.iflip3_mpet_for_window(preview, (0.0, 2.0))
     corrected = workflows.iflip3_background_corrected_mpet(preview)
 
     np.testing.assert_allclose(original, [-0.4285714286])
@@ -739,9 +738,7 @@ def test_background_corrected_empirical_mpet_subtracts_prepulse_residual():
     )
     np.testing.assert_allclose(
         workflows.iflip3_background_corrected_mpet(no_background),
-        workflows.iflip3_mpet_for_window(
-            no_background, (0.0, 2.0), t0_source="fitted"
-        ),
+        workflows.iflip3_mpet_for_window(no_background, (0.0, 2.0)),
     )
 
 

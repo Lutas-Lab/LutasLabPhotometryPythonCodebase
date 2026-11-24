@@ -60,12 +60,8 @@ LIFETIME_PATH_COLUMNS = {
 LIFETIME_SIGNALS = {
     "fluopulse": ("tau", "amplitude", "fit_r_square"),
     "iflip3": (
-        "mpet",
         "background_corrected_mpet",
         "mpet_fitted_t0",
-        "mpet_afterpulse_only",
-        "mpet_uncorrected",
-        "mpet_legacy",
         "mpet_legacy_fitted_t0",
         "long_lifetime_fraction",
         "long_preexponential_fraction",
@@ -101,14 +97,10 @@ LIFETIME_SIGNAL_DISPLAY_NAMES = {
     "tau": "Fluorescence lifetime",
     "amplitude": "Fitted fluorescence amplitude",
     "fit_r_square": "Fit quality (R²; QC)",
-    "mpet": "Empirical MPET (header t0; default window QC)",
     "background_corrected_mpet": (
         "Model-assisted prepulse-corrected empirical MPET"
     ),
     "mpet_fitted_t0": "Empirical MPET (fitted session t0; −0.3 to +8.0 ns)",
-    "mpet_afterpulse_only": "Direct MPET (afterpulse correction only)",
-    "mpet_uncorrected": "Direct MPET (uncorrected)",
-    "mpet_legacy": "Empirical MPET (header t0; legacy 0.4–12.3 ns QC)",
     "mpet_legacy_fitted_t0": (
         "Empirical MPET (fitted session t0; legacy 0.4–12.3 ns)"
     ),
@@ -175,7 +167,7 @@ LIFETIME_EVENTS = (
     "lick_bout_offset",
     *DERIVED_ALIGNMENT_EVENTS,
 )
-LIFETIME_PROCESSED_SCHEMA_VERSION = "1.5"
+LIFETIME_PROCESSED_SCHEMA_VERSION = "1.6"
 IFLIP3_CALIBRATION_SCHEMA_VERSION = "2.2"
 IFLIP3_DIGIFLIM_WINDOW = (-0.3, 8.0)
 IFLIP3_LEGACY_WINDOW = (0.4, 12.3)
@@ -1283,32 +1275,23 @@ def _iflip3_component_summaries(
 def iflip3_mpet_for_window(
     preview: IFLIP3FitPreview,
     limits: tuple[float, float],
-    *,
-    t0_source: str = "fitted",
 ) -> np.ndarray:
-    """Recalculate MPET for an inspected session using selected microtime bounds."""
+    """Recalculate fitted-session-t0 MPET using selected microtime bounds."""
 
     from iflip3 import mpet_from_corrected
 
     if (
         preview.mpet_lifetime_time is None
         or preview.mpet_corrected_curves is None
-        or preview.mpet_t0 is None
     ):
         raise ValueError("This preview does not contain MPET window-sensitivity data")
     if limits[0] >= limits[1]:
         raise ValueError("MPET lifetime-window limits must be increasing")
-    if t0_source == "header":
-        t0 = preview.mpet_t0
-    elif t0_source == "fitted":
-        t0 = preview.t0
-    else:
-        raise ValueError("t0_source must be 'header' or 'fitted'")
     values = mpet_from_corrected(
         preview.mpet_corrected_curves,
         preview.mpet_lifetime_time,
         limits,
-        t0,
+        preview.t0,
     )
     return np.asarray(values, dtype=float)
 
@@ -2412,8 +2395,11 @@ def _load_iflip3(
         core.metadata["lifetime_fit"] = {
             "lifetimes_ns": preview.lifetimes.tolist(),
             "t0_ns": preview.t0,
-            "mpet_header_t0_ns": preview.mpet_t0,
-            "fitted_minus_header_t0_ns": preview.t0 - float(preview.mpet_t0),
+            "unverified_acquisition_t0_setting_ns": preview.mpet_t0,
+            "unverified_acquisition_t0_setting_interpretation": (
+                "Raw header.state.t0.Value retained for provenance only; not "
+                "used as a calibrated MPET timing origin"
+            ),
             "window_mode": effective_window_mode,
             "fit_window_ns": list(
                 IFLIP3_DIGIFLIM_WINDOW
@@ -2515,6 +2501,12 @@ def _load_iflip3(
             "afterpulse_only_fitted_decay": alternate_preview.fitted_decay.tolist(),
             "afterpulse_only_residuals": alternate_preview.residuals.tolist(),
         }
+    # Header t0 is an unverified acquisition setting, not a calibrated timing
+    # measurement. These direct traces all use that setting as their origin;
+    # keep the raw value in fit provenance, but do not save the traces as
+    # downstream biological analysis signals.
+    for signal in ("mpet", "mpet_legacy", "mpet_afterpulse_only", "mpet_uncorrected"):
+        core.continuous.pop(signal, None)
     return core, _stringify_paths(resolved)
 
 

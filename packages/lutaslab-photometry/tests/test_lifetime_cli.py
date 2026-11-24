@@ -167,7 +167,7 @@ def test_lifetime_cli_dispatches_glm_options(workflow_stubs):
     calls, rows, _ = workflow_stubs
     arguments = _common_args("glm") + [
         "--signal",
-        "mpet",
+        "mpet_fitted_t0",
         "--lick-kernel-seconds",
         "8",
         "--ensure-kernel-seconds",
@@ -182,7 +182,7 @@ def test_lifetime_cli_dispatches_glm_options(workflow_stubs):
     assert name == "glm"
     assert args == ("iflip3", rows, "data", "output")
     assert kwargs == {
-        "signal": "mpet",
+        "signal": "mpet_fitted_t0",
         "pre_event_seconds": 4.0,
         "lick_kernel_seconds": 8.0,
         "ensure_kernel_seconds": 16.0,
@@ -195,7 +195,7 @@ def test_lifetime_cli_filters_manifest_rows(workflow_stubs):
     calls, rows, _ = workflow_stubs
     arguments = _common_args("glm") + [
         "--signal",
-        "mpet",
+        "mpet_fitted_t0",
         "--group",
         "control",
         "--condition",
@@ -212,7 +212,7 @@ def test_lifetime_cli_filters_manifest_rows(workflow_stubs):
 @pytest.mark.parametrize(
     "arguments,message",
     [
-        (_common_args("psth") + ["--signal", "mpet"], "PSTH requires"),
+        (_common_args("psth") + ["--signal", "mpet_fitted_t0"], "PSTH requires"),
         (_common_args("glm"), "GLM requires"),
     ],
 )

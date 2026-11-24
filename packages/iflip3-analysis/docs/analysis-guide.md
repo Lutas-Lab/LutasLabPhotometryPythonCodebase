@@ -161,9 +161,7 @@ Here:
 Current processing first estimates the session-specific $t_0$, converts the
 relative digiFLIM limits to absolute microtime coordinates, and uses that same
 slice for MPET and biexponential fitting. MPET subtracts the fitted $t_0$ after
-calculating the centroid. Because changing $t_0$ now moves both the window and
-the final subtraction, header- and fitted-$t_0$ results need not differ by only
-a constant when photons enter or leave an endpoint.
+calculating the centroid.
 
 `mpet_fitted_t0`, labeled **Empirical MPET (fitted session t0; −0.3 to +8.0
 ns)** in the GUI, preserves the original `iFLiP3_calculateMPET.m` photon-moment
@@ -183,13 +181,17 @@ is treated as a constant background, subtracted from the observed histogram,
 and then the same photon centroid is taken. This is still an empirical centroid,
 not the centroid of a reconstructed fitted decay.
 
-The `mpet` channel retains the header-$t_0$ version for timing QC.
 `mpet_legacy_fitted_t0`, labeled **Empirical MPET (fitted session t0; legacy
-0.4–12.3 ns)**,
-and its header-$t_0$ QC counterpart `mpet_legacy` retain the former absolute
-0.4–12.3 ns calculation so
-previously analyzed datasets can be compared during migration. These channels
-must be named explicitly in figures; they are not interchangeable methods.
+0.4–12.3 ns)**, retains the former absolute 0.4–12.3 ns calculation so
+previously analyzed datasets can be compared during migration. It must be named
+explicitly in figures because it is not interchangeable with the current
+windowed method.
+
+The raw `header.state.t0.Value` is not treated as a calibrated measurement. New
+processed files retain it only in provenance as an **unverified acquisition t0
+setting**. Header-t0 MPET traces, including direct correction variants, are not
+saved as biological signals and are not offered in PSTH or GLM menus. The fitted
+session t0 is the timing origin for every selectable empirical MPET signal.
 
 MPET is therefore **photon-count weighted**, which is also reasonably called
 intensity weighted. A bin containing twice as many corrected photons contributes

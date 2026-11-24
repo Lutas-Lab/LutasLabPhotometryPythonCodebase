@@ -180,13 +180,15 @@ files** is enabled. This permits incremental batch processing, but sessions
 processed with an older fitting policy must be selectively overwritten if they
 should use the new calibration.
 
-Processed schema 1.5 adds model-assisted prepulse-corrected MPET; schema 1.4
-introduced the new window policy. In the GUI, create a new
+Processed schema 1.6 removes header-t0 MPET traces from biological signal menus
+and retains `header.state.t0.Value` only in provenance as an unverified
+acquisition setting. Schema 1.5 added model-assisted prepulse-corrected MPET;
+schema 1.4 introduced the new window policy. In the GUI, create a new
 schema-2.2 calibration, select it, enable **Overwrite existing processed
 files**, and run preprocessing for the previously analyzed sessions. The new
-direct MPET and fitted signals use the digiFLIM window. `mpet_legacy` and
-`mpet_legacy_fitted_t0` preserve the former 0.4–12.3 ns calculation for an
-explicit before/after comparison; downstream PSTH and GLM runs are not changed
+direct MPET and fitted signals use the digiFLIM window.
+`mpet_legacy_fitted_t0` preserves the former 0.4–12.3 ns calculation for an
+explicit before/after comparison. Downstream PSTH and GLM runs are not changed
 until you select the newly processed signals.
 
 ## Single-session preview

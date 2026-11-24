@@ -104,10 +104,6 @@ CONVENTIONAL_PHOTOMETRY_SIGNAL_LABELS = {
 }
 LIFETIME_SIGNAL_LABELS = LIFETIME_SIGNAL_DISPLAY_NAMES
 IFLIP3_SIGNAL_EXPLANATIONS = {
-    "mpet": (
-        "Photon centroid calculated directly from the corrected decay; any "
-        "remaining flat offset still contributes."
-    ),
     "background_corrected_mpet": (
         "Comparison method: photon centroid of the observed decay after "
         "subtracting the nonnegative prepulse residual. The periodic fit predicts "
@@ -642,12 +638,10 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
         if (
             preview.mpet_lifetime_time is not None
             and preview.mpet_corrected_curves is not None
-            and preview.mpet_t0 is not None
         ):
             direct_mpet = iflip3_mpet_for_window(
                 preview,
                 preview.mpet_default_range,
-                t0_source="fitted",
             )
             background_corrected_mpet = iflip3_background_corrected_mpet(preview)
             sensor_mpet = np.asarray(preview.sensor_only_fitted_mpet, dtype=float)
@@ -774,77 +768,6 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
     if (
         preview.mpet_lifetime_time is not None
         and preview.mpet_corrected_curves is not None
-        and preview.mpet_t0 is not None
-        and st.checkbox(
-            "Compare header and fitted session t0 for empirical MPET",
-            key=f"{key_prefix}_compare_mpet_t0",
-        )
-    ):
-        default_range = preview.mpet_default_range
-        header_range = (
-            (
-                preview.mpet_t0 + preview.mpet_window_range[0],
-                preview.mpet_t0 + preview.mpet_window_range[1],
-            )
-            if preview.mpet_window_mode == "digiflim"
-            else default_range
-        )
-        header_mpet = iflip3_mpet_for_window(
-            preview,
-            header_range,
-            t0_source="header",
-        )
-        fitted_mpet = iflip3_mpet_for_window(
-            preview,
-            default_range,
-            t0_source="fitted",
-        )
-        t0_difference = preview.t0 - preview.mpet_t0
-        t0_metrics = st.columns(3)
-        t0_metrics[0].metric("Header t0", f"{preview.mpet_t0:.4g} ns")
-        t0_metrics[1].metric("Fitted t0", f"{preview.t0:.4g} ns")
-        t0_metrics[2].metric(
-            "Fitted − header t0",
-            f"{t0_difference * 1000.0:.3g} ps",
-        )
-        st.caption(
-            "In digiFLIM mode, changing t0 moves the -0.3 to +8.0 ns window and "
-            "changes the subtracted offset. The difference is therefore not forced "
-            "to be a constant if photons enter or leave a window endpoint."
-            if preview.mpet_window_mode == "digiflim"
-            else (
-                "With the legacy fixed absolute window, changing t0 shifts the MPET "
-                "trace by a constant and does not change within-session response shape."
-            )
-        )
-        t0_figure, t0_axis = plt.subplots(
-            figsize=(8.5, 3.2), constrained_layout=True
-        )
-        sample_index = np.arange(header_mpet.size)
-        t0_axis.plot(
-            sample_index,
-            header_mpet,
-            color="#4c78a8",
-            label="Header-t0 MPET",
-        )
-        t0_axis.plot(
-            sample_index,
-            fitted_mpet,
-            color="#f58518",
-            label="Fitted-t0 MPET",
-        )
-        t0_axis.set(
-            xlabel="Fitted temporal bin",
-            ylabel="Absolute MPET (ns)",
-        )
-        t0_axis.legend(frameon=False)
-        st.pyplot(t0_figure, clear_figure=True)
-        plt.close(t0_figure)
-
-    if (
-        preview.mpet_lifetime_time is not None
-        and preview.mpet_corrected_curves is not None
-        and preview.mpet_t0 is not None
         and st.checkbox(
             "Explore MPET lifetime-window sensitivity",
             key=f"{key_prefix}_explore_mpet_window",
@@ -929,12 +852,6 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
                 label="Selected window",
             )
             window_axis.axvline(
-                preview.mpet_t0,
-                color="#54a24b",
-                linestyle="--",
-                label="Header t0",
-            )
-            window_axis.axvline(
                 preview.t0,
                 color="#e45756",
                 linestyle=":",
@@ -944,7 +861,7 @@ def _show_iflip3_fit_preview(preview, *, key_prefix: str) -> None:
                 xlabel="Time after acquisition-cycle origin (ns)",
                 ylabel="Aggregate corrected counts",
             )
-            window_axis.legend(frameon=False, ncols=3)
+            window_axis.legend(frameon=False, ncols=2)
             st.pyplot(window_figure, clear_figure=True)
             plt.close(window_figure)
 

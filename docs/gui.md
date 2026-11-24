@@ -361,8 +361,8 @@ The two lifetime modes share the sensor-independent session representation in
   an analysis-ready compressed `-processed.npz` file beside the primary raw
   lifetime recording. FluoPulse stores vendor tau, amplitude, and fit R-square;
   iFLIP3 stores empirical end-user-function MPET with fitted session `t0`, a
-  separate model-assisted prepulse-corrected empirical comparison, afterpulse-only MPET, fully
-  uncorrected MPET, and raw intensity for QC. When lifetime decomposition is enabled, it also
+  separate model-assisted prepulse-corrected empirical comparison, and raw
+  intensity for QC. When lifetime decomposition is enabled, it also
   stores an afterpulse-only component decomposition that reuses the corrected
   fit's lifetimes, IRF width, and session-specific t0. This isolates the effect of
   measured-background subtraction without changing the decay-shape calibration.
@@ -373,9 +373,11 @@ The two lifetime modes share the sensor-independent session representation in
   The current iFLIP3 default applies both MPET and biexponential fitting to the
   digiFLIM-compatible −0.3 to +8.0 ns window relative to fitted t0. A legacy
   0.4–12.3 ns mode remains available for reproducibility, and newly processed
-  files retain explicitly labeled legacy MPET comparison signals. Files made
-  before processed schema 1.5 must be regenerated with overwrite to obtain the
-  new model-assisted prepulse-corrected comparison signal.
+  files retain an explicitly labeled fitted-t0 legacy MPET comparison signal.
+  Processed schema 1.6 removes MPET traces whose timing origin was the
+  unverified `header.state.t0.Value`; that raw value remains only in provenance
+  as an **unverified acquisition t0 setting**. Files made before schema 1.6 must
+  be regenerated with overwrite to obtain the current signal set.
   For iFLIP3, the recommended decay workflow is to create and review a saved
   [multi-session calibration](iflip3-multisession-calibration.md). It shares
   lifetimes and IRF width across compatible recordings, estimates one fixed t0
